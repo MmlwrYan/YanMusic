@@ -1,0 +1,2 @@
+/*! tailwindcss v4.3.0 | MIT License | https://tailwindcss.com */
+.app-tooltip-content{background-clip:padding-box;background:var(--color-bg-elevated);max-width:260px;color:var(--color-text-main);box-shadow:var(--shadow-elevated);z-index:2000;-webkit-user-select:none;user-select:none;border-radius:12px;padding:10px 12px;font-size:12px;font-weight:600;line-height:1.45}.app-tooltip-arrow{fill:var(--color-bg-elevated);stroke:none;display:block}

@@ -1,0 +1,16 @@
+{
+  "name": "yan-media-controls",
+  "version": "0.1.0",
+  "main": "yan-media-controls.node",
+  "devDependencies": {
+    "@napi-rs/cli": "^3.5.1"
+  },
+  "napi": {
+    "binaryName": "yan-media-controls",
+    "triples": {}
+  },
+  "scripts": {
+    "build": "napi build --release --no-const-enum",
+    "build:debug": "napi build --no-const-enum"
+  }
+}

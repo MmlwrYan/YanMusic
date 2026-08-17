@@ -1,0 +1,1121 @@
+<script setup lang="ts">
+defineOptions({ name: 'artist-detail' });
+import { ref, shallowRef, onMounted, onUnmounted, computed, watch } from 'vue';
+import { useRouter } from 'vue-router';
+import { useRouteId } from '@/composables/useRouteId';
+import {
+  getArtistDetail,
+  getArtistSongs,
+  getArtistAlbums,
+  getArtistVideos,
+  followArtist,
+  unfollowArtist,
+} from '@/api/artist';
+import SliverHeader from '@/components/music/DetailPageSliverHeader.vue';
+import ActionRow from '@/components/music/DetailPageActionRow.vue';
+import SongList from '@/components/music/SongList.vue';
+import SongListHeader from '@/components/music/SongListHeader.vue';
+import AlbumCard from '@/components/music/AlbumCard.vue';
+import MvCard from '@/components/music/MvCard.vue';
+import Tabs from '@/components/ui/Tabs.vue';
+import TabsList from '@/components/ui/TabsList.vue';
+import TabsTrigger from '@/components/ui/TabsTrigger.vue';
+import TabsContent from '@/components/ui/TabsContent.vue';
+import VirtualGrid from '@/components/ui/VirtualGrid.vue';
+import Badge from '@/components/ui/Badge.vue';
+import Dialog from '@/components/ui/Dialog.vue';
+import Popover from '@/components/ui/Popover.vue';
+import BatchActionDrawer from '@/components/music/BatchActionDrawer.vue';
+import PageScrollContainer from '@/components/ui/PageScrollContainer.vue';
+import { usePlaylistStore } from '@/stores/playlist';
+import type { Song } from '@/models/song';
+import { mapAlbumMeta, mapArtistDetailMeta, mapArtistSong } from '@/utils/mappers';
+import { useScrollContainer } from '@/composables/usePageScroll';
+import { useStickyTabsLayout } from '@/composables/useStickyTabsLayout';
+import { usePlayerStore } from '@/stores/player';
+import { useSettingStore } from '@/stores/setting';
+import { useUserStore } from '@/stores/user';
+import { useToastStore } from '@/stores/toast';
+import { PagedSongLoader } from '@/utils/PagedSongLoader';
+import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
+import {
+  iconCurrentLocation,
+  iconSearch,
+  iconPlay,
+  iconList,
+  iconHeart,
+  iconHeartFilled,
+  iconArrowsSort,
+  iconCheckMark,
+  iconChevronDown,
+  iconShare,
+} from '@/icons';
+import { replaceQueueAndPlay } from '@/utils/playback';
+import { copyShareTarget, createShareTarget } from '@/utils/share';
+import Button from '@/components/ui/Button.vue';
+import { extractFirstObject, extractList } from '@/utils/extractors';
+import { filterSongsByQuery, sortSongs } from '@/utils/songList';
+
+interface ArtistAlbumCardProps {
+  id: string | number;
+  name: string;
+  coverUrl: string;
+  artist?: string;
+  publishTime?: string;
+}
+
+interface ArtistMvCardProps {
+  videoId: string | number;
+  hash: string;
+  title: string;
+  coverUrl: string;
+  artist?: string;
+  duration?: number;
+  publishDate?: string;
+  albumAudioId?: string | number;
+}
+
+type ArtistSongSort = 'hot' | 'new';
+type ArtistAlbumSort = 'hot' | 'new';
+
+const playlistStore = usePlaylistStore();
+const playerStore = usePlayerStore();
+const settingStore = useSettingStore();
+const userStore = useUserStore();
+const toastStore = useToastStore();
+
+const router = useRouter();
+const { id: currentId, onIdChange } = useRouteId();
+const getArtistId = () => currentId.value;
+
+const formatFansCount = (count: number): string => {
+  if (count >= 10000) return `${(count / 10000).toFixed(1).replace(/\.0$/, '')}万`;
+  return String(count);
+};
+
+const loading = ref(true);
+const loadingSongs = ref(true);
+const loadingAlbums = ref(false);
+const loadingMvs = ref(false);
+const artist = ref<ReturnType<typeof mapArtistDetailMeta> | null>(null);
+
+// 使用 shallowRef 避免对成千上万个歌曲对象进行深层响应式代理，极大提升性能
+const songs = shallowRef<Song[]>([]);
+const songSort = ref<ArtistSongSort>('new');
+const songSortMenuOpen = ref(false);
+let songFetchToken = 0;
+const albums = shallowRef<ReturnType<typeof mapAlbumMeta>[]>([]);
+const albumPage = ref(1);
+const albumHasMore = ref(false);
+const albumFetched = ref(false);
+const albumSort = ref<ArtistAlbumSort>('new');
+const albumSortMenuOpen = ref(false);
+let albumFetchToken = 0;
+const mvs = shallowRef<ArtistMvCardProps[]>([]);
+const mvTotal = ref(0);
+const mvPage = ref(1);
+const mvHasMore = ref(false);
+const mvFetched = ref(false);
+const mvTag = ref<'all' | 'official' | 'live' | 'fan' | 'artist'>('all');
+
+const activeTab = ref('songs');
+const loadedSongCount = ref(0);
+// const loadedAlbumCount = computed(() => albums.value.length);
+const showBatchDrawer = ref(false);
+const showIntroDialog = ref(false);
+const togglingFollow = ref(false);
+
+const searchQuery = ref('');
+const songListRef = ref<{ scrollToActive?: () => void } | null>(null);
+const sliverHeaderRef = ref<{ currentHeight?: number } | null>(null);
+const { tabsTop, tabsMinHeight } = useStickyTabsLayout(sliverHeaderRef);
+
+const sortField = ref<SortField | null>(null);
+const sortOrder = ref<SortOrder>(null);
+
+const songSortOptions = [
+  { value: 'new' as const, label: '最新' },
+  { value: 'hot' as const, label: '热门' },
+];
+
+const handleSort = (field: SortField) => {
+  if (sortField.value === field) {
+    if (sortOrder.value === 'asc') {
+      sortOrder.value = 'desc';
+    } else if (sortOrder.value === 'desc') {
+      sortField.value = null;
+      sortOrder.value = null;
+    }
+  } else {
+    sortField.value = field;
+    sortOrder.value = 'asc';
+  }
+};
+
+const sortedSongs = computed(() =>
+  sortSongs(songs.value, sortField.value, sortOrder.value, {
+    indexSource: songs.value,
+  }),
+);
+const displayedSongs = computed(() => filterSongsByQuery(sortedSongs.value, searchQuery.value));
+const songSortLabel = computed(
+  () => songSortOptions.find((option) => option.value === songSort.value)?.label ?? '最新',
+);
+
+// 歌曲分页加载器
+let songLoader: PagedSongLoader<Song> | null = null;
+
+const fetchAllArtistSongs = (totalCount: number) => {
+  if (!songLoader || songLoader.fullyLoaded) return;
+  if (songLoader.count >= totalCount) return;
+  void songLoader.loadRemaining();
+};
+
+const resetSongTableSort = () => {
+  sortField.value = null;
+  sortOrder.value = null;
+};
+
+const resetSongPaging = () => {
+  songFetchToken += 1;
+  if (songLoader) {
+    songLoader.abort();
+    songLoader = null;
+  }
+  songs.value = [];
+  loadedSongCount.value = 0;
+  loadingSongs.value = true;
+};
+
+const loadArtistSongs = async (artistId = getArtistId()) => {
+  resetSongPaging();
+
+  const requestSort = songSort.value;
+  const requestToken = ++songFetchToken;
+
+  songLoader = new PagedSongLoader<Song>(
+    async (page, pageSize) => {
+      const res = await getArtistSongs(artistId, page, pageSize, requestSort);
+      const items = extractList(res).map((item) => mapArtistSong(artistId, item));
+      return { items, hasMore: items.length >= pageSize };
+    },
+    {
+      pageSize: 200,
+      concurrency: 3,
+      dedupeKey: (song) => String(song.id),
+      logTag: 'ArtistSongsLoader',
+      onPageLoaded(allItems) {
+        if (requestToken !== songFetchToken || requestSort !== songSort.value) return;
+        songs.value = allItems.slice();
+        loadedSongCount.value = allItems.length;
+      },
+      onComplete(allItems) {
+        if (requestToken !== songFetchToken || requestSort !== songSort.value) return;
+        songs.value = allItems.slice();
+        loadedSongCount.value = allItems.length;
+      },
+      onError() {
+        if (requestToken !== songFetchToken || requestSort !== songSort.value) return;
+        toastStore.loadFailed('歌手歌曲');
+      },
+    },
+  );
+
+  const currentLoader = songLoader;
+  try {
+    await currentLoader.loadFirstPage();
+    if (requestToken !== songFetchToken || requestSort !== songSort.value) return;
+    loadingSongs.value = false;
+    const totalSongs = artist.value?.songCount ?? currentLoader.count;
+    if (totalSongs > currentLoader.count) {
+      fetchAllArtistSongs(totalSongs);
+    }
+  } catch {
+    if (requestToken === songFetchToken) {
+      loadingSongs.value = false;
+    }
+  }
+};
+
+const switchSongSort = (sort: ArtistSongSort) => {
+  songSortMenuOpen.value = false;
+  if (sort === songSort.value) return;
+  songSort.value = sort;
+  resetSongTableSort();
+  void loadArtistSongs();
+};
+
+const fetchData = async () => {
+  const artistId = getArtistId();
+  loading.value = true;
+
+  // 0. 确保关注列表已加载
+  void userStore.ensureFollowedArtists();
+
+  // 1. 获取歌手详情
+  const detailTask = getArtistDetail(artistId)
+    .then((res) => {
+      const detailRaw = extractFirstObject(res);
+      if (detailRaw) {
+        artist.value = mapArtistDetailMeta(detailRaw);
+      }
+      loading.value = false;
+    })
+    .catch(() => {
+      loading.value = false;
+    });
+
+  const songsTask = loadArtistSongs(artistId);
+
+  await Promise.allSettled([detailTask, songsTask]);
+};
+
+// id 变化时重置数据（仅同路由间切换，如歌手A→歌手B）
+onIdChange(() => {
+  artist.value = null;
+  songs.value = [];
+  songSort.value = 'new';
+  songFetchToken += 1;
+  albums.value = [];
+  mvs.value = [];
+  mvFetched.value = false;
+  mvTotal.value = 0;
+  mvPage.value = 1;
+  mvHasMore.value = false;
+  albumPage.value = 1;
+  albumHasMore.value = false;
+  albumFetched.value = false;
+  albumSort.value = 'new';
+  albumFetchToken += 1;
+  loadedSongCount.value = 0;
+  searchQuery.value = '';
+  resetSongTableSort();
+  activeTab.value = 'songs';
+  if (songLoader) {
+    songLoader.abort();
+    songLoader = null;
+  }
+  void fetchData();
+});
+
+const isFollowed = computed(() => userStore.isArtistFollowed(artist.value?.id ?? ''));
+
+const isRequestSuccessful = (payload: unknown) => {
+  if (!payload || typeof payload !== 'object') return false;
+  const record = payload as Record<string, unknown>;
+  return record.status === 1 || record.code === 200 || record.error_code === 0;
+};
+
+const toggleArtistFollow = async () => {
+  if (!artist.value || togglingFollow.value) return;
+
+  if (!userStore.isLoggedIn) {
+    toastStore.loginRequired('关注歌手');
+    await router.push({ name: 'login' });
+    return;
+  }
+
+  togglingFollow.value = true;
+  const previousFollowed = isFollowed.value;
+
+  try {
+    const response = previousFollowed
+      ? await unfollowArtist(artist.value.id)
+      : await followArtist(artist.value.id);
+
+    if (isRequestSuccessful(response)) {
+      if (previousFollowed) {
+        userStore.removeFollowedArtist(artist.value.id);
+        toastStore.actionCompleted('已取消关注');
+      } else {
+        userStore.addFollowedArtist(artist.value.id);
+        toastStore.actionSucceeded('关注');
+      }
+    } else {
+      toastStore.actionFailed(previousFollowed ? '取消关注' : '关注');
+    }
+  } catch {
+    toastStore.actionFailed(previousFollowed ? '取消关注' : '关注');
+  } finally {
+    togglingFollow.value = false;
+  }
+};
+
+const handleShareArtist = async () => {
+  const meta = artist.value;
+  if (!meta) return;
+  const target = createShareTarget('artist', meta.id ?? getArtistId(), meta.name);
+  if (!target) return;
+  try {
+    await copyShareTarget(target);
+    toastStore.actionCompleted('分享链接已复制');
+  } catch {
+    toastStore.actionFailed('复制分享链接');
+  }
+};
+
+const secondaryActions = computed(() => {
+  if (!artist.value) return [];
+  const actions = [] as {
+    icon: typeof iconHeart;
+    label: string;
+    emphasized?: boolean;
+    tone?: 'default' | 'favorite';
+    onTap: () => void | Promise<void>;
+  }[];
+
+  if (userStore.isLoggedIn) {
+    actions.push({
+      icon: isFollowed.value ? iconHeartFilled : iconHeart,
+      label: togglingFollow.value
+        ? isFollowed.value
+          ? '取消中...'
+          : '关注中...'
+        : isFollowed.value
+          ? '已关注'
+          : '关注',
+      emphasized: isFollowed.value,
+      tone: 'favorite' as const,
+      onTap: toggleArtistFollow,
+    });
+  }
+
+  actions.push({
+    icon: iconShare,
+    label: '分享',
+    onTap: handleShareArtist,
+  });
+
+  return actions;
+});
+
+const handleSongDoubleTapPlay = async (song: Song) => {
+  const queueSongs = displayedSongs.value.slice() as Song[];
+  if (queueSongs.length === 0) return;
+  await replaceQueueAndPlay(playlistStore, playerStore, queueSongs, 0, song, {
+    queueId: `queue:artist:${artist.value?.id ?? getArtistId()}`,
+    title: artist.value?.name || '歌手',
+    subtitle: `${songSortLabel.value}歌曲`,
+    type: 'artist',
+  });
+};
+
+const handlePlayAll = async () => {
+  const queueSongs = displayedSongs.value.slice() as Song[];
+  if (queueSongs.length === 0) return;
+  const queueOpts = {
+    queueId: `queue:artist:${artist.value?.id ?? getArtistId()}`,
+    title: artist.value?.name || '歌手',
+    subtitle: `${songSortLabel.value}歌曲`,
+    type: 'artist' as const,
+  };
+  await replaceQueueAndPlay(playlistStore, playerStore, queueSongs, 0, undefined, queueOpts);
+  // 后台等待全部加载完，静默更新播放队列
+  if (songLoader && !songLoader.fullyLoaded) {
+    const allSongs = Array.from(await songLoader.waitForAll()) as Song[];
+    const sortedAllSongs = sortSongs(allSongs, sortField.value, sortOrder.value, {
+      indexSource: allSongs,
+    });
+    const displayedAllSongs = filterSongsByQuery(sortedAllSongs, searchQuery.value);
+    if (displayedAllSongs.length > queueSongs.length) {
+      playlistStore.setPlaybackQueueWithOptions(
+        Array.from(displayedAllSongs) as Song[],
+        0,
+        queueOpts,
+      );
+    }
+  }
+};
+const openBatchDrawer = () => {
+  if (songs.value.length === 0) return;
+  showBatchDrawer.value = true;
+};
+const handleLocate = () => songListRef.value?.scrollToActive?.();
+
+const getAlbumCardProps = (album: ReturnType<typeof mapAlbumMeta>): ArtistAlbumCardProps => {
+  return {
+    id: album.id,
+    name: album.name,
+    coverUrl: album.pic,
+    artist: album.singerName,
+    publishTime: album.publishTime,
+  };
+};
+
+const albumSearchQuery = ref('');
+
+const filteredAlbums = computed(() => {
+  const query = albumSearchQuery.value.trim().toLowerCase();
+  if (!query) return albums.value;
+  return albums.value.filter((album) => {
+    const name = album.name?.toLowerCase() || '';
+    const publishTime = album.publishTime?.toLowerCase() || '';
+    return name.includes(query) || publishTime.includes(query);
+  });
+});
+
+const albumCards = computed(() => filteredAlbums.value.map((entry) => getAlbumCardProps(entry)));
+
+const mapMvItem = (item: Record<string, unknown>): ArtistMvCardProps => {
+  const hdpic = String(item.hdpic ?? item.cover ?? '').replace('{size}', '400');
+  const cover = String(item.cover ?? '');
+  return {
+    videoId: item.video_id as string | number,
+    hash: String(item.mkv_qhd_hash ?? item.mkv_sd_hash ?? ''),
+    title: String(item.video_name ?? ''),
+    coverUrl: hdpic || cover,
+    artist: String(item.author_name ?? ''),
+    duration: Number(item.timelength ?? 0),
+    publishDate: String(item.publish_date ?? '').split(' ')[0],
+    albumAudioId: item.album_audio_id as string | number | undefined,
+  };
+};
+
+const fetchMvs = async (page = 1) => {
+  const artistId = getArtistId();
+  loadingMvs.value = true;
+  try {
+    const res = await getArtistVideos(artistId, page, 30, mvTag.value);
+    const record = res && typeof res === 'object' ? (res as Record<string, unknown>) : {};
+    const list = Array.isArray(record.data) ? record.data : [];
+    const total = Number(record.total ?? 0);
+    const mapped = list
+      .map((item: unknown) =>
+        item && typeof item === 'object' ? mapMvItem(item as Record<string, unknown>) : null,
+      )
+      .filter((item): item is ArtistMvCardProps => item !== null && !!item.videoId);
+
+    if (page === 1) {
+      mvs.value = mapped;
+    } else {
+      mvs.value = [...mvs.value, ...mapped];
+    }
+    mvTotal.value = total;
+    mvPage.value = page;
+    mvHasMore.value = mvs.value.length < total;
+    mvFetched.value = true;
+  } catch {
+    if (page === 1) mvs.value = [];
+  } finally {
+    loadingMvs.value = false;
+  }
+};
+
+// const loadedMvCount = computed(() => (mvFetched.value ? mvTotal.value : 0));
+
+const mvTagOptions = [
+  { value: 'all' as const, label: '全部' },
+  { value: 'official' as const, label: '官方' },
+  { value: 'live' as const, label: '现场' },
+  { value: 'fan' as const, label: '饭制' },
+  { value: 'artist' as const, label: '歌手发布' },
+];
+
+const switchMvTag = (tag: typeof mvTag.value) => {
+  if (tag === mvTag.value) return;
+  mvTag.value = tag;
+  mvs.value = [];
+  mvTotal.value = 0;
+  mvPage.value = 1;
+  mvHasMore.value = false;
+  mvFetched.value = false;
+  void fetchMvs(1);
+};
+
+const albumSortOptions = [
+  { value: 'new' as const, label: '最新' },
+  { value: 'hot' as const, label: '热门' },
+];
+
+const albumSortLabel = computed(
+  () => albumSortOptions.find((option) => option.value === albumSort.value)?.label ?? '最新',
+);
+
+const resetAlbumPaging = () => {
+  albumFetchToken += 1;
+  loadingAlbums.value = false;
+  albums.value = [];
+  albumPage.value = 1;
+  albumHasMore.value = false;
+  albumFetched.value = false;
+};
+
+const switchAlbumSort = (sort: ArtistAlbumSort) => {
+  albumSortMenuOpen.value = false;
+  if (sort === albumSort.value) return;
+  albumSort.value = sort;
+  resetAlbumPaging();
+  void fetchMoreAlbums();
+};
+
+const fetchMoreAlbums = async () => {
+  if (loadingAlbums.value || (!albumFetched.value ? false : !albumHasMore.value)) return;
+  const artistId = getArtistId();
+  const nextPage = albumFetched.value ? albumPage.value + 1 : 1;
+  const requestSort = albumSort.value;
+  const requestToken = ++albumFetchToken;
+  loadingAlbums.value = true;
+  try {
+    const res = await getArtistAlbums(artistId, nextPage, 30, requestSort);
+    if (requestToken !== albumFetchToken || requestSort !== albumSort.value) return;
+    const fetched = extractList(res).map((item) => mapAlbumMeta(item));
+    if (nextPage === 1) {
+      albums.value = fetched;
+    } else {
+      albums.value = [...albums.value, ...fetched];
+    }
+    albumPage.value = nextPage;
+    albumFetched.value = true;
+    const totalAlbums = artist.value?.albumCount ?? 0;
+    albumHasMore.value = fetched.length >= 30 && albums.value.length < totalAlbums;
+  } catch {
+    // 忽略
+  } finally {
+    if (requestToken === albumFetchToken) {
+      loadingAlbums.value = false;
+    }
+  }
+};
+
+const scrollContainerRef = useScrollContainer();
+const loadMoreSentinelRef = ref<HTMLElement | null>(null);
+let loadMoreObserver: IntersectionObserver | null = null;
+
+const setupLoadMoreObserver = () => {
+  loadMoreObserver?.disconnect();
+  const root = scrollContainerRef.value ?? null;
+  loadMoreObserver = new IntersectionObserver(
+    (entries) => {
+      const entry = entries[0];
+      if (!entry?.isIntersecting) return;
+      if (activeTab.value === 'mvs' && mvHasMore.value && !loadingMvs.value) {
+        void fetchMvs(mvPage.value + 1);
+      }
+      if (activeTab.value === 'albums' && albumHasMore.value && !loadingAlbums.value) {
+        void fetchMoreAlbums();
+      }
+    },
+    { root, rootMargin: '0px 0px 300px 0px' },
+  );
+  if (loadMoreSentinelRef.value) {
+    loadMoreObserver.observe(loadMoreSentinelRef.value);
+  }
+};
+
+watch(loadMoreSentinelRef, (el) => {
+  if (!loadMoreObserver) {
+    setupLoadMoreObserver();
+    return;
+  }
+  loadMoreObserver.disconnect();
+  if (el) loadMoreObserver.observe(el);
+});
+
+watch(scrollContainerRef, () => {
+  setupLoadMoreObserver();
+});
+
+onMounted(() => {
+  void fetchData();
+  setupLoadMoreObserver();
+});
+
+// 切换到 MV/专辑 tab 时懒加载
+watch(activeTab, (tab) => {
+  if (tab === 'mvs' && !mvFetched.value) {
+    void fetchMvs(1);
+  }
+  if (tab === 'albums' && !albumFetched.value) {
+    void fetchMoreAlbums();
+  }
+});
+
+onUnmounted(() => {
+  loadMoreObserver?.disconnect();
+  loadMoreObserver = null;
+});
+</script>
+
+<template>
+  <PageScrollContainer class="artist-detail-page">
+    <div class="artist-detail-container bg-bg-main min-h-full">
+      <div v-if="loading && !artist" class="flex items-center justify-center py-40">
+        <div
+          class="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"
+        ></div>
+      </div>
+
+      <template v-else-if="artist">
+        <SliverHeader
+          ref="sliverHeaderRef"
+          typeLabel="ARTIST"
+          :title="artist.name"
+          :coverUrl="artist.pic"
+          :hasDetails="true"
+          :expandedHeight="196"
+        >
+          <template #details>
+            <div class="flex flex-col gap-1.5 text-text-main/60">
+              <div class="text-[13px] font-semibold text-primary">
+                {{ artist.songCount || songs.length }} 歌曲 •
+                {{ artist.albumCount || albums.length }} 专辑
+                <template v-if="artist.mvCount"> • {{ artist.mvCount }} MV</template>
+              </div>
+              <div class="flex items-center gap-3 text-[12px] text-text-secondary">
+                <span v-if="artist.fansCount" class="flex items-center gap-1">
+                  <span class="font-semibold text-text-main/80">{{
+                    formatFansCount(artist.fansCount)
+                  }}</span>
+                  粉丝
+                </span>
+                <span v-if="artist.birthday">🎂 {{ artist.birthday }}</span>
+              </div>
+            </div>
+          </template>
+
+          <template #actions>
+            <ActionRow
+              :secondaryActions="secondaryActions"
+              :showPlaybackActions="activeTab === 'songs'"
+              @play="handlePlayAll"
+              @batch="openBatchDrawer"
+            />
+          </template>
+
+          <template #collapsed-actions>
+            <template v-if="activeTab === 'songs'">
+              <Button
+                variant="unstyled"
+                size="none"
+                @click="handlePlayAll"
+                class="p-2 rounded-lg hover:bg-[var(--control-hover-bg)] text-primary"
+              >
+                <Icon :icon="iconPlay" width="20" height="20" />
+              </Button>
+              <Button
+                variant="unstyled"
+                size="none"
+                @click="openBatchDrawer"
+                class="p-2 rounded-lg hover:bg-[var(--control-hover-bg)] text-text-main opacity-60"
+              >
+                <Icon :icon="iconList" width="18" height="18" />
+              </Button>
+            </template>
+            <Button
+              v-if="userStore.isLoggedIn"
+              variant="unstyled"
+              size="none"
+              @click="toggleArtistFollow"
+              class="p-2 rounded-lg hover:bg-[var(--control-hover-bg)] text-red-500"
+            >
+              <Icon :icon="isFollowed ? iconHeartFilled : iconHeart" width="18" height="18" />
+            </Button>
+            <Button
+              variant="unstyled"
+              size="none"
+              @click="handleShareArtist"
+              class="p-2 rounded-lg hover:bg-[var(--control-hover-bg)] text-text-main opacity-60"
+            >
+              <Icon :icon="iconShare" width="18" height="18" />
+            </Button>
+          </template>
+        </SliverHeader>
+
+        <BatchActionDrawer v-model:open="showBatchDrawer" :songs="songs" />
+
+        <div v-if="artist.intro" class="px-6 pt-1.5 pb-1.5">
+          <div class="text-[15px] font-semibold text-text-main">歌手介绍</div>
+          <div class="mt-1.5 text-[12px] leading-relaxed text-text-secondary line-clamp-1">
+            {{ artist.intro }}
+          </div>
+          <Button
+            variant="unstyled"
+            size="none"
+            type="button"
+            class="mt-0.5 text-[11px] font-semibold text-primary"
+            @click="showIntroDialog = true"
+          >
+            查看详情
+          </Button>
+        </div>
+
+        <Tabs v-model="activeTab" class="w-full" :style="{ minHeight: tabsMinHeight }">
+          <div class="song-list-sticky sticky z-110 bg-bg-main" :style="{ top: `${tabsTop}px` }">
+            <div class="px-6">
+              <div class="border-b border-[var(--border-subtle)]">
+                <div class="flex items-center justify-between h-14">
+                  <TabsList class="bg-transparent border-none gap-8">
+                    <TabsTrigger value="songs">
+                      <span class="relative"
+                        >歌曲 <Badge v-if="loadedSongCount > 0" :count="loadedSongCount"
+                      /></span>
+                    </TabsTrigger>
+                    <TabsTrigger value="albums">
+                      <span class="relative"
+                        >专辑
+                        <Badge v-if="albumFetched && albums.length > 0" :count="albums.length"
+                      /></span>
+                    </TabsTrigger>
+                    <TabsTrigger value="mvs">
+                      <span class="relative"
+                        >MV <Badge v-if="mvFetched && mvs.length > 0" :count="mvs.length"
+                      /></span>
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <div v-if="activeTab === 'songs'" class="flex items-center gap-2">
+                    <Popover
+                      v-model:open="songSortMenuOpen"
+                      trigger="click"
+                      side="bottom"
+                      align="end"
+                      :side-offset="6"
+                      :show-arrow="false"
+                      content-class="artist-sort-menu"
+                    >
+                      <template #trigger>
+                        <Button
+                          variant="unstyled"
+                          size="none"
+                          type="button"
+                          class="artist-sort-trigger"
+                          title="歌曲排序"
+                        >
+                          <Icon :icon="iconArrowsSort" width="15" height="15" />
+                          <span>{{ songSortLabel }}</span>
+                          <Icon class="artist-sort-trigger-arrow" :icon="iconChevronDown" />
+                        </Button>
+                      </template>
+                      <div class="artist-sort-menu-list">
+                        <div class="artist-sort-menu-title">歌曲排序</div>
+                        <button
+                          v-for="opt in songSortOptions"
+                          :key="opt.value"
+                          type="button"
+                          class="artist-sort-menu-item"
+                          :class="{ 'is-active': songSort === opt.value }"
+                          @click="switchSongSort(opt.value)"
+                        >
+                          <span>{{ opt.label }}</span>
+                          <Icon
+                            v-if="songSort === opt.value"
+                            :icon="iconCheckMark"
+                            width="13"
+                            height="13"
+                          />
+                        </button>
+                      </div>
+                    </Popover>
+                    <div class="relative">
+                      <input
+                        v-model="searchQuery"
+                        type="text"
+                        placeholder="搜索歌曲..."
+                        class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg text-text-main placeholder:text-text-main/50 outline-none text-[12px] transition-all"
+                      />
+                      <Icon
+                        class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-main/60 dark:text-text-main/60"
+                        :icon="iconSearch"
+                        width="14"
+                        height="14"
+                      />
+                    </div>
+                    <Button
+                      variant="unstyled"
+                      size="none"
+                      @click="handleLocate"
+                      class="song-locate-btn p-2 rounded-lg"
+                      title="定位当前播放"
+                    >
+                      <Icon :icon="iconCurrentLocation" width="18" height="18" />
+                    </Button>
+                  </div>
+
+                  <!-- 专辑 tab 右侧搜索 -->
+                  <div v-if="activeTab === 'albums'" class="flex items-center gap-2">
+                    <div class="relative">
+                      <input
+                        v-model="albumSearchQuery"
+                        type="text"
+                        placeholder="搜索专辑..."
+                        class="song-search-input w-52 h-9 pl-8 pr-3 rounded-lg text-text-main placeholder:text-text-main/50 outline-none text-[12px] transition-all"
+                      />
+                      <Icon
+                        class="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-main/60 dark:text-text-main/60"
+                        :icon="iconSearch"
+                        width="14"
+                        height="14"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <SongListHeader
+              v-if="activeTab === 'songs'"
+              :sortField="sortField"
+              :sortOrder="sortOrder"
+              :showCover="true"
+              paddingClass="px-6"
+              @sort="handleSort"
+            />
+          </div>
+
+          <div class="pb-12">
+            <TabsContent value="songs" class="px-6 flex flex-col flex-1 min-h-0">
+              <SongList
+                ref="songListRef"
+                :songs="displayedSongs"
+                :contextSongs="sortedSongs"
+                :searchQuery="searchQuery"
+                :disableInternalFilter="true"
+                :loading="loadingSongs"
+                :active="activeTab === 'songs'"
+                :showCover="true"
+                :queueOptions="{
+                  queueId: `queue:artist:${artist?.id ?? getArtistId()}`,
+                  title: artist?.name || '歌手',
+                  subtitle: `${songSortLabel}歌曲`,
+                  type: 'artist',
+                }"
+                :enableDefaultDoubleTapPlay="true"
+                :onSongDoubleTapPlay="
+                  settingStore.replacePlaylist ? handleSongDoubleTapPlay : undefined
+                "
+              />
+            </TabsContent>
+
+            <TabsContent value="albums" class="mt-4 px-6">
+              <div class="flex items-center gap-3 mb-4 px-2">
+                <Popover
+                  v-model:open="albumSortMenuOpen"
+                  trigger="click"
+                  side="bottom"
+                  align="start"
+                  :side-offset="6"
+                  :show-arrow="false"
+                  content-class="artist-sort-menu"
+                >
+                  <template #trigger>
+                    <Button
+                      variant="unstyled"
+                      size="none"
+                      type="button"
+                      class="artist-sort-trigger"
+                      title="专辑排序"
+                    >
+                      <Icon :icon="iconArrowsSort" width="15" height="15" />
+                      <span>{{ albumSortLabel }}</span>
+                      <Icon class="artist-sort-trigger-arrow" :icon="iconChevronDown" />
+                    </Button>
+                  </template>
+                  <div class="artist-sort-menu-list">
+                    <div class="artist-sort-menu-title">专辑排序</div>
+                    <button
+                      v-for="opt in albumSortOptions"
+                      :key="opt.value"
+                      type="button"
+                      class="artist-sort-menu-item"
+                      :class="{ 'is-active': albumSort === opt.value }"
+                      @click="switchAlbumSort(opt.value)"
+                    >
+                      <span>{{ opt.label }}</span>
+                      <Icon
+                        v-if="albumSort === opt.value"
+                        :icon="iconCheckMark"
+                        width="13"
+                        height="13"
+                      />
+                    </button>
+                  </div>
+                </Popover>
+                <span v-if="albumFetched" class="text-[11px] text-text-secondary/60 ml-auto">
+                  共 {{ artist.albumCount || albums.length }} 张
+                </span>
+              </div>
+              <VirtualGrid
+                class="px-2"
+                :items="albumCards"
+                :loading="loadingAlbums && albums.length === 0"
+                :active="activeTab === 'albums'"
+                :itemMinWidth="180"
+                :itemAspectRatio="1"
+                :itemChromeHeight="66"
+                :gap="20"
+                :overscan="3"
+                :paddingBottom="20"
+                keyField="id"
+              >
+                <template #default="{ item }">
+                  <AlbumCard v-bind="item" />
+                </template>
+              </VirtualGrid>
+              <div
+                v-if="albumHasMore"
+                ref="loadMoreSentinelRef"
+                class="flex justify-center py-4 text-[12px] text-text-secondary"
+              >
+                {{ loadingAlbums ? '加载中...' : '' }}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="mvs" class="mt-4 px-6">
+              <div class="flex items-center gap-3 mb-4 px-2">
+                <div class="flex items-center gap-1.5">
+                  <Button
+                    v-for="opt in mvTagOptions"
+                    :key="opt.value"
+                    variant="unstyled"
+                    size="none"
+                    :class="['mv-tag-btn', mvTag === opt.value ? 'is-active' : '']"
+                    @click="switchMvTag(opt.value)"
+                  >
+                    {{ opt.label }}
+                  </Button>
+                </div>
+                <span v-if="mvFetched" class="text-[11px] text-text-secondary/60 ml-auto">
+                  共 {{ mvTotal }} 个
+                </span>
+              </div>
+              <VirtualGrid
+                class="px-2"
+                :items="mvs"
+                :loading="loadingMvs && mvs.length === 0"
+                :active="activeTab === 'mvs'"
+                :itemMinWidth="200"
+                :itemAspectRatio="16 / 9"
+                :itemChromeHeight="66"
+                :gap="20"
+                :overscan="3"
+                :paddingBottom="20"
+                keyField="videoId"
+              >
+                <template #default="{ item }">
+                  <MvCard v-bind="item" />
+                </template>
+              </VirtualGrid>
+              <div
+                v-if="mvHasMore"
+                ref="loadMoreSentinelRef"
+                class="flex justify-center py-4 text-[12px] text-text-secondary"
+              >
+                {{ loadingMvs ? '加载中...' : '' }}
+              </div>
+            </TabsContent>
+          </div>
+        </Tabs>
+        <Dialog
+          v-model:open="showIntroDialog"
+          title="歌手介绍"
+          :description="artist.intro"
+          contentClass="detail-intro-dialog"
+          descriptionClass="text-[13px]"
+          showClose
+        />
+      </template>
+    </div>
+  </PageScrollContainer>
+</template>
+
+<style scoped>
+@reference "@/style.css";
+
+.search-expand-enter-active,
+.search-expand-leave-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.search-expand-enter-from,
+.search-expand-leave-to {
+  opacity: 0;
+  width: 0;
+  transform: translateX(10px);
+}
+
+:deep(.song-list) {
+  @apply px-0;
+}
+
+.mv-tag-btn {
+  @apply px-3 py-1.5 rounded-lg text-[12px] font-semibold text-text-secondary/80 transition-all;
+  background: transparent;
+}
+
+.artist-sort-trigger {
+  @apply inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[12px] font-semibold text-text-main/75 transition-all;
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+}
+
+.artist-sort-trigger:hover {
+  @apply text-text-main;
+  background: var(--control-hover-bg);
+  border-color: color-mix(in srgb, var(--color-primary) 30%, var(--control-border));
+}
+
+.artist-sort-trigger-arrow {
+  width: 13px;
+  height: 13px;
+  color: color-mix(in srgb, var(--color-text-main) 50%, transparent);
+}
+
+.mv-tag-btn:hover {
+  @apply text-text-main;
+  background: color-mix(in srgb, var(--color-text-main) 6%, transparent);
+}
+
+.mv-tag-btn.is-active {
+  @apply text-primary;
+  background: var(--color-primary-light);
+}
+</style>
+
+<style>
+.artist-sort-menu {
+  padding: 6px;
+  border-radius: 12px;
+  min-width: 132px;
+}
+
+.artist-sort-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.artist-sort-menu-title {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--color-text-main) 50%, transparent);
+}
+
+.artist-sort-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.artist-sort-menu-item:hover {
+  color: var(--color-text-main);
+  background: color-mix(in srgb, var(--color-text-main) 6%, transparent);
+}
+
+.artist-sort-menu-item.is-active {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  font-weight: 600;
+}
+</style>

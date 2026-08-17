@@ -1,0 +1,1 @@
+import{I as e,ft as t,z as n}from"./preload-helper-BFM87vNv.js";import{Li as r}from"./style-LXRD4usz.js";function i(i=`id`){let a=r(),o=t(``),s=[],c=()=>{let e=a.params[i];return String(Array.isArray(e)?e[0]??``:e??``)};return n(()=>{o.value=c()}),e(()=>{let e=c();e&&e!==o.value&&(o.value=e,s.forEach(t=>t(e)))}),{id:o,onIdChange:e=>{s.push(e)}}}export{i as t};

@@ -1,0 +1,1 @@
+import{ft as e,v as t}from"./preload-helper-BFM87vNv.js";import{t as n}from"./ConfigProvider-D8yc982q.js";function r(r){let i=n({dir:e(`ltr`)});return t(()=>r?.value||i.dir?.value||`ltr`)}export{r as t};

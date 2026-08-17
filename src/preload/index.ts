@@ -1,0 +1,967 @@
+﻿import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import log from 'electron-log/renderer';
+import type { ApiServerStatus } from '../shared/api-server';
+import type { AppInfoResult, UpdateDownloadResult, UpdateState } from '../shared/app';
+import type { PlayMode } from '../shared/playback';
+import type { ShortcutMap, ShortcutRegistrationResult } from '../shared/shortcuts';
+import type {
+  DesktopLyricCommand,
+  DesktopLyricSettings,
+  DesktopLyricSnapshot,
+  DesktopLyricSnapshotMessage,
+  DesktopLyricSnapshotPatch,
+  DesktopLyricWindowBoundsUpdate,
+} from '../shared/desktop-lyric';
+import type {
+  NowPlayingCommand,
+  NowPlayingSnapshot,
+  NowPlayingSnapshotPatch,
+} from '../shared/now-playing';
+import type {
+  MiniPlayerCommand,
+  MiniPlayerSnapshot,
+  MiniPlayerSnapshotPatch,
+} from '../shared/mini-player';
+import type {
+  ImportImpulseResponseResult,
+  ImpulseResponseFile,
+  ImpulseResponsePlaybackOptions,
+} from '../shared/audio';
+import type {
+  AudioSpectrumFrame,
+  AudioSpectrumOptions,
+  AudioSpectrumStatus,
+  AudioSpectrumSubscribeResult,
+} from '../shared/audio-spectrum';
+import type { LogSettings } from '../shared/logging';
+import type { NetworkSettings } from '../shared/network';
+import type { ResolvePlaylistRequest, ResolvePlaylistResponse } from '../shared/external';
+import type { ShareCaptureRect, ShareTarget } from '../shared/share';
+import type {
+  PluginAssetSourceResult,
+  PluginAppIconRefreshResult,
+  PluginDialogResult,
+  PluginFileUrlResult,
+  PluginFailureRecord,
+  PluginListFilesOptions,
+  PluginListFilesResult,
+  PluginListImageFilesOptions,
+  PluginListImageFilesResult,
+  PluginListResult,
+  PluginLocalInstallOptions,
+  PluginLocalInstallResult,
+  PluginMarketplaceInstallOptions,
+  PluginMarketplaceInstallResult,
+  PluginMarketplaceListResult,
+  PluginMarketplaceRemoveSourceResult,
+  PluginMarketplaceRequestOptions,
+  PluginMarketplaceSourceInput,
+  PluginMarketplaceSourceListResult,
+  PluginMarketplaceSourceMutationResult,
+  PluginMarketplaceSourcePatch,
+  PluginOpenDialogOptions,
+  PluginProcessLaunchOptions,
+  PluginProcessLaunchResult,
+  PluginProcessTerminateResult,
+  PluginReadFileBytesOptions,
+  PluginReadFileBytesResult,
+  PluginReadTextFileOptions,
+  PluginReadTextFileResult,
+  PluginReportFailureResult,
+  PluginSetEnabledResult,
+  PluginSetSafeModeResult,
+  PluginSqliteCloseResult,
+  PluginSqliteDeleteResult,
+  PluginSqliteExecResult,
+  PluginSqliteListResult,
+  PluginSqliteOpenOptions,
+  PluginSqliteOpenResult,
+  PluginSqliteParams,
+  PluginSqliteQueryOptions,
+  PluginSqliteQueryResult,
+  PluginSqliteRunResult,
+  PluginSqliteStatement,
+  PluginUninstallResult,
+  PluginWebServerCloseResult,
+  PluginWebServerListenOptions,
+  PluginWebServerListenResult,
+  PluginWebServerRequest,
+  PluginWebServerResponsePayload,
+  PluginWebServerStatusResult,
+  PluginWriteFileData,
+  PluginWriteFileOptions,
+  PluginWriteFileResult,
+  PluginDeleteFileResult,
+  PluginRestoreIconResult,
+  PluginWindowBounds,
+  PluginWindowContextResult,
+  PluginWindowResult,
+  PluginWindowShowOptions,
+  PluginShowOnTopOptions,
+  PluginHostWindowTarget,
+  PluginHostWindowResult,
+} from '../shared/plugins';
+import type {
+  StorageAppendQueueItemsPayload,
+  StorageHistoryEntry,
+  StorageHistoryGetEntriesPayload,
+  StorageHistoryRecordPlayPayload,
+  StorageHistoryRemoveEntriesPayload,
+  StoragePlaybackSnapshot,
+  StoragePlaybackQueueState,
+  StorageQueueIdPayload,
+  StorageReplaceQueuePayload,
+  StorageRemoveQueueItemPayload,
+  StorageReorderQueueItemsPayload,
+  StorageResetResult,
+  StorageSetQueueCurrentTrackPayload,
+  StorageUpdateQueueMetaPayload,
+} from '../shared/storage';
+
+const ipcListenerMap = new Map<
+  string,
+  WeakMap<(...args: any[]) => void, (...args: any[]) => void>
+>();
+
+const getWrappedListener = (channel: string, func: (...args: any[]) => void) => {
+  let channelMap = ipcListenerMap.get(channel);
+  if (!channelMap) {
+    channelMap = new WeakMap();
+    ipcListenerMap.set(channel, channelMap);
+  }
+
+  const existing = channelMap.get(func);
+  if (existing) return existing;
+
+  const wrapped = (_event: Electron.IpcRendererEvent, ...args: any[]) => func(...args);
+  channelMap.set(func, wrapped);
+  return wrapped;
+};
+
+const toPlainIpcPayload = <T>(value: T): T => {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== 'object') return value;
+  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return value;
+
+  const seen = new WeakSet<object>();
+  return JSON.parse(
+    JSON.stringify(value, (_key, nextValue) => {
+      if (typeof nextValue === 'bigint') return nextValue.toString();
+      if (typeof nextValue !== 'object' || nextValue === null) return nextValue;
+      if (seen.has(nextValue)) return undefined;
+      seen.add(nextValue);
+      return nextValue;
+    }),
+  ) as T;
+};
+
+const invokeWithPlainPayload = <T = unknown>(channel: string, ...args: unknown[]) =>
+  ipcRenderer.invoke(channel, ...args.map(toPlainIpcPayload)) as Promise<T>;
+
+let audioSpectrumSubscriptionSeq = 0;
+
+const sendWithPlainPayload = (channel: string, ...args: unknown[]) => {
+  ipcRenderer.send(channel, ...args.map(toPlainIpcPayload));
+};
+
+const windowingBackend = process.env.yanmusic_WINDOWING_BACKEND?.toLowerCase();
+const isWayland =
+  process.platform === 'linux' &&
+  (windowingBackend === 'wayland' ||
+    (!windowingBackend &&
+      (process.env.OZONE_PLATFORM === 'wayland' ||
+        process.argv.some(
+          (arg) => arg === '--ozone-platform=wayland' || arg === '--ozone-platform-hint=wayland',
+        ))));
+
+contextBridge.exposeInMainWorld('electron', {
+  platform: process.platform,
+  isWayland,
+  ipcRenderer: {
+    send: (channel: string, ...args: any[]) => sendWithPlainPayload(channel, ...args),
+    invoke: (channel: string, ...args: any[]) => invokeWithPlainPayload(channel, ...args),
+    on: (channel: string, func: (...args: any[]) => void) => {
+      const wrapped = getWrappedListener(channel, func);
+      ipcRenderer.on(channel, wrapped);
+    },
+    off: (channel: string, func: (...args: any[]) => void) => {
+      const wrapped = ipcListenerMap.get(channel)?.get(func);
+      if (wrapped) {
+        ipcRenderer.removeListener(channel, wrapped);
+      }
+    },
+  },
+  shortcuts: {
+    register: (payload: { enabled: boolean; shortcutMap: ShortcutMap }) =>
+      invokeWithPlainPayload<ShortcutRegistrationResult>('shortcuts:register', payload),
+    refresh: () => ipcRenderer.invoke('shortcuts:refresh') as Promise<ShortcutRegistrationResult>,
+    onTrigger: (func: (command: string) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, command: string) => func(command);
+      ipcRenderer.on('shortcut-trigger', listener);
+      return () => ipcRenderer.removeListener('shortcut-trigger', listener);
+    },
+  },
+  windowControl: (action: 'minimize' | 'maximize' | 'close' | 'fullscreen') =>
+    ipcRenderer.send('window-control', action),
+  appInfo: {
+    get: () => ipcRenderer.invoke('app:get-info') as Promise<AppInfoResult>,
+    getChangelog: () => ipcRenderer.invoke('app:get-changelog') as Promise<string>,
+  },
+  share: {
+    copy: (text: string) => ipcRenderer.invoke('share:copy', text) as Promise<boolean>,
+    readClipboard: () => ipcRenderer.invoke('share:read-clipboard') as Promise<string>,
+    captureRectToClipboard: (rect: ShareCaptureRect) =>
+      invokeWithPlainPayload<boolean>('share:capture-rect-to-clipboard', rect),
+    onOpen: (func: (target: ShareTarget) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, target: ShareTarget) => func(target);
+      ipcRenderer.on('share:open', listener);
+      return () => ipcRenderer.removeListener('share:open', listener);
+    },
+  },
+  fonts: {
+    getAll: () => ipcRenderer.invoke('get-all-fonts') as Promise<string[]>,
+  },
+  audioEffects: {
+    importImpulseResponse: () =>
+      ipcRenderer.invoke('audio:import-impulse-response') as Promise<ImportImpulseResponseResult>,
+    deleteImpulseResponse: (filePath: string) =>
+      ipcRenderer.invoke('audio:delete-impulse-response', filePath) as Promise<boolean>,
+    reconcileImpulseResponses: (files: ImpulseResponseFile[]) =>
+      invokeWithPlainPayload<ImpulseResponseFile[]>('audio:reconcile-impulse-responses', files),
+  },
+  updater: {
+    download: () => ipcRenderer.send('update:download'),
+    install: (silent?: boolean) => ipcRenderer.send('update:install', { silent: !!silent }),
+    getState: () => ipcRenderer.invoke('update:get-state') as Promise<UpdateState>,
+    onDownloadStatus: (func: (result: UpdateDownloadResult) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, result: UpdateDownloadResult) =>
+        func(result);
+      ipcRenderer.on('update-download-status', listener);
+      return () => ipcRenderer.removeListener('update-download-status', listener);
+    },
+  },
+  apiServer: {
+    start: () => ipcRenderer.invoke('api-server:start'),
+    status: () => ipcRenderer.invoke('api-server:status') as Promise<ApiServerStatus>,
+  },
+  api: {
+    request: (config: {
+      method: string;
+      url: string;
+      params?: Record<string, any>;
+      data?: any;
+      headers?: Record<string, string>;
+    }) => {
+      const data = config?.data;
+      // 二进制 body（如听歌识曲 PCM）经 JSON 序列化会被破坏，需保留原始引用。
+      // ArrayBuffer.isView 与 toString tag 在 contextBridge 跨上下文场景下比
+      // `instanceof` 更可靠；命中后仅对其余字段做普通序列化，data 走结构化克隆透传。
+      const isBinary =
+        !!data &&
+        typeof data === 'object' &&
+        (ArrayBuffer.isView(data) ||
+          data instanceof ArrayBuffer ||
+          Object.prototype.toString.call(data) === '[object ArrayBuffer]');
+      if (isBinary) {
+        const { data: _binary, ...rest } = config;
+        void _binary;
+        return ipcRenderer.invoke('api:request', { ...toPlainIpcPayload(rest), data });
+      }
+      return invokeWithPlainPayload('api:request', config);
+    },
+  },
+  tray: {
+    syncPlayback: (payload: { isPlaying?: boolean; playMode?: PlayMode; volume?: number }) =>
+      sendWithPlainPayload('tray:sync-playback', payload),
+    onSetPlayMode: (func: (playMode: PlayMode) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, playMode: PlayMode) => func(playMode);
+      ipcRenderer.on('tray:set-play-mode', listener);
+      return () => ipcRenderer.removeListener('tray:set-play-mode', listener);
+    },
+  },
+  power: {
+    onSuspend: (func: () => void) => {
+      const listener = () => func();
+      ipcRenderer.on('power:suspend', listener);
+      return () => ipcRenderer.removeListener('power:suspend', listener);
+    },
+    onResume: (func: () => void) => {
+      const listener = () => func();
+      ipcRenderer.on('power:resume', listener);
+      return () => ipcRenderer.removeListener('power:resume', listener);
+    },
+  },
+  desktopLyric: {
+    getSnapshot: () =>
+      ipcRenderer.invoke('desktop-lyric:get-snapshot') as Promise<DesktopLyricSnapshot>,
+    getWindow: () =>
+      ipcRenderer.invoke('desktop-lyric:get-window') as Promise<{
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      }>,
+    show: () => ipcRenderer.invoke('desktop-lyric:show') as Promise<DesktopLyricSnapshot>,
+    hide: () => ipcRenderer.invoke('desktop-lyric:hide') as Promise<DesktopLyricSnapshot>,
+    toggleLock: () =>
+      ipcRenderer.invoke('desktop-lyric:toggle-lock') as Promise<DesktopLyricSnapshot>,
+    updateSettings: (payload: Partial<DesktopLyricSettings>) =>
+      invokeWithPlainPayload<DesktopLyricSnapshot>('desktop-lyric:update-settings', payload),
+    updateWindow: (payload: DesktopLyricWindowBoundsUpdate) =>
+      invokeWithPlainPayload<{ x: number; y: number; width: number; height: number }>(
+        'desktop-lyric:update-window',
+        payload,
+      ),
+    syncSnapshot: (payload: DesktopLyricSnapshotPatch) =>
+      sendWithPlainPayload('desktop-lyric:sync-snapshot', payload),
+    onSnapshot: (func: (snapshot: DesktopLyricSnapshotMessage) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        snapshotPayload: DesktopLyricSnapshotMessage,
+      ) => func(snapshotPayload);
+      ipcRenderer.on('desktop-lyric:snapshot', listener);
+      return () => ipcRenderer.removeListener('desktop-lyric:snapshot', listener);
+    },
+    setIgnoreMouseEvents: (ignore: boolean) =>
+      ipcRenderer.send('desktop-lyric:set-ignore-mouse-events', ignore),
+    onHover: (func: (hovered: boolean) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, hovered: boolean) => func(hovered);
+      ipcRenderer.on('desktop-lyric:hover', listener);
+      return () => ipcRenderer.removeListener('desktop-lyric:hover', listener);
+    },
+    command: (command: DesktopLyricCommand) => ipcRenderer.send('desktop-lyric:command', command),
+  },
+  nowPlaying: {
+    getSnapshot: () =>
+      ipcRenderer.invoke('now-playing:get-snapshot') as Promise<NowPlayingSnapshot>,
+    syncSnapshot: (payload: NowPlayingSnapshotPatch) =>
+      sendWithPlainPayload('now-playing:sync-snapshot', payload),
+    onSnapshot: (func: (snapshot: NowPlayingSnapshot) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, snapshotPayload: NowPlayingSnapshot) =>
+        func(snapshotPayload);
+      ipcRenderer.on('now-playing:snapshot', listener);
+      return () => ipcRenderer.removeListener('now-playing:snapshot', listener);
+    },
+    command: (command: NowPlayingCommand) => ipcRenderer.send('now-playing:command', command),
+    onCommand: (func: (command: NowPlayingCommand) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, command: NowPlayingCommand) =>
+        func(command);
+      ipcRenderer.on('now-playing:command', listener);
+      return () => ipcRenderer.removeListener('now-playing:command', listener);
+    },
+  },
+  miniPlayer: {
+    getSnapshot: () =>
+      ipcRenderer.invoke('mini-player:get-snapshot') as Promise<MiniPlayerSnapshot>,
+    show: () => ipcRenderer.invoke('mini-player:show') as Promise<MiniPlayerSnapshot>,
+    hide: () => ipcRenderer.invoke('mini-player:hide') as Promise<MiniPlayerSnapshot>,
+    toggle: () => ipcRenderer.invoke('mini-player:toggle') as Promise<MiniPlayerSnapshot>,
+    syncSnapshot: (payload: MiniPlayerSnapshotPatch) =>
+      sendWithPlainPayload('mini-player:sync-snapshot', payload),
+    setExpanded: (expanded: boolean) =>
+      ipcRenderer.invoke('mini-player:set-expanded', expanded) as Promise<MiniPlayerSnapshot>,
+    setAlwaysOnTop: (alwaysOnTop: boolean) =>
+      ipcRenderer.invoke(
+        'mini-player:set-always-on-top',
+        alwaysOnTop,
+      ) as Promise<MiniPlayerSnapshot>,
+    getBounds: () =>
+      ipcRenderer.invoke('mini-player:get-bounds') as Promise<{
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      }>,
+    move: (x: number, y: number) => ipcRenderer.send('mini-player:move', x, y),
+    applyExpandBounds: () =>
+      ipcRenderer.invoke('mini-player:apply-expand-bounds') as Promise<MiniPlayerSnapshot>,
+    onSnapshot: (func: (snapshot: MiniPlayerSnapshot) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, snapshotPayload: MiniPlayerSnapshot) =>
+        func(snapshotPayload);
+      ipcRenderer.on('mini-player:snapshot', listener);
+      return () => ipcRenderer.removeListener('mini-player:snapshot', listener);
+    },
+    command: (command: MiniPlayerCommand) => ipcRenderer.send('mini-player:command', command),
+    onCommand: (func: (command: MiniPlayerCommand) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, command: MiniPlayerCommand) =>
+        func(command);
+      ipcRenderer.on('mini-player:command', listener);
+      return () => ipcRenderer.removeListener('mini-player:command', listener);
+    },
+    notifyLyricVisibility: (visible: boolean) =>
+      ipcRenderer.send('mini-player:lyric-visibility', visible),
+    onLyricVisibility: (func: (visible: boolean) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, visible: boolean) => func(visible);
+      ipcRenderer.on('mini-player:lyric-visibility', listener);
+      return () => ipcRenderer.removeListener('mini-player:lyric-visibility', listener);
+    },
+  },
+  log: log.functions,
+  logging: {
+    get: () => ipcRenderer.invoke('logging:get-settings') as Promise<LogSettings>,
+    update: (settings: Partial<LogSettings>) =>
+      invokeWithPlainPayload<LogSettings>('logging:update-settings', settings),
+  },
+  network: {
+    update: (settings: Partial<NetworkSettings>) =>
+      invokeWithPlainPayload<NetworkSettings>('network:update-settings', settings),
+  },
+  mpv: {
+    load: (url: string) => ipcRenderer.invoke('mpv:load', url),
+    loadMkvTrack: (url: string, trackId: number) =>
+      ipcRenderer.invoke('mpv:load-mkv-track', url, trackId),
+    getTrackList: () => ipcRenderer.invoke('mpv:get-track-list'),
+    play: () => ipcRenderer.invoke('mpv:play'),
+    pause: () => ipcRenderer.invoke('mpv:pause'),
+    stop: () => ipcRenderer.invoke('mpv:stop'),
+    seek: (time: number) => ipcRenderer.invoke('mpv:seek', time),
+    setVolume: (volume: number) => ipcRenderer.invoke('mpv:set-volume', volume),
+    setSpeed: (speed: number) => ipcRenderer.invoke('mpv:set-speed', speed),
+    setEqualizer: (gains: number[]) => invokeWithPlainPayload('mpv:set-equalizer', gains),
+    setImpulseResponse: (payload: string | ImpulseResponsePlaybackOptions) =>
+      invokeWithPlainPayload('mpv:set-impulse-response', payload),
+    getAudioFilter: () => ipcRenderer.invoke('mpv:get-audio-filter') as Promise<string>,
+    setAudioDevice: (deviceName: string) => ipcRenderer.invoke('mpv:set-audio-device', deviceName),
+    getAudioDevices: () =>
+      ipcRenderer.invoke('mpv:get-audio-devices') as Promise<
+        Array<{ name: string; description: string }>
+      >,
+    setNormalizationGain: (gainDb: number) =>
+      ipcRenderer.invoke('mpv:set-normalization-gain', gainDb),
+    fade: (from: number, to: number, durationMs: number) =>
+      ipcRenderer.invoke('mpv:fade', from, to, durationMs),
+    cancelFade: () => ipcRenderer.invoke('mpv:cancel-fade'),
+    pauseWithFade: (savedVolume: number, durationMs: number) =>
+      ipcRenderer.invoke('mpv:pause-with-fade', savedVolume, durationMs),
+    playWithFade: (targetVolume: number, durationMs: number) =>
+      ipcRenderer.invoke('mpv:play-with-fade', targetVolume, durationMs),
+    getState: () => ipcRenderer.invoke('mpv:get-state'),
+    available: () => ipcRenderer.invoke('mpv:available') as Promise<boolean>,
+    restart: () => ipcRenderer.invoke('mpv:restart') as Promise<boolean>,
+    setExclusive: (exclusive: boolean) => ipcRenderer.invoke('mpv:set-exclusive', exclusive),
+    setMediaTitle: (title: string) => ipcRenderer.invoke('mpv:set-media-title', title),
+    setLoopFile: (loop: boolean) => ipcRenderer.invoke('mpv:set-loop-file', loop),
+    setStallTimeout: (seconds: number) => ipcRenderer.invoke('mpv:set-stall-timeout', seconds),
+    onTimeUpdate: (func: (time: number) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, time: number) => func(time);
+      ipcRenderer.on('mpv:time-update', listener);
+      return () => ipcRenderer.removeListener('mpv:time-update', listener);
+    },
+    onDurationChange: (func: (duration: number) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, duration: number) => func(duration);
+      ipcRenderer.on('mpv:duration-change', listener);
+      return () => ipcRenderer.removeListener('mpv:duration-change', listener);
+    },
+    onFileLoaded: (func: () => void) => {
+      const listener = () => func();
+      ipcRenderer.on('mpv:file-loaded', listener);
+      return () => ipcRenderer.removeListener('mpv:file-loaded', listener);
+    },
+    onStateChange: (func: (state: { playing?: boolean; paused?: boolean }) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        state: { playing?: boolean; paused?: boolean },
+      ) => func(state);
+      ipcRenderer.on('mpv:state-change', listener);
+      return () => ipcRenderer.removeListener('mpv:state-change', listener);
+    },
+    onPlaybackEnd: (func: (reason: string) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, reason: string) => func(reason);
+      ipcRenderer.on('mpv:playback-end', listener);
+      return () => ipcRenderer.removeListener('mpv:playback-end', listener);
+    },
+    onStall: (func: (position: number) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, position: number) => func(position);
+      ipcRenderer.on('mpv:stall', listener);
+      return () => ipcRenderer.removeListener('mpv:stall', listener);
+    },
+    onError: (func: (message: string) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, message: string) => func(message);
+      ipcRenderer.on('mpv:error', listener);
+      return () => ipcRenderer.removeListener('mpv:error', listener);
+    },
+    onImpulseResponseDisabled: (func: (payload: { path?: string; reason?: string }) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { path?: string; reason?: string },
+      ) => func(payload);
+      ipcRenderer.on('mpv:impulse-response-disabled', listener);
+      return () => ipcRenderer.removeListener('mpv:impulse-response-disabled', listener);
+    },
+    onAudioDeviceListChanged: (
+      func: (devices: Array<{ name: string; description: string }>) => void,
+    ) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        devices: Array<{ name: string; description: string }>,
+      ) => func(devices);
+      ipcRenderer.on('mpv:audio-device-list-changed', listener);
+      return () => ipcRenderer.removeListener('mpv:audio-device-list-changed', listener);
+    },
+  },
+  audioSpectrum: {
+    getStatus: () =>
+      ipcRenderer.invoke('audio-spectrum:get-status') as Promise<AudioSpectrumStatus>,
+    getSnapshot: () =>
+      ipcRenderer.invoke('audio-spectrum:get-snapshot') as Promise<AudioSpectrumFrame | null>,
+    subscribe: (
+      options: AudioSpectrumOptions,
+      func: (frame: AudioSpectrumFrame) => void,
+      metadata?: { pluginId?: string },
+    ) => {
+      const subscriptionId = `audio-spectrum-${Date.now()}-${++audioSpectrumSubscriptionSeq}`;
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        frameSubscriptionId: string,
+        frame: AudioSpectrumFrame,
+      ) => {
+        if (frameSubscriptionId === subscriptionId) func(frame);
+      };
+      ipcRenderer.on('audio-spectrum:frame', listener);
+      void invokeWithPlainPayload<AudioSpectrumSubscribeResult>('audio-spectrum:subscribe', {
+        subscriptionId,
+        pluginId: metadata?.pluginId,
+        options,
+      }).catch(() => {
+        ipcRenderer.removeListener('audio-spectrum:frame', listener);
+      });
+      return () => {
+        ipcRenderer.removeListener('audio-spectrum:frame', listener);
+        void invokeWithPlainPayload<AudioSpectrumStatus>('audio-spectrum:unsubscribe', {
+          subscriptionId,
+        }).catch(() => {});
+      };
+    },
+  },
+  recognize: {
+    enableLoopback: () => ipcRenderer.invoke('enable-loopback-audio'),
+    disableLoopback: () => ipcRenderer.invoke('disable-loopback-audio'),
+  },
+  external: {
+    resolvePlaylist: (req: ResolvePlaylistRequest) =>
+      invokeWithPlainPayload<ResolvePlaylistResponse>('external:resolve-playlist', req),
+  },
+  plugins: {
+    list: () => ipcRenderer.invoke('plugins:list') as Promise<PluginListResult>,
+    getDirectory: () => ipcRenderer.invoke('plugins:get-directory') as Promise<string>,
+    openDirectory: () => ipcRenderer.invoke('plugins:open-directory') as Promise<string>,
+    getDroppedFilePaths: (files: File[]) =>
+      files.map((file) => webUtils.getPathForFile(file)).filter(Boolean),
+    marketplace: {
+      listSources: () =>
+        ipcRenderer.invoke(
+          'plugins:marketplace:sources:list',
+        ) as Promise<PluginMarketplaceSourceListResult>,
+      addSource: (input: PluginMarketplaceSourceInput, options?: PluginMarketplaceRequestOptions) =>
+        invokeWithPlainPayload<PluginMarketplaceSourceMutationResult>(
+          'plugins:marketplace:sources:add',
+          input,
+          options,
+        ),
+      patchSource: (sourceId: string, patch: PluginMarketplaceSourcePatch) =>
+        invokeWithPlainPayload<PluginMarketplaceSourceMutationResult>(
+          'plugins:marketplace:sources:patch',
+          sourceId,
+          patch,
+        ),
+      removeSource: (sourceId: string) =>
+        ipcRenderer.invoke(
+          'plugins:marketplace:sources:remove',
+          sourceId,
+        ) as Promise<PluginMarketplaceRemoveSourceResult>,
+      list: (options?: PluginMarketplaceRequestOptions) =>
+        invokeWithPlainPayload<PluginMarketplaceListResult>('plugins:marketplace:list', options),
+      install: (sourceId: string, pluginId: string, options?: PluginMarketplaceInstallOptions) =>
+        invokeWithPlainPayload<PluginMarketplaceInstallResult>(
+          'plugins:marketplace:install',
+          sourceId,
+          pluginId,
+          options,
+        ),
+    },
+    reloadRuntimes: () => ipcRenderer.invoke('plugins:runtime-reload') as Promise<void>,
+    icons: {
+      refresh: () =>
+        ipcRenderer.invoke('plugins:icons:refresh') as Promise<PluginAppIconRefreshResult>,
+      restoreDefaultDesktopIcon: () =>
+        ipcRenderer.invoke(
+          'plugins:icons:restore-default-desktop',
+        ) as Promise<PluginRestoreIconResult>,
+      restoreDefaultTaskbarIcon: () =>
+        ipcRenderer.invoke(
+          'plugins:icons:restore-default-taskbar',
+        ) as Promise<PluginRestoreIconResult>,
+      setRuntimeWindowIcon: (iconPath: string) =>
+        ipcRenderer.invoke(
+          'plugins:icons:set-runtime-window-icon',
+          iconPath,
+        ) as Promise<PluginRestoreIconResult>,
+      restoreDefaultWindowIcon: () =>
+        ipcRenderer.invoke(
+          'plugins:icons:restore-default-window-icon',
+        ) as Promise<PluginRestoreIconResult>,
+    },
+    onRuntimeReloadRequested: (func: () => void) => {
+      const listener = () => func();
+      ipcRenderer.on('plugins:runtime-reload-requested', listener);
+      return () => ipcRenderer.removeListener('plugins:runtime-reload-requested', listener);
+    },
+    setEnabled: (pluginId: string, enabled: boolean) =>
+      ipcRenderer.invoke(
+        'plugins:set-enabled',
+        pluginId,
+        enabled,
+      ) as Promise<PluginSetEnabledResult>,
+    setSafeMode: (enabled: boolean) =>
+      ipcRenderer.invoke('plugins:set-safe-mode', enabled) as Promise<PluginSetSafeModeResult>,
+    installLocal: (paths: string[], options?: PluginLocalInstallOptions) =>
+      invokeWithPlainPayload<PluginLocalInstallResult>('plugins:install-local', paths, options),
+    uninstall: (pluginId: string) =>
+      ipcRenderer.invoke('plugins:uninstall', pluginId) as Promise<PluginUninstallResult>,
+    markStartup: (pluginIds: string[]) =>
+      invokeWithPlainPayload<PluginReportFailureResult>('plugins:startup:mark', pluginIds),
+    clearStartup: () =>
+      ipcRenderer.invoke('plugins:startup:clear') as Promise<PluginReportFailureResult>,
+    setActiveSession: (pluginIds: string[]) =>
+      invokeWithPlainPayload<PluginReportFailureResult>('plugins:active-session:set', pluginIds),
+    reportFailure: (
+      failure: Omit<PluginFailureRecord, 'createdAt'> & {
+        createdAt?: number;
+        safeMode?: boolean;
+      },
+    ) => invokeWithPlainPayload<PluginReportFailureResult>('plugins:failure:report', failure),
+    clearFailure: (pluginId?: string) =>
+      invokeWithPlainPayload<PluginReportFailureResult>('plugins:failure:clear', pluginId),
+    readAsset: (pluginId: string, asset: 'main' | 'style') =>
+      ipcRenderer.invoke('plugins:read-asset', pluginId, asset) as Promise<PluginAssetSourceResult>,
+    windows: {
+      show: (pluginId: string, windowId: string, options?: PluginWindowShowOptions) =>
+        invokeWithPlainPayload<PluginWindowResult>(
+          'plugins:window:show',
+          pluginId,
+          windowId,
+          options,
+        ),
+      hide: (pluginId: string, windowId: string) =>
+        ipcRenderer.invoke(
+          'plugins:window:hide',
+          pluginId,
+          windowId,
+        ) as Promise<PluginWindowResult>,
+      close: (pluginId: string, windowId: string) =>
+        ipcRenderer.invoke(
+          'plugins:window:close',
+          pluginId,
+          windowId,
+        ) as Promise<PluginWindowResult>,
+      move: (pluginId: string, windowId: string, bounds: Partial<PluginWindowBounds>) =>
+        invokeWithPlainPayload<PluginWindowResult>(
+          'plugins:window:move',
+          pluginId,
+          windowId,
+          bounds,
+        ),
+      getBounds: (pluginId: string, windowId: string) =>
+        ipcRenderer.invoke(
+          'plugins:window:get-bounds',
+          pluginId,
+          windowId,
+        ) as Promise<PluginWindowResult>,
+      setIgnoreMouseEvents: (pluginId: string, windowId: string, ignore: boolean) =>
+        ipcRenderer.invoke(
+          'plugins:window:set-ignore-mouse-events',
+          pluginId,
+          windowId,
+          ignore,
+        ) as Promise<PluginWindowResult>,
+      showOnTop: (pluginId: string, windowId: string, options?: PluginShowOnTopOptions) =>
+        ipcRenderer.invoke(
+          'plugins:window:show-on-top',
+          pluginId,
+          windowId,
+          options,
+        ) as Promise<PluginWindowResult>,
+      getContext: (pluginId: string, windowId: string) =>
+        ipcRenderer.invoke(
+          'plugins:window:get-context',
+          pluginId,
+          windowId,
+        ) as Promise<PluginWindowContextResult>,
+      readAsset: (pluginId: string, windowId: string, asset: 'main' | 'style') =>
+        ipcRenderer.invoke(
+          'plugins:window:read-asset',
+          pluginId,
+          windowId,
+          asset,
+        ) as Promise<PluginAssetSourceResult>,
+    },
+    host: {
+      showOnTop: (target?: PluginHostWindowTarget, options?: PluginShowOnTopOptions) =>
+        ipcRenderer.invoke(
+          'plugins:host:show-on-top',
+          target ?? 'main',
+          options,
+        ) as Promise<PluginHostWindowResult>,
+    },
+    dialog: {
+      selectDirectory: (options?: PluginOpenDialogOptions) =>
+        invokeWithPlainPayload<PluginDialogResult>('plugins:dialog:select-directory', options),
+      selectFiles: (options?: PluginOpenDialogOptions) =>
+        invokeWithPlainPayload<PluginDialogResult>('plugins:dialog:select-files', options),
+    },
+    fs: {
+      listFiles: (pluginId: string, directoryPath: string, options?: PluginListFilesOptions) =>
+        invokeWithPlainPayload<PluginListFilesResult>(
+          'plugins:fs:list-files',
+          pluginId,
+          directoryPath,
+          options,
+        ),
+      listImageFiles: (directoryPath: string, options?: PluginListImageFilesOptions) =>
+        invokeWithPlainPayload<PluginListImageFilesResult>(
+          'plugins:fs:list-image-files',
+          directoryPath,
+          options,
+        ),
+      getFileUrl: (filePath: string) =>
+        ipcRenderer.invoke('plugins:fs:get-file-url', filePath) as Promise<PluginFileUrlResult>,
+      readTextFile: (pluginId: string, filePath: string, options?: PluginReadTextFileOptions) =>
+        invokeWithPlainPayload<PluginReadTextFileResult>(
+          'plugins:fs:read-text-file',
+          pluginId,
+          filePath,
+          options,
+        ),
+      readFileBytes: (pluginId: string, filePath: string, options?: PluginReadFileBytesOptions) =>
+        invokeWithPlainPayload<PluginReadFileBytesResult>(
+          'plugins:fs:read-file-bytes',
+          pluginId,
+          filePath,
+          options,
+        ),
+      writeFile: (
+        pluginId: string,
+        filePath: string,
+        data: PluginWriteFileData,
+        options?: PluginWriteFileOptions,
+      ) =>
+        invokeWithPlainPayload<PluginWriteFileResult>(
+          'plugins:fs:write-file',
+          pluginId,
+          filePath,
+          data,
+          options,
+        ),
+      deleteFile: (pluginId: string, filePath: string) =>
+        ipcRenderer.invoke(
+          'plugins:fs:delete-file',
+          pluginId,
+          filePath,
+        ) as Promise<PluginDeleteFileResult>,
+    },
+    process: {
+      launch: (pluginId: string, options: PluginProcessLaunchOptions) =>
+        invokeWithPlainPayload<PluginProcessLaunchResult>(
+          'plugins:process:launch',
+          pluginId,
+          options,
+        ),
+      terminate: (pluginId: string, pid: number) =>
+        ipcRenderer.invoke(
+          'plugins:process:terminate',
+          pluginId,
+          pid,
+        ) as Promise<PluginProcessTerminateResult>,
+    },
+    webServer: {
+      listen: (pluginId: string, options?: PluginWebServerListenOptions) =>
+        invokeWithPlainPayload<PluginWebServerListenResult>(
+          'plugins:web-server:listen',
+          pluginId,
+          options,
+        ),
+      status: (pluginId: string) =>
+        ipcRenderer.invoke(
+          'plugins:web-server:status',
+          pluginId,
+        ) as Promise<PluginWebServerStatusResult>,
+      respond: (pluginId: string, payload: PluginWebServerResponsePayload) =>
+        ipcRenderer.invoke('plugins:web-server:respond', pluginId, payload) as Promise<{
+          ok: boolean;
+          error?: string;
+        }>,
+      close: (pluginId: string) =>
+        ipcRenderer.invoke(
+          'plugins:web-server:close',
+          pluginId,
+        ) as Promise<PluginWebServerCloseResult>,
+      onRequest: (func: (request: PluginWebServerRequest) => void) => {
+        const listener = (_event: Electron.IpcRendererEvent, request: PluginWebServerRequest) =>
+          func(request);
+        ipcRenderer.on('plugins:web-server:request', listener);
+        return () => ipcRenderer.removeListener('plugins:web-server:request', listener);
+      },
+    },
+    sqlite: {
+      open: (pluginId: string, options?: PluginSqliteOpenOptions) =>
+        invokeWithPlainPayload<PluginSqliteOpenResult>('plugins:sqlite:open', pluginId, options),
+      exec: (pluginId: string, databaseId: string, sql: string) =>
+        ipcRenderer.invoke(
+          'plugins:sqlite:exec',
+          pluginId,
+          databaseId,
+          sql,
+        ) as Promise<PluginSqliteExecResult>,
+      run: (pluginId: string, databaseId: string, sql: string, params?: PluginSqliteParams) =>
+        invokeWithPlainPayload<PluginSqliteRunResult>(
+          'plugins:sqlite:run',
+          pluginId,
+          databaseId,
+          sql,
+          params,
+        ),
+      all: (
+        pluginId: string,
+        databaseId: string,
+        sql: string,
+        params?: PluginSqliteParams,
+        options?: PluginSqliteQueryOptions,
+      ) =>
+        invokeWithPlainPayload<PluginSqliteQueryResult>(
+          'plugins:sqlite:all',
+          pluginId,
+          databaseId,
+          sql,
+          params,
+          options,
+        ),
+      get: (pluginId: string, databaseId: string, sql: string, params?: PluginSqliteParams) =>
+        invokeWithPlainPayload<PluginSqliteQueryResult>(
+          'plugins:sqlite:get',
+          pluginId,
+          databaseId,
+          sql,
+          params,
+        ),
+      transaction: (pluginId: string, databaseId: string, statements: PluginSqliteStatement[]) =>
+        invokeWithPlainPayload<PluginSqliteExecResult>(
+          'plugins:sqlite:transaction',
+          pluginId,
+          databaseId,
+          statements,
+        ),
+      close: (pluginId: string, databaseId: string) =>
+        ipcRenderer.invoke(
+          'plugins:sqlite:close',
+          pluginId,
+          databaseId,
+        ) as Promise<PluginSqliteCloseResult>,
+      list: (pluginId: string) =>
+        ipcRenderer.invoke('plugins:sqlite:list', pluginId) as Promise<PluginSqliteListResult>,
+      delete: (pluginId: string, name?: string) =>
+        ipcRenderer.invoke(
+          'plugins:sqlite:delete',
+          pluginId,
+          name,
+        ) as Promise<PluginSqliteDeleteResult>,
+    },
+    storage: {
+      get: <T = unknown>(pluginId: string, key: string) =>
+        ipcRenderer.invoke('plugins:data:get', pluginId, key) as Promise<T | null>,
+      set: (pluginId: string, key: string, value: unknown) =>
+        invokeWithPlainPayload('plugins:data:set', pluginId, key, value),
+      delete: (pluginId: string, key: string) =>
+        ipcRenderer.invoke('plugins:data:delete', pluginId, key),
+    },
+  },
+  storage: {
+    getPlaybackSnapshot: () =>
+      ipcRenderer.invoke('storage:playback:get-snapshot') as Promise<StoragePlaybackSnapshot>,
+    getPlaybackQueue: (payload: StorageQueueIdPayload) =>
+      invokeWithPlainPayload(
+        'storage:playback:get-queue',
+        payload,
+      ) as Promise<StoragePlaybackQueueState | null>,
+    replacePlaybackQueue: (payload: StorageReplaceQueuePayload) =>
+      invokeWithPlainPayload(
+        'storage:playback:replace-queue',
+        payload,
+      ) as Promise<StorageResetResult>,
+    appendPlaybackQueueItems: (payload: StorageAppendQueueItemsPayload) =>
+      invokeWithPlainPayload(
+        'storage:playback:append-items',
+        payload,
+      ) as Promise<StorageResetResult>,
+    updatePlaybackQueueMeta: (payload: StorageUpdateQueueMetaPayload) =>
+      invokeWithPlainPayload(
+        'storage:playback:update-queue-meta',
+        payload,
+      ) as Promise<StorageResetResult>,
+    clearPlaybackQueue: (payload: StorageUpdateQueueMetaPayload) =>
+      invokeWithPlainPayload(
+        'storage:playback:clear-queue',
+        payload,
+      ) as Promise<StorageResetResult>,
+    removePlaybackQueue: (payload: StorageQueueIdPayload) =>
+      invokeWithPlainPayload(
+        'storage:playback:remove-queue',
+        payload,
+      ) as Promise<StoragePlaybackSnapshot>,
+    removePlaybackQueueItem: (payload: StorageRemoveQueueItemPayload) =>
+      invokeWithPlainPayload(
+        'storage:playback:remove-item',
+        payload,
+      ) as Promise<StorageResetResult>,
+    reorderPlaybackQueueItems: (payload: StorageReorderQueueItemsPayload) =>
+      invokeWithPlainPayload(
+        'storage:playback:reorder-items',
+        payload,
+      ) as Promise<StorageResetResult>,
+    setQueueCurrentTrack: (payload: StorageSetQueueCurrentTrackPayload) =>
+      invokeWithPlainPayload(
+        'storage:playback:set-current-track',
+        payload,
+      ) as Promise<StorageResetResult>,
+    setActiveQueue: (queueId: string) =>
+      ipcRenderer.invoke(
+        'storage:playback:set-active-queue',
+        queueId,
+      ) as Promise<StorageResetResult>,
+    getHistoryEntries: (payload?: StorageHistoryGetEntriesPayload) =>
+      invokeWithPlainPayload<StorageHistoryEntry[]>('storage:history:get-entries', payload ?? {}),
+    recordHistoryPlay: (payload: StorageHistoryRecordPlayPayload) =>
+      invokeWithPlainPayload<StorageHistoryEntry | null>('storage:history:record-play', payload),
+    removeHistoryEntries: (payload: StorageHistoryRemoveEntriesPayload) =>
+      invokeWithPlainPayload<StorageResetResult>('storage:history:remove-entries', payload),
+    clearHistory: () => ipcRenderer.invoke('storage:history:clear') as Promise<StorageResetResult>,
+    getKv: <T = unknown>(key: string) =>
+      ipcRenderer.invoke('storage:kv:get', key) as Promise<T | null>,
+    setKv: (key: string, value: unknown) =>
+      invokeWithPlainPayload<StorageResetResult>('storage:kv:set', key, value),
+    deleteKv: (key: string) =>
+      ipcRenderer.invoke('storage:kv:delete', key) as Promise<StorageResetResult>,
+    resetAll: () => ipcRenderer.invoke('storage:reset-all') as Promise<StorageResetResult>,
+  },
+  mediaControls: {
+    updateMetadata: (payload: {
+      title: string;
+      artist: string;
+      album: string;
+      coverUrl?: string;
+      durationMs?: number;
+    }) => invokeWithPlainPayload('media-control:update-metadata', payload),
+    updateState: (payload: { status: string }) =>
+      invokeWithPlainPayload('media-control:update-state', payload),
+    updateTimeline: (payload: { currentTimeMs: number; totalTimeMs: number }) =>
+      invokeWithPlainPayload('media-control:update-timeline', payload),
+    available: () => ipcRenderer.invoke('media-control:available') as Promise<boolean>,
+    onEvent: (func: (event: { type: string; positionMs?: number }) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        data: { type: string; positionMs?: number },
+      ) => func(data);
+      ipcRenderer.on('media-control:event', listener);
+      return () => ipcRenderer.removeListener('media-control:event', listener);
+    },
+  },
+});

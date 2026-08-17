@@ -1,0 +1,806 @@
+﻿name: Build yanmusic Desktop
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.artifact_name }}
+    timeout-minutes: 90
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            rust_target: aarch64-apple-darwin
+            electron_builder_args: ''
+            artifact_name: yanmusic-macOS-arm64
+            artifact_glob: |
+              release/yanmusic-*.zip
+              release/yanmusic-*.dmg
+              release/latest-mac.yml
+          - os: macos-14
+            rust_target: x86_64-apple-darwin
+            electron_builder_args: '--mac --x64'
+            artifact_name: yanmusic-macOS-x64
+            artifact_glob: |
+              release/yanmusic-*.zip
+              release/yanmusic-*.dmg
+          - os: ubuntu-22.04
+            rust_target: ''
+            electron_builder_args: ''
+            artifact_name: yanmusic-Linux-x64
+            artifact_glob: |
+              release/yanmusic-*.AppImage
+              release/yanmusic-*.deb
+              release/yanmusic-*.pacman
+              release/yanmusic-*.pkg.tar.zst
+              release/yanmusic-*.rpm
+              release/yanmusic-*.tar.gz
+              release/latest-linux.yml
+          - os: ubuntu-22.04-arm
+            rust_target: ''
+            electron_builder_args: '--linux --arm64'
+            artifact_name: yanmusic-Linux-arm64
+            artifact_glob: |
+              release/yanmusic-*.AppImage
+              release/yanmusic-*.deb
+              release/yanmusic-*.pacman
+              release/yanmusic-*.pkg.tar.zst
+              release/yanmusic-*.rpm
+              release/yanmusic-*.tar.gz
+              release/latest-linux-arm64.yml
+          - os: windows-latest
+            rust_target: ''
+            electron_builder_args: '--win --x64'
+            artifact_name: yanmusic-Windows-x64
+            artifact_glob: |
+              release/yanmusic-*-Windows-Setup-x64.exe
+              release/latest.yml
+          - os: windows-11-arm
+            rust_target: ''
+            electron_builder_args: '--win --arm64'
+            artifact_name: yanmusic-Windows-arm64
+            artifact_glob: |
+              release/yanmusic-*-Windows-Setup-arm64.exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools libasound2-dev libgtk-3-dev libnotify-dev libnss3 libxss1 libxtst6 xdg-utils
+
+      - name: Install root dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Rust cross-compile target
+        if: matrix.rust_target != ''
+        run: rustup target add ${{ matrix.rust_target }}
+
+      - name: Build native media controls addon
+        working-directory: native/yan-media-controls
+        shell: bash
+        run: |
+          npm install
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            npx napi build --release --no-const-enum --target ${{ matrix.rust_target }}
+          else
+            npm run build
+          fi
+
+      - name: Build native mpv player addon
+        working-directory: native/yan-mpv-player
+        shell: bash
+        run: |
+          npm install
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            npx napi build --release --no-const-enum --target ${{ matrix.rust_target }}
+          else
+            npm run build
+          fi
+
+      - name: Build native storage addon
+        working-directory: native/yan-storage
+        shell: bash
+        run: |
+          npm install
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            npx napi build --release --no-const-enum --target ${{ matrix.rust_target }}
+          else
+            npm run build
+          fi
+
+      - name: Build native spectrum capture addon
+        working-directory: native/yan-spectrum-capture
+        shell: bash
+        run: |
+          npm install
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            npx napi build --release --no-const-enum --target ${{ matrix.rust_target }}
+          else
+            npm run build
+          fi
+
+      - name: Install server runtime dependencies
+        working-directory: server
+        shell: bash
+        run: |
+          # server 是外部子模块，其 package-lock.json 常与 package.json 不同步，
+          # 且 devDependencies(tsdown) 与 typescript@4.x 存在 peer 冲突。
+          # 运行时只需 --omit=dev 的依赖，故统一用 npm install + --legacy-peer-deps。
+          npm install --omit=dev --no-audit --no-fund --legacy-peer-deps
+
+      - name: Remove server test files
+        working-directory: server
+        shell: bash
+        run: find module -name '*.test.js' -delete
+
+      - name: Download libmpv library
+        shell: bash
+        run: |
+          set -e
+          mkdir -p build/mpv
+
+          # 递归复制 dylib 依赖（macOS 专用）
+          copy_dylibs_recursive() {
+            local bin_or_lib="$1"
+            local dest_dir="$2"
+            local depth="${3:-0}"
+            if [ "$depth" -gt 5 ]; then return; fi
+
+            otool -L "$bin_or_lib" 2>/dev/null | awk '/\/opt\/homebrew|\/usr\/local/{print $1}' | while read -r lib; do
+              local base_name
+              base_name=$(basename "$lib")
+              if [ -f "$dest_dir/$base_name" ]; then continue; fi
+              if [ -f "$lib" ]; then
+                cp "$lib" "$dest_dir/" 2>/dev/null || true
+                # 递归处理这个 dylib 的依赖
+                copy_dylibs_recursive "$dest_dir/$base_name" "$dest_dir" $((depth + 1))
+              fi
+            done
+          }
+
+          # 修复 macOS dylib 的加载路径，使用 @loader_path 相对路径
+          fix_macos_rpaths() {
+            local lib_dir="$1"
+
+            # 修复每个 dylib 内部的依赖引用
+            for dylib in "$lib_dir"/*.dylib; do
+              [ -f "$dylib" ] || continue
+              local dylib_name
+              dylib_name=$(basename "$dylib")
+              # 修复 dylib 的 install name
+              install_name_tool -id "@loader_path/$dylib_name" "$dylib" 2>/dev/null || true
+              # 修复 dylib 内部引用的其他 dylib
+              otool -L "$dylib" | awk '/\/opt\/homebrew|\/usr\/local/{print $1}' | while read -r dep; do
+                local dep_name
+                dep_name=$(basename "$dep")
+                if [ -f "$lib_dir/$dep_name" ]; then
+                  install_name_tool -change "$dep" "@loader_path/$dep_name" "$dylib" 2>/dev/null || true
+                fi
+              done
+            done
+
+            echo "rpath fixup complete"
+          }
+
+          # Homebrew 依赖里可能包含无后缀 Mach-O（例如 Python.framework 的 Python）。
+          # 不能只按 *.dylib 签名，否则 macOS 会在 dlopen 依赖链时杀掉进程。
+          sign_macos_macho_dir() {
+            local lib_dir="$1"
+            local signed_count=0
+
+            [ -d "$lib_dir" ] || return 0
+            xattr -cr "$lib_dir" 2>/dev/null || true
+
+            while IFS= read -r -d '' file_path; do
+              if file "$file_path" | grep -q 'Mach-O'; then
+                chmod u+w "$file_path" 2>/dev/null || true
+                codesign --force --sign - --timestamp=none "$file_path"
+                signed_count=$((signed_count + 1))
+              fi
+            done < <(find "$lib_dir" -type f -print0)
+
+            echo "signed $signed_count macOS Mach-O files in $lib_dir"
+          }
+
+          verify_macos_macho_dir() {
+            local lib_dir="$1"
+            local verified_count=0
+
+            [ -d "$lib_dir" ] || return 0
+
+            while IFS= read -r -d '' file_path; do
+              if file "$file_path" | grep -q 'Mach-O'; then
+                codesign --verify --strict --verbose=2 "$file_path"
+                verified_count=$((verified_count + 1))
+              fi
+            done < <(find "$lib_dir" -type f -print0)
+
+            echo "verified $verified_count macOS Mach-O signatures in $lib_dir"
+          }
+
+          case "${{ matrix.rust_target }}:${{ matrix.os }}" in
+            aarch64-apple-darwin:*)
+              # macOS arm64: 使用原生 homebrew 安装 mpv
+              brew install mpv
+              MPV_PREFIX=$(brew --prefix mpv)
+              cp "$MPV_PREFIX"/lib/libmpv*.dylib build/mpv/ 2>/dev/null || true
+              for lib in build/mpv/libmpv*.dylib; do
+                [ -f "$lib" ] || continue
+                copy_dylibs_recursive "$lib" "build/mpv"
+              done
+              fix_macos_rpaths "build/mpv"
+              sign_macos_macho_dir "build/mpv"
+              verify_macos_macho_dir "build/mpv"
+              echo "libmpv macOS arm64 prepared"
+              echo "=== build/mpv directory ==="
+              ls -la build/mpv/ | head -30
+              ;;
+            x86_64-apple-darwin:*)
+              # macOS x64: 在 arm64 runner 上通过 x86_64 homebrew 安装 x64 版本的 mpv
+              arch -x86_64 /bin/bash -c '
+                # 安装 x86_64 homebrew（如果不存在）
+                if [ ! -f /usr/local/bin/brew ]; then
+                  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+                fi
+                # brew install 可能因依赖 link 冲突返回非零，但 mpv 本身已安装成功
+                /usr/local/bin/brew install mpv || true
+              '
+              # 验证 mpv 确实已安装
+              X86_MPV_PREFIX=$(/usr/local/bin/brew --prefix mpv)
+              if [ ! -d "$X86_MPV_PREFIX/lib" ]; then
+                echo "ERROR: mpv x86_64 installation failed, lib dir not found"
+                exit 1
+              fi
+              cp "$X86_MPV_PREFIX"/lib/libmpv*.dylib build/mpv/ 2>/dev/null || true
+              for lib in build/mpv/libmpv*.dylib; do
+                [ -f "$lib" ] || continue
+                copy_dylibs_recursive "$lib" "build/mpv"
+              done
+              fix_macos_rpaths "build/mpv"
+              sign_macos_macho_dir "build/mpv"
+              verify_macos_macho_dir "build/mpv"
+              echo "libmpv macOS x64 prepared"
+              echo "=== build/mpv directory ==="
+              ls -la build/mpv/ | head -30
+              ;;
+            *:ubuntu-*)
+              # Linux: 只打包 libmpv.so 本身作为 fallback（不打包 libav* 等依赖）。
+              # 运行时优先使用系统 libmpv，wrapper 脚本通过 LD_LIBRARY_PATH 确保
+              # 系统完整版 libav* 优先于 Electron 裁剪版 libffmpeg 被加载。
+              sudo apt-get update
+              sudo apt-get install -y libmpv-dev
+              # 查找 libmpv.so
+              LIBMPV=$(find /usr/lib -name "libmpv.so*" -not -type l | head -1)
+              if [ -z "$LIBMPV" ]; then
+                LIBMPV=$(find /usr/lib -name "libmpv.so*" | head -1)
+              fi
+              if [ -n "$LIBMPV" ]; then
+                cp "$LIBMPV" build/mpv/
+                # 创建符号链接
+                LIBMPV_NAME=$(basename "$LIBMPV")
+                if [ "$LIBMPV_NAME" != "libmpv.so" ]; then
+                  ln -sf "$LIBMPV_NAME" build/mpv/libmpv.so
+                fi
+                if [ "$LIBMPV_NAME" != "libmpv.so.2" ]; then
+                  ln -sf "$LIBMPV_NAME" build/mpv/libmpv.so.2
+                fi
+              fi
+              echo "libmpv Linux prepared (system deps not bundled)"
+              ;;
+            *:windows-*)
+              # Windows: 从 zhongfly 预编译构建下载 libmpv 运行库。
+              # 优先使用非 LGPL dev 包；若上游只提供 LGPL/dev 或资产名调整，则回退到可用包，
+              # 但必须在解压后找到 libmpv-2.dll/mpv-2.dll，否则立即失败，避免产出不可播放的安装包。
+              # 根据 runner.arch 决定下载 x64 还是 arm64
+              if [ "${{ runner.arch }}" = "ARM64" ]; then
+                export MPV_ARCH_FILTER="aarch64"
+              else
+                export MPV_ARCH_FILTER="x86_64"
+              fi
+
+              RELEASES_JSON="/tmp/mpv-winbuild-releases.json"
+              curl -fsSL "https://api.github.com/repos/zhongfly/mpv-winbuild/releases?per_page=20" -o "$RELEASES_JSON"
+              DOWNLOAD_URL=$(python3 - "$RELEASES_JSON" <<'PY'
+          import json
+          import os
+          import sys
+
+          releases_path = sys.argv[1]
+          arch = os.environ["MPV_ARCH_FILTER"].lower()
+
+          with open(releases_path, encoding="utf-8") as f:
+              payload = json.load(f)
+
+          releases = payload if isinstance(payload, list) else [payload]
+
+          def asset_name(asset):
+              return str(asset.get("name", "")).lower()
+
+          def is_archive(asset):
+              name = asset_name(asset)
+              return name.endswith((".7z", ".zip"))
+
+          def is_candidate(asset):
+              name = asset_name(asset)
+              return (
+                  is_archive(asset)
+                  and arch in name
+                  and "mpv" in name
+                  and "ffmpeg" not in name
+                  and asset.get("browser_download_url")
+              )
+
+          def choose(base, predicate):
+              matches = [asset for asset in base if predicate(asset_name(asset))]
+              return matches[0] if matches else None
+
+          scanned = []
+          selected = None
+          selected_release = None
+          for release in releases:
+              assets = release.get("assets", []) if isinstance(release, dict) else []
+              release_name = release.get("tag_name") or release.get("name") or "(unknown release)"
+              scanned.append((release_name, [asset.get("name", "") for asset in assets]))
+              base = [asset for asset in assets if is_candidate(asset)]
+              selected = (
+                  choose(base, lambda name: "dev" in name and "lgpl" not in name)
+                  or choose(base, lambda name: "dev" in name)
+                  or choose(base, lambda name: "libmpv" in name and "lgpl" not in name)
+                  or choose(base, lambda name: "libmpv" in name)
+                  or choose(
+                      base,
+                      lambda name: "lgpl" not in name
+                      and "debug" not in name
+                      and "symbol" not in name
+                      and "source" not in name
+                      and "src" not in name,
+                  )
+                  or choose(
+                      base,
+                      lambda name: "debug" not in name
+                      and "symbol" not in name
+                      and "source" not in name
+                      and "src" not in name,
+                  )
+              )
+              if selected:
+                  selected_release = release_name
+                  break
+
+          if not selected:
+              print(f"ERROR: no usable mpv Windows asset found for {arch}. Scanned releases:", file=sys.stderr)
+              for release_name, asset_names in scanned:
+                  print(f"  {release_name}:", file=sys.stderr)
+                  for name in asset_names:
+                      print(f"    - {name}", file=sys.stderr)
+              sys.exit(1)
+
+          print(f"Selected mpv asset: {selected.get('name', '')} from {selected_release}", file=sys.stderr)
+          print(selected["browser_download_url"])
+          PY
+              )
+
+              echo "Downloading mpv ${MPV_ARCH_FILTER} package from: $DOWNLOAD_URL"
+              curl -fL -o /tmp/mpv-winbuild.7z "$DOWNLOAD_URL"
+              7z x /tmp/mpv-winbuild.7z -o"/tmp/mpv-winbuild-extract" -y
+              find /tmp/mpv-winbuild-extract -name "*.dll" -exec cp {} build/mpv/ \;
+
+              if [ ! -f "build/mpv/libmpv-2.dll" ] && [ ! -f "build/mpv/mpv-2.dll" ]; then
+                echo "ERROR: libmpv DLL not found after extracting mpv Windows package"
+                echo "=== extracted DLLs ==="
+                find /tmp/mpv-winbuild-extract -name "*.dll" -print
+                exit 1
+              fi
+
+              dll_count=$(find build/mpv -maxdepth 1 -name "*.dll" | wc -l | tr -d ' ')
+              echo "libmpv Windows ${MPV_ARCH_FILTER} prepared (${dll_count} DLLs)"
+              ;;
+          esac
+
+          echo "=== mpv build directory ==="
+          ls -la build/mpv/
+
+      - name: Build desktop app
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+        run: |
+          pnpm exec vue-tsc --noEmit && pnpm exec vite build
+          pnpm exec electron-builder ${{ matrix.electron_builder_args }} --publish never
+
+      - name: Create Arch Linux package alias
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -e
+          shopt -s nullglob
+          for package_path in release/yanmusic-*.pacman; do
+            cp "$package_path" "${package_path%.pacman}.pkg.tar.zst"
+          done
+
+      - name: Verify bundled Windows executable
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -e
+
+          if [ "${{ runner.arch }}" = "ARM64" ]; then
+            app_exe="release/win-arm64-unpacked/yanmusic.exe"
+          else
+            app_exe="release/win-unpacked/yanmusic.exe"
+          fi
+
+          if [ ! -f "$app_exe" ]; then
+            echo "ERROR: bundled app executable not found: $app_exe"
+            echo "=== release directories ==="
+            find release -maxdepth 2 -type d -print
+            echo "=== executable files ==="
+            find release -maxdepth 3 -type f -name '*.exe' -print
+            exit 1
+          fi
+
+          app_dir=$(dirname "$app_exe")
+          mpv_dir="$app_dir/resources/mpv"
+          if [ ! -f "$mpv_dir/libmpv-2.dll" ] && [ ! -f "$mpv_dir/mpv-2.dll" ]; then
+            echo "ERROR: bundled libmpv DLL not found in $mpv_dir"
+            echo "=== bundled resources ==="
+            find "$app_dir/resources" -maxdepth 3 -print
+            exit 1
+          fi
+
+          echo "bundled libmpv DLL found in $mpv_dir"
+
+      - name: Verify bundled macOS mpv signatures
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -e
+
+          app_path=$(find release -maxdepth 3 -type d -name 'yanmusic.app' | head -n 1)
+          if [ -z "$app_path" ]; then
+            echo "ERROR: yanmusic.app not found in release output"
+            find release -maxdepth 3 -print
+            exit 1
+          fi
+
+          mpv_dir="$app_path/Contents/Resources/mpv"
+          if [ ! -d "$mpv_dir" ]; then
+            echo "ERROR: bundled mpv directory not found: $mpv_dir"
+            exit 1
+          fi
+
+          verified_count=0
+          while IFS= read -r -d '' file_path; do
+            if file "$file_path" | grep -q 'Mach-O'; then
+              codesign --verify --strict --verbose=2 "$file_path"
+              verified_count=$((verified_count + 1))
+            fi
+          done < <(find "$mpv_dir" -type f -print0)
+
+          echo "verified $verified_count bundled mpv Mach-O signatures in $mpv_dir"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish Release Assets
+    timeout-minutes: 20
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: List downloaded artifacts
+        run: find release-artifacts -maxdepth 2 -type f | sort
+
+      - name: Extract changelog for current version
+        id: changelog
+        shell: bash
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME#v}"
+          # 提取顶部声明（## 之前的内容，去掉标题行）
+          HEADER=$(awk '/^## \[/ { exit } !/^# / { print }' CHANGELOG.md | sed '/^$/d')
+          # 提取对应版本的内容
+          VERSION_BODY=$(awk -v ver="$VERSION" '
+            /^## \[/ {
+              if (found) exit
+              if (index($0, "[" ver "]")) found=1
+              next
+            }
+            found { print }
+          ' CHANGELOG.md)
+
+          if [ -n "$HEADER" ] && [ -n "$VERSION_BODY" ]; then
+            BODY=$(printf '%s\n\n%s' "$HEADER" "$VERSION_BODY")
+          elif [ -n "$VERSION_BODY" ]; then
+            BODY="$VERSION_BODY"
+          else
+            BODY="详见 CHANGELOG.md"
+          fi
+
+          {
+            echo "BODY<<EOF"
+            echo "$BODY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/**
+          body: ${{ steps.changelog.outputs.BODY }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify:
+    name: Send Telegram Notification
+    if: startsWith(github.ref, 'refs/tags/') && success()
+    needs:
+      - build
+      - release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build changelog
+        shell: bash
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME#v}"
+          CHANGELOG=$(awk -v ver="$VERSION" '
+            /^## \[/ {
+              if (found) exit
+              if (index($0, "[" ver "]")) found=1
+              next
+            }
+            found && NF { print }
+          ' CHANGELOG.md \
+            | sed 's/^### /\n📌 /' \
+            | sed 's/^- /• /' \
+            | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g' \
+            | awk 'NR==1{printf "%s",$0;next}{printf "\n%s",$0}')
+
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="详见 CHANGELOG.md"
+          fi
+
+          {
+            echo "CHANGELOG<<EOF"
+            echo "$CHANGELOG"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Build artifact links from release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME}"
+          REPO="${GITHUB_REPOSITORY}"
+
+          ASSETS=$(gh api "repos/${REPO}/releases/tags/${VERSION}" --jq '.assets[].name' 2>/dev/null || true)
+          if [ -z "$ASSETS" ]; then
+            echo "ARTIFACT_LINKS=无" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          LINKS=""
+          while IFS= read -r filename; do
+            escaped_name=$(printf '%s' "$filename" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g')
+            link="https://github.com/${REPO}/releases/download/${VERSION}/${filename}"
+            if [ -z "$LINKS" ]; then
+              LINKS="• <a href=\"${link}\">${escaped_name}</a>"
+            else
+              LINKS="${LINKS}\n• <a href=\"${link}\">${escaped_name}</a>"
+            fi
+          done <<< "$ASSETS"
+
+          {
+            echo "ARTIFACT_LINKS<<EOF"
+            printf '%b\n' "$LINKS"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Send Telegram message
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_TOPIC_ID: ${{ secrets.TELEGRAM_TOPIC_ID }}
+        run: |
+          set -e
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Telegram secrets are missing, skip notification."
+            exit 0
+          fi
+
+          VERSION="${GITHUB_REF_NAME}"
+          REPO="${GITHUB_REPOSITORY}"
+
+          printf -v MESSAGE '%s\n\n%s\n%s\n\n%s\n%s\n\n%s' \
+            "🎉 <b>yanmusic ${VERSION} 构建成功！</b>" \
+            "📝 <b>更新内容：</b>" \
+            "${CHANGELOG}" \
+            "📦 <b>下载地址：</b>" \
+            "${ARTIFACT_LINKS}" \
+            "🔗 <a href=\"https://github.com/${REPO}/releases/tag/${VERSION}\">查看完整 Release</a>"
+
+          PAYLOAD=$(jq -n \
+            --arg chat_id "$TELEGRAM_CHAT_ID" \
+            --arg text "$MESSAGE" \
+            --arg parse_mode "HTML" \
+            '{chat_id: $chat_id, text: $text, parse_mode: $parse_mode, disable_web_page_preview: true}')
+
+          if [ -n "$TELEGRAM_TOPIC_ID" ]; then
+            PAYLOAD=$(echo "$PAYLOAD" | jq --arg topic_id "$TELEGRAM_TOPIC_ID" '. + {message_thread_id: ($topic_id | tonumber)}')
+          fi
+
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
+
+  notify-qq:
+    name: Send QQ Group Notification
+    if: startsWith(github.ref, 'refs/tags/') && success()
+    needs:
+      - build
+      - release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build changelog
+        shell: bash
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME#v}"
+          CHANGELOG=$(awk -v ver="$VERSION" '
+            /^## \[/ {
+              if (found) exit
+              if (index($0, "[" ver "]")) found=1
+              next
+            }
+            found && NF { print }
+          ' CHANGELOG.md \
+            | sed 's/^### /\n📌 /' \
+            | sed 's/^- /• /' \
+            | awk 'NR==1{printf "%s",$0;next}{printf "\n%s",$0}')
+
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="详见 CHANGELOG.md"
+          fi
+
+          {
+            echo "CHANGELOG<<EOF"
+            echo "$CHANGELOG"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Build artifact links
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME}"
+          REPO="${GITHUB_REPOSITORY}"
+
+          ASSETS=$(gh api "repos/${REPO}/releases/tags/${VERSION}" --jq '.assets[].name' 2>/dev/null || true)
+          if [ -z "$ASSETS" ]; then
+            echo "QQ_ARTIFACT_LINKS=无" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          LINKS=""
+          while IFS= read -r filename; do
+            link="https://github.com/${REPO}/releases/download/${VERSION}/${filename}"
+            if [ -z "$LINKS" ]; then
+              LINKS="• ${filename}\n  ${link}"
+            else
+              LINKS="${LINKS}\n• ${filename}\n  ${link}"
+            fi
+          done <<< "$ASSETS"
+
+          {
+            echo "QQ_ARTIFACT_LINKS<<EOF"
+            printf '%b\n' "$LINKS"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Send QQ group message via OneBot API
+        shell: bash
+        env:
+          QQ_BOT_API: ${{ secrets.QQ_BOT_API }}
+          QQ_GROUP_ID: ${{ secrets.QQ_GROUP_ID }}
+          QQ_BOT_TOKEN: ${{ secrets.QQ_BOT_TOKEN }}
+        run: |
+          set -e
+          if [ -z "$QQ_BOT_API" ] || [ -z "$QQ_GROUP_ID" ]; then
+            echo "QQ Bot secrets are missing, skip QQ notification."
+            exit 0
+          fi
+
+          VERSION="${GITHUB_REF_NAME}"
+          REPO="${GITHUB_REPOSITORY}"
+
+          MESSAGE=$(printf '🎉 yanmusic %s 发布啦！\n\n📝 更新内容：\n%s\n\n📦 下载地址：\n%s\n\n🔗 查看完整 Release：https://github.com/%s/releases/tag/%s' \
+            "$VERSION" "$CHANGELOG" "$QQ_ARTIFACT_LINKS" "$REPO" "$VERSION")
+
+          HEADERS=(-H "Content-Type: application/json")
+          if [ -n "$QQ_BOT_TOKEN" ]; then
+            HEADERS+=(-H "Authorization: Bearer ${QQ_BOT_TOKEN}")
+          fi
+
+          PAYLOAD=$(jq -n \
+            --arg group_id "$QQ_GROUP_ID" \
+            --arg message "$MESSAGE" \
+            '{message_type: "group", group_id: $group_id, message: $message}')
+
+          curl -sS -X POST "${QQ_BOT_API}/send_msg" \
+            "${HEADERS[@]}" \
+            -d "$PAYLOAD"

@@ -1,0 +1,11 @@
+[workspace]
+
+members = [
+    "native/yan-media-controls",
+    "native/yan-mpv-player",
+    "native/yan-spectrum-capture",
+    "native/yan-storage"
+]
+
+
+[profile.release]# 保持默认即可，或者根据需要优化

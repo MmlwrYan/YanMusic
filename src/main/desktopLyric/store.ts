@@ -1,0 +1,307 @@
+import { screen } from 'electron';
+import type {
+  DesktopLyricLayout,
+  DesktopLyricSettings,
+  DesktopLyricShadowStrength,
+} from '../../shared/desktop-lyric';
+import {
+  DEFAULT_DESKTOP_LYRIC_PERSISTED_SETTINGS,
+  getDesktopLyricPersistedSettings,
+  patchDesktopLyricPersistedSettings,
+  type DesktopLyricWindowState,
+} from '../storage/settings';
+
+export type { DesktopLyricWindowState } from '../storage/settings';
+
+export const DESKTOP_LYRIC_MIN_WIDTH = 80;
+export const DESKTOP_LYRIC_MIN_HEIGHT = 80;
+export const DESKTOP_LYRIC_MAX_WIDTH = 100000;
+export const DESKTOP_LYRIC_MAX_HEIGHT = 100000;
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const isDesktopLyricShadowStrength = (value: unknown): value is DesktopLyricShadowStrength =>
+  value === 'none' || value === 'soft' || value === 'normal' || value === 'strong';
+const isDesktopLyricLayout = (value: unknown): value is DesktopLyricLayout =>
+  value === 'horizontal' || value === 'vertical';
+
+export const getDesktopLyricWindowLimits = () => ({
+  minWidth: DESKTOP_LYRIC_MIN_WIDTH,
+  minHeight: DESKTOP_LYRIC_MIN_HEIGHT,
+  maxWidth: DESKTOP_LYRIC_MAX_WIDTH,
+  maxHeight: DESKTOP_LYRIC_MAX_HEIGHT,
+});
+
+export function getDesktopLyricSettings(): DesktopLyricSettings {
+  const raw = getDesktopLyricPersistedSettings();
+  return {
+    enabled: Boolean(raw.enabled),
+    locked: Boolean(raw.locked),
+    autoShow: Boolean(raw.autoShow),
+    alwaysOnTop: Boolean(raw.alwaysOnTop),
+    wantTranslation: Boolean(raw.wantTranslation),
+    wantRomanization: Boolean(raw.wantRomanization),
+    theme: raw.theme ?? 'system',
+    opacity: clamp(
+      Number(raw.opacity) || DEFAULT_DESKTOP_LYRIC_PERSISTED_SETTINGS.opacity,
+      0.25,
+      1,
+    ),
+    scale: clamp(Number(raw.scale) || DEFAULT_DESKTOP_LYRIC_PERSISTED_SETTINGS.scale, 0.75, 1.5),
+    fontFamily: String(raw.fontFamily || DEFAULT_DESKTOP_LYRIC_PERSISTED_SETTINGS.fontFamily),
+    inactiveFontSize: clamp(
+      Math.round(
+        Number(raw.inactiveFontSize) || DEFAULT_DESKTOP_LYRIC_PERSISTED_SETTINGS.inactiveFontSize,
+      ),
+      18,
+      56,
+    ),
+    activeFontSize: clamp(
+      Math.round(
+        Number(raw.activeFontSize) || DEFAULT_DESKTOP_LYRIC_PERSISTED_SETTINGS.activeFontSize,
+      ),
+      24,
+      76,
+    ),
+    secondaryFontSize: clamp(
+      Math.round(
+        Number(raw.secondaryFontSize) || DEFAULT_DESKTOP_LYRIC_PERSISTED_SETTINGS.secondaryFontSize,
+      ),
+      12,
+      36,
+    ),
+    lineGap: clamp(
+      Math.round(Number(raw.lineGap) || DEFAULT_DESKTOP_LYRIC_PERSISTED_SETTINGS.lineGap),
+      4,
+      28,
+    ),
+    alignment: raw.alignment ?? 'both',
+    doubleLine: typeof raw.doubleLine === 'boolean' ? raw.doubleLine : true,
+    playedColor: String(raw.playedColor || '#31cfa1'),
+    unplayedColor: String(raw.unplayedColor || '#7a7a7a'),
+    strokeColor: String(raw.strokeColor || '#f1b8b3'),
+    strokeEnabled: Boolean(raw.strokeEnabled),
+    shadowStrength: isDesktopLyricShadowStrength(raw.shadowStrength)
+      ? raw.shadowStrength
+      : DEFAULT_DESKTOP_LYRIC_PERSISTED_SETTINGS.shadowStrength,
+    bold: Boolean(raw.bold),
+    layout: isDesktopLyricLayout(raw.layout) ? raw.layout : 'horizontal',
+    offsetStep: clamp(
+      Number(raw.offsetStep) || DEFAULT_DESKTOP_LYRIC_PERSISTED_SETTINGS.offsetStep,
+      0.1,
+      5,
+    ),
+  };
+}
+
+export function sanitizeDesktopLyricSettings(
+  partial: Partial<DesktopLyricSettings>,
+  current: DesktopLyricSettings,
+): DesktopLyricSettings {
+  const mergedBase = {
+    ...current,
+    ...partial,
+  };
+
+  return {
+    enabled: Boolean(mergedBase.enabled),
+    locked: Boolean(mergedBase.locked),
+    autoShow: Boolean(mergedBase.autoShow),
+    alwaysOnTop: Boolean(mergedBase.alwaysOnTop),
+    wantTranslation: Boolean(mergedBase.wantTranslation),
+    wantRomanization: Boolean(mergedBase.wantRomanization),
+    theme: mergedBase.theme ?? current.theme,
+    opacity: clamp(Number(mergedBase.opacity) || current.opacity, 0.25, 1),
+    scale: clamp(Number(mergedBase.scale) || current.scale, 0.75, 1.5),
+    fontFamily: String(mergedBase.fontFamily || current.fontFamily),
+    inactiveFontSize: clamp(
+      Math.round(Number(mergedBase.inactiveFontSize) || current.inactiveFontSize),
+      18,
+      56,
+    ),
+    activeFontSize: clamp(
+      Math.round(Number(mergedBase.activeFontSize) || current.activeFontSize),
+      24,
+      76,
+    ),
+    secondaryFontSize: clamp(
+      Math.round(Number(mergedBase.secondaryFontSize) || current.secondaryFontSize),
+      12,
+      36,
+    ),
+    lineGap: clamp(Math.round(Number(mergedBase.lineGap) || current.lineGap), 4, 28),
+    alignment: mergedBase.alignment ?? current.alignment,
+    doubleLine: Boolean(mergedBase.doubleLine),
+    playedColor: String(mergedBase.playedColor || current.playedColor),
+    unplayedColor: String(mergedBase.unplayedColor || current.unplayedColor),
+    strokeColor: String(mergedBase.strokeColor || current.strokeColor),
+    strokeEnabled: Boolean(mergedBase.strokeEnabled),
+    shadowStrength: isDesktopLyricShadowStrength(mergedBase.shadowStrength)
+      ? mergedBase.shadowStrength
+      : current.shadowStrength,
+    bold: Boolean(mergedBase.bold),
+    layout: isDesktopLyricLayout(mergedBase.layout) ? mergedBase.layout : current.layout,
+    offsetStep: clamp(Number(mergedBase.offsetStep) || current.offsetStep, 0.1, 5),
+  };
+}
+
+export function persistDesktopLyricSettings(nextSettings: DesktopLyricSettings) {
+  patchDesktopLyricPersistedSettings({
+    enabled: nextSettings.enabled,
+    locked: nextSettings.locked,
+    autoShow: nextSettings.autoShow,
+    alwaysOnTop: nextSettings.alwaysOnTop,
+    wantTranslation: nextSettings.wantTranslation,
+    wantRomanization: nextSettings.wantRomanization,
+    theme: nextSettings.theme,
+    opacity: nextSettings.opacity,
+    scale: nextSettings.scale,
+    fontFamily: nextSettings.fontFamily,
+    inactiveFontSize: nextSettings.inactiveFontSize,
+    activeFontSize: nextSettings.activeFontSize,
+    secondaryFontSize: nextSettings.secondaryFontSize,
+    lineGap: nextSettings.lineGap,
+    alignment: nextSettings.alignment,
+    doubleLine: nextSettings.doubleLine,
+    playedColor: nextSettings.playedColor,
+    unplayedColor: nextSettings.unplayedColor,
+    strokeColor: nextSettings.strokeColor,
+    strokeEnabled: nextSettings.strokeEnabled,
+    shadowStrength: nextSettings.shadowStrength,
+    bold: nextSettings.bold,
+    layout: nextSettings.layout,
+    offsetStep: nextSettings.offsetStep,
+  });
+}
+
+export function setDesktopLyricEnabledFlag(enabled: boolean) {
+  patchDesktopLyricPersistedSettings({ enabled });
+}
+
+export function setDesktopLyricLockedFlag(locked: boolean) {
+  patchDesktopLyricPersistedSettings({ locked });
+}
+
+export function getDesktopLyricWindowState(): DesktopLyricWindowState {
+  const state = getDesktopLyricPersistedSettings().windowState;
+  const limits = getDesktopLyricWindowLimits();
+  return {
+    width: clamp(
+      Math.round(Number(state.width) || DEFAULT_DESKTOP_LYRIC_PERSISTED_SETTINGS.windowState.width),
+      limits.minWidth,
+      limits.maxWidth,
+    ),
+    height: clamp(
+      Math.round(
+        Number(state.height) || DEFAULT_DESKTOP_LYRIC_PERSISTED_SETTINGS.windowState.height,
+      ),
+      limits.minHeight,
+      limits.maxHeight,
+    ),
+    ...(typeof state.x === 'number' ? { x: state.x } : {}),
+    ...(typeof state.y === 'number' ? { y: state.y } : {}),
+  };
+}
+
+// const hasVisibleArea = (bounds: DesktopLyricWindowState) => {
+//   return screen.getAllDisplays().some((display) => {
+//     const area = display.workArea;
+//     const x = bounds.x ?? area.x;
+//     const y = bounds.y ?? area.y;
+//     return (
+//       x < area.x + area.width &&
+//       x + bounds.width > area.x &&
+//       y < area.y + area.height &&
+//       y + bounds.height > area.y
+//     );
+//   });
+// };
+
+const getBestDisplayForBounds = (bounds: DesktopLyricWindowState) => {
+  const displays = screen.getAllDisplays();
+  const centerX = (bounds.x ?? 0) + bounds.width / 2;
+  const centerY = (bounds.y ?? 0) + bounds.height / 2;
+  const displayByPoint = screen.getDisplayNearestPoint({
+    x: Math.round(centerX),
+    y: Math.round(centerY),
+  });
+  if (displayByPoint) return displayByPoint;
+  return displays[0] ?? screen.getPrimaryDisplay();
+};
+
+export function constrainBoundsToDisplay(bounds: DesktopLyricWindowState): DesktopLyricWindowState {
+  const display = getBestDisplayForBounds(bounds);
+  const area = display.workArea;
+  const limits = getDesktopLyricWindowLimits();
+  const width = clamp(bounds.width, limits.minWidth, Math.min(limits.maxWidth, area.width));
+  const height = clamp(bounds.height, limits.minHeight, Math.min(limits.maxHeight, area.height));
+  const rawX =
+    typeof bounds.x === 'number' ? bounds.x : area.x + Math.round((area.width - width) / 2);
+  const rawY =
+    typeof bounds.y === 'number' ? bounds.y : area.y + Math.round(area.height * 0.72 - height / 2);
+
+  return {
+    width,
+    height,
+    x: clamp(rawX, area.x, area.x + area.width - width),
+    y: clamp(rawY, area.y, area.y + area.height - height),
+  };
+}
+
+export function resolveInitialBounds() {
+  const primaryArea = screen.getPrimaryDisplay().workArea;
+  const defaultWidth = Math.floor(primaryArea.width * 0.7);
+  const defaultHeight = 200;
+
+  const savedState = getDesktopLyricWindowState();
+  const width = savedState.width || defaultWidth;
+  const height = savedState.height || defaultHeight;
+  const x = savedState.x;
+  const y = savedState.y;
+
+  // 检查保存的位置是否在任意一个显示器的工作区内有可见区域
+  const isValidPosition =
+    x !== undefined &&
+    y !== undefined &&
+    screen.getAllDisplays().some((display) => {
+      const area = display.workArea;
+      // 窗口与该显示器工作区有交集（至少 50px 可见）
+      const overlap = 50;
+      return (
+        x + width > area.x + overlap &&
+        x < area.x + area.width - overlap &&
+        y + height > area.y + overlap &&
+        y < area.y + area.height - overlap
+      );
+    });
+
+  if (!isValidPosition) {
+    // 位置无效，回退到主显示器底部居中
+    const fallbackX = Math.floor(primaryArea.x + (primaryArea.width - width) / 2);
+    const fallbackY = Math.floor(primaryArea.y + primaryArea.height - height);
+    return constrainBoundsToDisplay({ width, height, x: fallbackX, y: fallbackY });
+  }
+
+  return constrainBoundsToDisplay({ width, height, x, y });
+}
+
+export function persistDesktopLyricWindowState(bounds: DesktopLyricWindowState) {
+  patchDesktopLyricPersistedSettings({
+    windowState: {
+      width: Math.round(bounds.width),
+      height: Math.round(bounds.height),
+      ...(typeof bounds.x === 'number' ? { x: Math.round(bounds.x) } : {}),
+      ...(typeof bounds.y === 'number' ? { y: Math.round(bounds.y) } : {}),
+    },
+  });
+}
+
+export function getDesktopLyricVirtualScreenBounds() {
+  const displays = screen.getAllDisplays();
+  const bounds = displays.map((display) => display.workArea);
+  return {
+    minX: Math.min(...bounds.map((bound) => bound.x)),
+    minY: Math.min(...bounds.map((bound) => bound.y)),
+    maxX: Math.max(...bounds.map((bound) => bound.x + bound.width)),
+    maxY: Math.max(...bounds.map((bound) => bound.y + bound.height)),
+  };
+}

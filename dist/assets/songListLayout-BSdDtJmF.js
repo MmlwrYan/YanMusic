@@ -1,0 +1,1 @@
+var e=({showIndex:e,showAlbum:t,showDuration:n,lyricColumn:r})=>{let i=[];return e&&i.push(`40px`),i.push(`minmax(0, 1fr)`),t&&i.push(`${r?260:142}px`),n&&i.push(`68px`),i.join(` `)};export{e as t};

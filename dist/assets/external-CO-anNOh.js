@@ -1,0 +1,1 @@
+import{kt as e}from"./preload-helper-BFM87vNv.js";var t=e({resolveExternalPlaylist:()=>n}),n=e=>window.electron.external.resolvePlaylist(e);export{n,t};

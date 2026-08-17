@@ -1,0 +1,796 @@
+<script setup lang="ts">
+import { computed, watch, ref, onMounted, onUnmounted, nextTick } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { getSearchSuggest, getSearchDefault } from '@/api/search';
+import { useSettingStore } from '@/stores/setting';
+import Button from '@/components/ui/Button.vue';
+import Scrollbar from '@/components/ui/Scrollbar.vue';
+import RefreshIcon from '@/components/ui/RefreshIcon.vue';
+import {
+  iconChevronLeft,
+  iconChevronRight,
+  iconMinus,
+  iconSquare,
+  iconX,
+  iconSearch,
+  iconMicrophone,
+  iconFullscreen,
+  iconPanelLeft,
+  iconPictureInPicture,
+} from '@/icons';
+
+const route = useRoute();
+const router = useRouter();
+const isMac = computed(() => window.electron.platform === 'darwin');
+const settingStore = useSettingStore();
+const navStartClass = computed(() =>
+  isMac.value && !settingStore.sidebarCollapseEnabled ? 'pl-6' : 'pl-4',
+);
+
+// 侧边栏折叠
+const props = defineProps<{
+  isSidebarCollapsed?: boolean;
+}>();
+
+const emit = defineEmits<{
+  toggleSidebar: [];
+}>();
+
+const canGoBack = ref(false);
+const canGoForward = ref(false);
+
+// 搜索状态
+const isSearchExpanded = ref(false);
+const isCollapsing = ref(false);
+const searchQuery = ref('');
+const searchInputRef = ref<HTMLInputElement | null>(null);
+const searchContainerRef = ref<HTMLElement | null>(null);
+const showSuggestions = ref(false);
+const suggestions = ref<{ label: string; records: { text: string }[] }[]>([]);
+const isLoadingSuggestions = ref(false);
+const defaultKeyword = ref('');
+const defaultAds = ref<{ mainTitle: string; subTitle: string; title: string }[]>([]);
+let suggestTimer: number | null = null;
+let collapseTimer: number | null = null;
+
+const updateNavState = () => {
+  if (typeof window === 'undefined') return;
+  const historyState = window.history.state as {
+    back?: string | null;
+    forward?: string | null;
+  } | null;
+  const skipCurrent = route.matched.some((record) => record.meta?.skipHistory === true);
+  canGoBack.value = !skipCurrent && !!historyState?.back;
+  canGoForward.value = !skipCurrent && !!historyState?.forward;
+};
+
+const handleControl = (action: 'minimize' | 'maximize' | 'close' | 'fullscreen') => {
+  window.electron.windowControl(action);
+};
+
+const openMiniPlayer = () => {
+  void window.electron?.miniPlayer?.show();
+};
+
+const goBack = () => {
+  if (canGoBack.value) router.back();
+};
+const goForward = () => {
+  if (canGoForward.value) router.forward();
+};
+const refresh = async () => {
+  await router.replace({
+    path: route.path,
+    query: { ...route.query, _t: Date.now().toString() },
+    hash: route.hash,
+  });
+};
+
+// 搜索逻辑
+const toRecord = (v: unknown): Record<string, unknown> | null =>
+  v && typeof v === 'object' ? (v as Record<string, unknown>) : null;
+
+const extractSuggestions = (payload: unknown) => {
+  const record = toRecord(payload);
+  const list = Array.isArray(record?.data) ? record.data : [];
+  return list
+    .map((item) => toRecord(item))
+    .filter((item): item is Record<string, unknown> => Boolean(item))
+    .map((item) => ({
+      label: String(item.LableName ?? ''),
+      records: (Array.isArray(item.RecordDatas) ? item.RecordDatas : [])
+        .map((r) => toRecord(r))
+        .filter((r): r is Record<string, unknown> => Boolean(r))
+        .map((r) => ({ text: String(r.HintInfo ?? '') }))
+        .filter((r) => r.text.length > 0),
+    }))
+    .filter((c) => c.records.length > 0 && c.label !== 'MV');
+};
+
+const expandSearch = async () => {
+  isSearchExpanded.value = true;
+  isCollapsing.value = false;
+  await nextTick();
+  searchInputRef.value?.focus();
+};
+
+const collapseSearch = () => {
+  if (!isSearchExpanded.value || isCollapsing.value) return;
+  showSuggestions.value = false;
+  searchQuery.value = '';
+  suggestions.value = [];
+  isCollapsing.value = true;
+  if (collapseTimer) {
+    window.clearTimeout(collapseTimer);
+    collapseTimer = null;
+  }
+  // 等收起动画结束后再真正隐藏
+  collapseTimer = window.setTimeout(() => {
+    isSearchExpanded.value = false;
+    isCollapsing.value = false;
+    collapseTimer = null;
+  }, 200);
+};
+
+const handleSearchInput = (value: string) => {
+  if (suggestTimer) {
+    window.clearTimeout(suggestTimer);
+    suggestTimer = null;
+  }
+  if (!value.trim()) {
+    suggestions.value = [];
+    showSuggestions.value = false;
+    return;
+  }
+  isLoadingSuggestions.value = true;
+  suggestTimer = window.setTimeout(async () => {
+    try {
+      const res = await getSearchSuggest(value.trim());
+      if (searchQuery.value.trim() !== value.trim()) return;
+      suggestions.value = extractSuggestions(res);
+      showSuggestions.value = suggestions.value.length > 0;
+    } catch {
+      suggestions.value = [];
+    }
+    isLoadingSuggestions.value = false;
+  }, 280);
+};
+
+const submitSearch = (keyword?: string) => {
+  const q = (keyword ?? searchQuery.value).trim() || defaultKeyword.value;
+  if (!q) return;
+  collapseSearch();
+  router.push({ name: 'search', query: { q } });
+};
+
+const handleSearchBlur = () => {
+  // 延迟收起，给建议项点击留出时间
+  window.setTimeout(() => {
+    // 如果焦点仍在搜索区域内，不收起
+    if (searchContainerRef.value?.contains(document.activeElement)) return;
+    collapseSearch();
+  }, 180);
+};
+
+const handleGlobalPointerDown = (e: PointerEvent) => {
+  if (!isSearchExpanded.value) return;
+  if (searchContainerRef.value?.contains(e.target as Node)) return;
+  collapseSearch();
+};
+
+const handleSearchFocus = () => {
+  if (searchQuery.value.trim() && suggestions.value.length > 0) {
+    showSuggestions.value = true;
+  }
+};
+
+const handleSearchKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape') {
+    collapseSearch();
+  }
+};
+
+watch(
+  () => route.fullPath,
+  () => {
+    updateNavState();
+    // 路由变化时收起搜索
+    if (isSearchExpanded.value) collapseSearch();
+  },
+  { immediate: true },
+);
+
+watch(
+  () => settingStore.searchDefaultEnabled,
+  (enabled) => {
+    if (enabled) {
+      fetchDefaultSearch();
+    } else {
+      defaultKeyword.value = '';
+      defaultAds.value = [];
+    }
+  },
+);
+
+const fetchDefaultSearch = () => {
+  getSearchDefault()
+    .then((res: any) => {
+      const ads = res?.data?.ads ?? res?.ads ?? [];
+      if (!Array.isArray(ads) || ads.length === 0) return;
+      const first = ads[0];
+      if (first?.main_title) {
+        defaultKeyword.value = String(first.main_title).trim();
+      }
+      defaultAds.value = ads
+        .filter((ad: any) => ad?.sub_title || ad?.main_title)
+        .map((ad: any) => ({
+          mainTitle: String(ad.main_title ?? '').trim(),
+          subTitle: String(ad.sub_title ?? '').trim(),
+          title: String(ad.title ?? '').trim(),
+        }));
+    })
+    .catch(() => {});
+};
+
+onMounted(() => {
+  window.addEventListener('popstate', updateNavState);
+  document.addEventListener('pointerdown', handleGlobalPointerDown, true);
+  // 获取默认搜索词
+  if (settingStore.searchDefaultEnabled) {
+    fetchDefaultSearch();
+  }
+});
+
+onUnmounted(() => {
+  window.removeEventListener('popstate', updateNavState);
+  document.removeEventListener('pointerdown', handleGlobalPointerDown, true);
+  if (suggestTimer) window.clearTimeout(suggestTimer);
+  if (collapseTimer) window.clearTimeout(collapseTimer);
+});
+</script>
+
+<template>
+  <header
+    ref="titleBarRef"
+    class="title-bar flex items-center shrink-0 select-none transition-colors duration-300 z-200 bg-transparent relative"
+  >
+    <!-- 拖动层：绝对定位铺满标题栏 -->
+    <div class="drag-region"></div>
+
+    <!-- 1. 左侧：导航按钮 -->
+    <div class="titlebar-nav flex items-center gap-1 no-drag relative z-10" :class="navStartClass">
+      <!-- 侧边栏折叠按钮 -->
+      <Button
+        v-if="settingStore.sidebarCollapseEnabled"
+        variant="unstyled"
+        size="none"
+        @click="emit('toggleSidebar')"
+        class="nav-btn group"
+        :title="props.isSidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+      >
+        <Icon
+          :icon="iconPanelLeft"
+          width="20"
+          height="20"
+          class="text-text-main opacity-60 group-hover:opacity-100 transition-opacity"
+          :class="{ 'rotate-180': props.isSidebarCollapsed }"
+        />
+      </Button>
+
+      <Button
+        variant="unstyled"
+        size="none"
+        @click="goBack"
+        class="nav-btn group"
+        :disabled="!canGoBack"
+        title="后退"
+      >
+        <Icon
+          :icon="iconChevronLeft"
+          width="22"
+          height="22"
+          :class="[
+            'text-text-main transition-opacity',
+            canGoBack ? 'opacity-60 group-hover:opacity-100' : 'opacity-40',
+          ]"
+        />
+      </Button>
+      <Button
+        variant="unstyled"
+        size="none"
+        @click="goForward"
+        class="nav-btn group"
+        :disabled="!canGoForward"
+        title="前进"
+      >
+        <Icon
+          :icon="iconChevronRight"
+          width="22"
+          height="22"
+          :class="[
+            'text-text-main transition-opacity',
+            canGoForward ? 'opacity-60 group-hover:opacity-100' : 'opacity-40',
+          ]"
+        />
+      </Button>
+      <Button variant="unstyled" size="none" @click="refresh" class="nav-btn group" title="刷新">
+        <RefreshIcon
+          width="20"
+          height="20"
+          class="text-text-main opacity-60 group-hover:opacity-100 transition-opacity"
+        />
+      </Button>
+
+      <!-- 听歌识曲 -->
+      <Button
+        variant="unstyled"
+        size="none"
+        class="nav-btn group"
+        title="听歌识曲"
+        @click="router.push({ name: 'recognize' })"
+      >
+        <Icon
+          :icon="iconMicrophone"
+          width="16"
+          height="16"
+          style="stroke-width: 3"
+          class="text-text-main opacity-60 group-hover:opacity-100 transition-opacity tb-icon-bold"
+        />
+      </Button>
+
+      <!-- 搜索 -->
+      <div
+        ref="searchContainerRef"
+        class="tb-search"
+        :class="{ 'is-expanded': isSearchExpanded && !isCollapsing }"
+      >
+        <!-- 收起状态：搜索图标按钮 -->
+        <Button
+          v-if="!isSearchExpanded && !isCollapsing"
+          variant="unstyled"
+          size="none"
+          class="nav-btn group"
+          title="搜索"
+          @click="expandSearch"
+        >
+          <Icon
+            :icon="iconSearch"
+            width="17"
+            height="17"
+            style="stroke-width: 3"
+            class="text-text-main opacity-60 group-hover:opacity-100 transition-opacity tb-icon-bold"
+          />
+        </Button>
+
+        <!-- 展开状态：搜索输入框 -->
+        <div
+          v-if="isSearchExpanded || isCollapsing"
+          class="tb-search-expanded"
+          :class="{ 'is-collapsing': isCollapsing }"
+        >
+          <div class="tb-search-input-wrap">
+            <Icon :icon="iconSearch" width="15" height="15" class="tb-search-icon" />
+            <input
+              ref="searchInputRef"
+              v-model="searchQuery"
+              type="text"
+              class="tb-search-input"
+              :placeholder="defaultKeyword || '搜索音乐、歌手、专辑'"
+              @input="handleSearchInput(searchQuery)"
+              @keydown.enter.prevent="submitSearch()"
+              @keydown="handleSearchKeydown"
+              @focus="handleSearchFocus"
+              @blur="handleSearchBlur"
+            />
+            <Button
+              v-if="searchQuery"
+              variant="unstyled"
+              size="none"
+              class="tb-search-clear"
+              @mousedown.prevent
+              @click="
+                searchQuery = '';
+                suggestions = [];
+                showSuggestions = false;
+                searchInputRef?.focus();
+              "
+            >
+              <Icon :icon="iconX" width="14" height="14" />
+            </Button>
+            <Button
+              v-else
+              variant="unstyled"
+              size="none"
+              class="tb-search-goto"
+              @mousedown.prevent
+              @click="
+                collapseSearch();
+                router.push({ name: 'search' });
+              "
+            >
+              搜索页
+            </Button>
+          </div>
+
+          <!-- 搜索建议下拉 -->
+          <Scrollbar v-if="showSuggestions" class="tb-suggestions">
+            <div class="tb-suggestions-inner">
+              <div v-for="category in suggestions" :key="category.label" class="tb-suggest-group">
+                <div class="tb-suggest-title">{{ category.label }}</div>
+                <Button
+                  v-for="record in category.records"
+                  :key="`${category.label}-${record.text}`"
+                  variant="unstyled"
+                  size="none"
+                  class="tb-suggest-item"
+                  @mousedown.prevent
+                  @click="submitSearch(record.text)"
+                >
+                  <Icon :icon="iconSearch" width="13" height="13" class="tb-suggest-item-icon" />
+                  <span class="truncate">{{ record.text }}</span>
+                </Button>
+              </div>
+            </div>
+          </Scrollbar>
+
+          <!-- 推荐词条：输入为空且无建议时显示 -->
+          <div v-else-if="!searchQuery.trim() && defaultAds.length > 0" class="tb-suggestions">
+            <div class="tb-suggestions-inner">
+              <div class="tb-suggest-group">
+                <div class="tb-suggest-title">热门推荐</div>
+                <Button
+                  v-for="(ad, idx) in defaultAds"
+                  :key="idx"
+                  variant="unstyled"
+                  size="none"
+                  class="tb-suggest-item"
+                  :title="ad.title"
+                  @mousedown.prevent
+                  @click="submitSearch(ad.subTitle || ad.mainTitle)"
+                >
+                  <Icon :icon="iconSearch" width="13" height="13" class="tb-suggest-item-icon" />
+                  <span class="truncate">{{ ad.subTitle || ad.mainTitle }}</span>
+                  <span v-if="ad.title" class="tb-suggest-item-desc truncate">{{ ad.title }}</span>
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. 中间：拖拽区域 -->
+    <div class="flex-1 h-full"></div>
+
+    <!-- 3. 右侧：mini 模式与窗口控制 -->
+    <div class="window-controls flex items-center no-drag h-full relative z-10">
+      <Button
+        variant="unstyled"
+        size="none"
+        @click="openMiniPlayer"
+        class="control-btn mini-control-btn"
+        title="mini 模式"
+      >
+        <Icon :icon="iconPictureInPicture" width="16" height="16" />
+      </Button>
+      <template v-if="!isMac">
+        <Button
+          variant="unstyled"
+          size="none"
+          @click="handleControl('minimize')"
+          class="control-btn"
+        >
+          <Icon :icon="iconMinus" width="14" height="14" />
+        </Button>
+        <Button
+          v-if="settingStore.showFullscreenButton"
+          variant="unstyled"
+          size="none"
+          @click="handleControl('fullscreen')"
+          class="control-btn control-btn--fullscreen"
+          title="全屏"
+        >
+          <Icon :icon="iconFullscreen" width="14" height="14" class="window-control-icon--static" />
+        </Button>
+        <Button
+          variant="unstyled"
+          size="none"
+          @click="handleControl('maximize')"
+          class="control-btn"
+        >
+          <Icon :icon="iconSquare" width="13" height="13" />
+        </Button>
+        <Button
+          variant="unstyled"
+          size="none"
+          @click="handleControl('close')"
+          class="control-btn hover:bg-red-500 hover:text-white"
+        >
+          <Icon :icon="iconX" width="14" height="14" />
+        </Button>
+      </template>
+    </div>
+  </header>
+</template>
+
+<style scoped>
+.title-bar {
+  height: 46px;
+}
+
+.titlebar-nav {
+  transition: padding-left 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.nav-btn {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s;
+  background: transparent;
+  border: none;
+}
+
+.nav-btn:hover {
+  background-color: var(--control-hover-bg);
+}
+
+.nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.nav-btn:disabled:hover {
+  background-color: transparent;
+}
+
+/* 加粗图标（穿透到 SVG 内部） */
+.tb-icon-bold :deep(path),
+.tb-icon-bold :deep(line),
+.tb-icon-bold :deep(circle),
+.tb-icon-bold :deep(polyline) {
+  stroke-width: 2.5 !important;
+}
+
+.control-btn {
+  width: 48px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-main);
+  background: transparent;
+  border: none;
+  transition: all 0.2s;
+}
+
+.mini-control-btn {
+  width: 40px;
+  color: var(--color-text-main);
+  opacity: 0.68;
+}
+
+.control-btn:hover {
+  background-color: var(--control-hover-bg);
+}
+
+.control-btn--fullscreen:hover {
+  background-color: var(--control-hover-bg);
+}
+
+.window-control-icon--static {
+  animation: none;
+  transition: none;
+  transform: none;
+}
+
+.control-btn:hover.hover\:bg-red-500 {
+  background-color: #ff3b30 !important;
+}
+
+.mini-control-btn:hover,
+:global(.dark) .mini-control-btn:hover {
+  background-color: transparent;
+  color: var(--color-primary);
+  opacity: 1;
+}
+
+/* 搜索区域 */
+.tb-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.tb-search-expanded {
+  position: relative;
+  width: 320px;
+  animation: tb-search-expand 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tb-search-expanded.is-collapsing {
+  animation: tb-search-collapse 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes tb-search-expand {
+  from {
+    width: 80px;
+    opacity: 0.6;
+  }
+  to {
+    width: 320px;
+    opacity: 1;
+  }
+}
+
+@keyframes tb-search-collapse {
+  from {
+    width: 320px;
+    opacity: 1;
+  }
+  to {
+    width: 80px;
+    opacity: 0;
+  }
+}
+
+.tb-search-input-wrap {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--control-muted-bg);
+  padding: 0 4px 0 10px;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.tb-search-input-wrap:focus-within {
+  background: var(--control-bg);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.tb-search-icon {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  opacity: 0.6;
+}
+
+.tb-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 0 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-main);
+}
+
+.tb-search-input::placeholder {
+  color: var(--color-text-secondary);
+  opacity: 0.5;
+}
+
+.tb-search-clear {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary);
+  transition: all 0.15s ease;
+}
+
+.tb-search-clear:hover {
+  color: var(--color-text-main);
+  background: var(--control-hover-bg);
+}
+
+.tb-search-goto {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.tb-search-goto:hover {
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+:global(.dark) .tb-search-goto {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+:global(.dark) .tb-search-goto:hover {
+  background: color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+
+/* 搜索建议下拉 */
+.tb-suggestions {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 100%;
+  max-height: 360px;
+  border-radius: 12px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-elevated);
+  padding: 6px 0;
+  z-index: 500;
+}
+
+.tb-suggestions-inner {
+  padding: 6px 0;
+}
+
+.tb-suggest-group + .tb-suggest-group {
+  margin-top: 4px;
+}
+
+.tb-suggest-group + .tb-suggest-group .tb-suggest-title {
+  border-top: 0.5px solid var(--border-subtle);
+  padding-top: 8px;
+  margin-top: 2px;
+}
+
+.tb-suggest-title {
+  padding: 6px 14px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-primary);
+  opacity: 0.7;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.tb-suggest-item {
+  width: calc(100% - 12px);
+  margin: 0 6px;
+  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-main);
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.tb-suggest-item:hover {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  color: var(--color-primary);
+}
+
+:global(.dark) .tb-suggest-item:hover {
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+.tb-suggest-item-icon {
+  flex-shrink: 0;
+  opacity: 0.4;
+}
+
+.tb-suggest-item-desc {
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.45;
+  flex-shrink: 1;
+  min-width: 0;
+}
+</style>

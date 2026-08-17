@@ -1,0 +1,1 @@
+import{D as e,Dt as t,St as n}from"./preload-helper-BFM87vNv.js";function r(r){let i=e(),a=i?.type.emits,o={};return a?.length||console.warn(`No emitted event found. Please check component: ${i?.type.__name}`),a?.forEach(e=>{o[t(n(e))]=(...t)=>r(e,...t)}),o}export{r as t};

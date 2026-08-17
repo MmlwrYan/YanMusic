@@ -1,0 +1,1 @@
+import{n as e}from"./useForwardExpose-Br7m7MJG.js";var[t,n]=e(`ConfigProvider`);export{t};

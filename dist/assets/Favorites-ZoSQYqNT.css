@@ -1,0 +1,2 @@
+/*! tailwindcss v4.3.0 | MIT License | https://tailwindcss.com */
+.favorites-tab-list[data-v-73add835] .tab-trigger{font-size:14px;font-weight:600}.song-locate-btn[data-v-73add835]{color:var(--color-text-main);opacity:.6;transition:all .2s}.song-locate-btn[data-v-73add835]:hover{opacity:1;background:var(--color-text-main)}@supports (color:color-mix(in lab, red, red)){.song-locate-btn[data-v-73add835]:hover{background:color-mix(in srgb, var(--color-text-main) 8%, transparent)}}

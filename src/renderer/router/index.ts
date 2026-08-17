@@ -1,0 +1,184 @@
+import {
+  createRouter,
+  createWebHashHistory,
+  type RouteLocationNormalized,
+  type RouteRecordRaw,
+} from 'vue-router';
+
+const routes: RouteRecordRaw[] = [
+  {
+    path: '/',
+    name: 'loading',
+    component: () => import('@/views/Loading.vue'),
+    meta: { skipHistory: true },
+  },
+  {
+    path: '/login',
+    name: 'login',
+    component: () => import('@/views/Login.vue'),
+    meta: { skipHistory: true },
+  },
+  {
+    path: '/mini-player',
+    name: 'mini-player',
+    component: () => import('@/miniPlayer/MiniPlayerView.vue'),
+    meta: { skipHistory: true },
+  },
+  {
+    path: '/main',
+    component: () => import('@/layouts/MainLayout.vue'),
+    children: [
+      {
+        path: 'home',
+        name: 'home',
+        component: () => import('@/views/Home.vue'),
+      },
+      {
+        path: 'personal-fm',
+        name: 'personal-fm',
+        component: () => import('@/views/PersonalFm.vue'),
+        meta: { title: '私人 FM', keepAlive: true },
+      },
+      {
+        path: 'recommend',
+        name: 'recommend-songs',
+        component: () => import('@/views/RecommendSongs.vue'),
+        meta: { title: '每日推荐' },
+      },
+      {
+        path: 'explore',
+        name: 'explore',
+        component: () => import('@/views/Explore.vue'),
+      },
+      {
+        path: 'search',
+        name: 'search',
+        component: () => import('@/views/Search.vue'),
+        meta: { title: '搜索' },
+      },
+      {
+        path: 'recognize',
+        name: 'recognize',
+        component: () => import('@/views/Recognize.vue'),
+        meta: { title: '听歌识曲', keepAlive: true },
+      },
+      {
+        path: 'ranking',
+        name: 'ranking',
+        component: () => import('@/views/Ranking.vue'),
+      },
+      {
+        path: 'history',
+        name: 'history',
+        component: () => import('@/views/History.vue'),
+      },
+      {
+        path: 'favorites',
+        name: 'favorites',
+        component: () => import('@/views/Favorites.vue'),
+        meta: { title: '我最喜爱' },
+      },
+      {
+        path: 'cloud',
+        name: 'cloud',
+        component: () => import('@/views/Cloud.vue'),
+      },
+      {
+        path: 'profile',
+        name: 'profile',
+        component: () => import('@/views/Profile.vue'),
+      },
+      {
+        path: 'settings',
+        name: 'settings',
+        component: () => import('@/views/Settings.vue'),
+        meta: { title: '偏好设置' },
+      },
+      {
+        path: 'settings/plugins',
+        name: 'plugin-management',
+        component: () => import('@/views/PluginManagement.vue'),
+        meta: { title: '插件管理' },
+      },
+      {
+        path: 'plugin/:pluginId/:pageId',
+        name: 'plugin-page',
+        component: () => import('@/plugins/PluginPageHost.vue'),
+        meta: { title: '插件' },
+      },
+      {
+        path: 'playlist/:id',
+        name: 'playlist-detail',
+        component: () => import('@/views/details/PlaylistDetail.vue'),
+        meta: { title: '歌单详情' },
+      },
+      {
+        path: 'artist/:id',
+        name: 'artist-detail',
+        component: () => import('@/views/details/ArtistDetail.vue'),
+        meta: { title: '歌手详情' },
+      },
+      {
+        path: 'album/:id',
+        name: 'album-detail',
+        component: () => import('@/views/details/AlbumDetail.vue'),
+        meta: { title: '专辑详情' },
+      },
+      {
+        path: 'detail/:id',
+        name: 'song-detail',
+        component: () => import('@/views/details/SongDetail.vue'),
+        meta: { title: '歌曲详情' },
+      },
+      {
+        path: 'mv/:id',
+        name: 'mv-detail',
+        component: () => import('@/views/details/MvDetail.vue'),
+        meta: { title: 'MV详情' },
+      },
+      {
+        path: 'plugin-share',
+        name: 'plugin-share-resolve',
+        component: () => import('@/views/plugins/PluginShareResolve.vue'),
+        meta: { title: '插件分享' },
+      },
+      {
+        path: 'share',
+        name: 'share-resolve',
+        component: () => import('@/views/ShareResolve.vue'),
+        meta: { title: '分享链接' },
+      },
+      {
+        path: 'error',
+        name: 'error',
+        component: () => import('@/views/ErrorPage.vue'),
+        meta: { title: '出错了' },
+      },
+    ],
+  },
+];
+
+const router = createRouter({
+  history: createWebHashHistory(),
+  routes,
+});
+
+const shouldSkipHistory = (route: RouteLocationNormalized): boolean => {
+  return route.matched.some((record) => record.meta?.skipHistory === true);
+};
+
+router.beforeEach((to, from) => {
+  const skipToHistory = shouldSkipHistory(to);
+  const skipFromHistory = from.matched.length > 0 && shouldSkipHistory(from);
+
+  if ((!skipToHistory && !skipFromHistory) || to.redirectedFrom) return true;
+
+  return {
+    path: to.path,
+    query: to.query,
+    hash: to.hash,
+    replace: true,
+  };
+});
+
+export default router;
