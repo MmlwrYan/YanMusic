@@ -19,7 +19,7 @@
 
 ---
 
-## ✨ 核心特性
+##  核心特性
 
 - **极致美学**：精心适配桌面端布局，支持深浅色模式与主题色自定义，完美兼顾信息密度、个性表达与沉浸式体验。
 - **数据安全**：官方服务器直连，数据不经过第三方服务器，保证用户数据安全。
@@ -54,7 +54,7 @@
   - **优化的空间音效**：高效 FFT-based 卷积混响、IR 预处理和归一化、Dry/Wet 混合级别控制、内置精选混响空间（音乐厅、教堂、录音室、剧院）
   - **统一滤镜链管理**：智能管理 EQ、混响、音量均衡等多重音频效果，避免冲突，确保最佳音质
 
-## 🛠️ 技术栈
+##  技术栈
 
 - **Desktop Shell**: [Electron](https://www.electronjs.org/) 42.3
 - **Frontend**: [Vue 3.5](https://vuejs.org/) + [TypeScript 5.9](https://www.typescriptlang.org/)
@@ -71,36 +71,8 @@
   - `yan-media-controls`：系统媒体控制集成（macOS/Windows/Linux 原生 API）
   - `yan-storage`：SQLite 本地持久化存储，负责设置、播放队列与状态快照
 
-## 🖼️ 界面截图
 
-- 首页
-  ![首页](screenshots/home.png)
-- 发现
-  ![发现](screenshots/discover.png)
-- 私人FM
-  ![私人FM](screenshots/personal_fm.png)
-- 听歌识曲
-  ![听歌识曲](screenshots/recognize.png)
-- 歌词
-  ![歌词](screenshots/lyric.png)
-- 歌曲详情
-  ![歌曲详情](screenshots/song_detail.png)
-- 歌曲评论
-  ![歌曲评论](screenshots/song_comment.png)
-- 播放列表
-  ![播放列表](screenshots/playlist.png)
-- 专辑
-  ![专辑](screenshots/album.png)
-- 歌手
-  ![歌手](screenshots/artist.png)
-- 搜索
-  ![搜索](screenshots/search.png)
-- 个人中心
-  ![个人中心](screenshots/profile.png)
-- 设置
-  ![设置](screenshots/settings.png)
-
-## 🚀 快速开始
+##  快速开始
 
 ### 前置要求
 
@@ -212,9 +184,9 @@ export async function activate(ctx) {
 }
 ```
 
-👉 **[插件开发文档](https://github.com/hoowhoami/EchoMusicPlugins)**
+ **[插件开发文档](https://github.com/hoowhoami/EchoMusicPlugins)**
 
-## 🏗️ 编译发布
+##  编译发布
 
 项目使用 GitHub Actions 进行自动化构建。每当推送 `v*` 格式的 Tag 时，会自动触发多平台构建并将二进制包上传至 Releases。
 
@@ -224,7 +196,7 @@ export async function activate(ctx) {
 pnpm build
 ```
 
-## 📦 打包产物
+##  打包产物
 
 - **macOS**：`dmg`、`zip`
 - **Windows**：`exe (nsis，x64/arm64)`
@@ -242,15 +214,16 @@ xattr -cr /Applications/yanmusic.app && codesign --force --deep --sign - /Applic
 - QQ1群: 1036693403（已满，加了会被直接拒绝）
 - QQ2群：[491694809](https://qun.qq.com/universal-share/share?ac=1&authKey=XOL9fQGcJA%2FrPnEMB3ye5uizEGZd%2Bd0%2BqXVcoNcsRsE44r%2FTuZxTMpbOEb09sD1c&busi_data=eyJncm91cENvZGUiOiI0OTE2OTQ4MDkiLCJ0b2tlbiI6IlROYm1OblFUc1o2NzBMQVNMWTlmY1QwOVZxU1RuelIvcVB1bzlPVXd0dVB3ZHNBWm0vMEVNZkQzVXFOQ3I0YUoiLCJ1aW4iOiIzNTM4OTA0MDc4In0%3D&data=Wg3hFwudAwgWfojZNMpcyK5KoGydAM9hijUfwcvg-MqqjTepIcVdA0zr5Pnms_fAAgvm_7U3yK8Br9ocKbuQDg&svctype=4&tempid=h5_group_info)
 
-## 💡 灵感来源
+##  灵感来源
 
 本项目受到以下优秀开源项目的启发：
 
 - [KuGouMusicApi](https://github.com/MakcRe/KuGouMusicApi) - 酷狗音乐 NodeJS 版 API
 - [SPlayer](https://github.com/imsyy/SPlayer) - 一个简约的音乐播放器
 - [MoeKoeMusic](https://github.com/MoeKoeMusic/MoeKoeMusic) - 一款开源简洁高颜值的酷狗第三方客户端
+- [EchoMusic](https://github.com/hoowhoami/EchoMusic) - 一个简约的第三方酷狗概念版音乐播放器
 
-## 📄 免责声明
+##  免责声明
 
 本项目是基于公开 API 接口开发的第三方音乐客户端，仅供个人学习和技术研究使用。
 
@@ -262,7 +235,7 @@ xattr -cr /Applications/yanmusic.app && codesign --force --deep --sign - /Applic
 
 **本项目不接受任何商业合作、广告或捐赠。**
 
-## ⚖️ 开源协议
+##  开源协议
 
 基于 [GPL-3.0 License](LICENSE) 协议发布。
 
