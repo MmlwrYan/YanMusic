@@ -462,11 +462,11 @@ git push --force origin master:main
 ## 12. 最终交付物清单
 | # | 交付物 | 路径 / 位置 | 状态 |
 |---|---|---|---|
-| 1 | Windows 免安装版 | `release\win-unpacked\`（含新图标；`YanMusic.exe`） | ✅ 已就绪 |
-| 2 | Windows installer | `release\YanMusic-2.2.8-Windows-Setup-x64.exe` | ✅ 已就绪 |
-| 3 | macOS installer（dmg） | CI 产物（§11.7） | ⏳ 待推送触发 |
-| 4 | Linux installer（AppImage/deb） | CI 产物（§11.7） | ⏳ 待推送触发 |
-| 5 | GitHub 仓库更新 | `MmlwrYan/YanMusic` | ⏳ **待你授权推送**（§11.6，remote 未配置） |
+| 1 | Windows 免安装版 | `release\win-unpacked\`（含新图标；`YanMusic.exe`，版本 1.1.0） | ✅ 已就绪（见 §14.6） |
+| 2 | Windows installer | `release\YanMusic-1.1.0-Windows-Setup-x64.exe`（140.22 MB） | ✅ 已就绪（见 §14.6） |
+| 3 | macOS installer（dmg） | CI 产物（§14.5） | ⏳ CI run 34743992671 运行中 |
+| 4 | Linux installer（AppImage/deb） | CI 产物（§14.5） | ⏳ CI run 34743992671 运行中 |
+| 5 | GitHub 仓库更新 | `MmlwrYan/YanMusic`（main 前进至 `5ced746`，tag `v1.1.0`） | ✅ 已推送（见 §14.4） |
 | 6 | LICENSE → GPL-3.0 | `LICENSE`、`package.json`、`README.md`、`LICENSES/` | ✅ 已完成 |
 | 7 | 报告 | `PORTING_REPORT.md` | ✅ 已更新 |
 
@@ -500,4 +500,133 @@ git push --force origin master:main
 
 ### 13.3 源码注释中的上游引用（不需处理）
 `DesktopLyricView.vue:560`、`stores/player/playback.ts:299`、`stores/listenTogether.ts:1671`、`stores/player.ts:64` 等注释提到引擎差异与上游实现来历。**注释不进 GUI**，且如实记录移植来历有利于维护，建议保留。
+
+---
+
+## 14. v1.1.0 发布记录（独立版本号 / GUI 品牌清理 / GPL 致谢补充 / 推送与 CI）
+
+### 14.0 本轮任务对照
+| # | 任务 | 结果 | 详见 |
+|---|---|---|---|
+| 1 | 决策①：除致谢段外清除 GUI 品牌字样 | ✅ 已完成（含 1 处严重暴露修复） | §14.2 |
+| 2 | 版本号改 1.1.0 + 应用内显示同步 | ✅ 已完成（`app.getVersion()`，无硬编码） | §14.1 |
+| 3 | GPL 致谢补充上游参考版本 | ✅ 已完成 | §14.3 |
+| 4 | 重新构建 Windows installer + 绿色版 | ✅ 已完成（1.1.0，均验证） | §14.6 |
+| 5 | 推送（不覆盖历史）+ tag v1.1.0 + 触发 CI | ✅ 已完成（快进提交，无需 force） | §14.4 / §14.5 |
+| 6 | 更新报告 + 交付物清单 | ✅ 本次更新 | §14 / §12 |
+
+### 14.1 版本号策略
+- `package.json` `version`：`2.2.8` → **`1.1.0`**（独立版本号，不再与上游对齐）
+- **应用内版本显示来源**：主进程 `app.getVersion()`（`src/main/ipc/settings.ts:722/867`）→ IPC `appInfo.version` → `stores/setting.ts:254` → `AboutSettingsSection.vue:14`（关于页）、`UpdateDialog.vue:53/56`（更新提示）、`DataSettingsSection.vue:218`（备份信息）。**无需另处硬编码**：全量检索 `src/**` 无 `2.2.8` 残留（0 命中）
+- `CHANGELOG.md` 新增 `## [1.1.0] - 2026-09-13` 条目；CI release job 以 `CHANGELOG.md` 的 `[1.1.0]` 段落作为发布说明
+- 产物命名随版本号变更：`YanMusic-1.1.0-Windows-Setup-x64.exe`；`release/latest.yml` 重建为 `version: 1.1.0`
+- 旧版 2.2.8 产物已清理（exe / blockmap / latest.yml）
+
+### 14.2 GUI 品牌清理（除致谢段外）
+**发现 1 处严重暴露（本轮新增发现）**：远端索引 `echo-plugins.json` 顶层 `name` = **「EchoMusic 官方插件源」**，而主进程原逻辑在该索引名与内置名不同时采用索引名（`main/plugins.ts` 取 `sourceName = index.name`），该值经 IPC 渲染到**每一张市场插件卡片**（`MarketplacePluginCard.vue:122`）与插件源列表（`PluginSourceDialog.vue:81`），并可能已写入 KV 持久化与市场缓存。
+
+修复（功能性取值不变，仅显示名与显示方式收敛）：
+| 位置 | 修改 | 作用 |
+|---|---|---|
+| `main/plugins/common.ts` | 新增 `OFFICIAL_PLUGIN_MARKETPLACE_SOURCE_NAME = 'YanMusic 官方插件源'` | 显示名单一来源 |
+| `main/plugins.ts` `normalizeMarketplaceSource` | 官方源强制使用本地显示名（覆盖 KV 中的历史值） | 持久化层不再回灌上游名 |
+| `main/plugins.ts` `getMarketplaceCache` | 读取市场缓存时，官方源插件条目的 `sourceName` 统一改写 | 清掉旧缓存里的上游名 |
+| `main/plugins.ts` 索引抓取 | 官方源不再采用 `index.name`，只接受本地名 | 抓取结果不再带入上游名 |
+| `PluginSourceDialog.vue` | 内置源地址改为中性说明「官方内置源（自动同步）」，`title` 亦不暴露原始地址 | 唯一渲染 URL 的点已收敛 |
+| `PluginShareResolve.vue` | 「插件源」一栏改为本地源显示名 / 「尚未添加的插件源」；来源文案去掉 URL 回退 | 分享链接携带的上游地址/ID 不再上屏 |
+| `PluginSourceDialog.vue` 提示语 | 去掉索引文件名，改为「…读取仓库内的插件索引文件并同步插件清单。」 | 中性表述 |
+
+清理后**渲染层品牌串审计（打包产物 `dist`）**：
+| 产物 | 命中 | 判定 |
+|---|---|---|
+| `dist/assets/legal-*.js` | `EchoMusic`/`hoowhoami`/`echomusic` 各 1 处 | ✅ 允许（免责声明致谢段，见 §14.3） |
+| `dist/assets/Settings-*.js` | 仅插件文档链接 `https://github.com/hoowhoami/EchoMusicPlugins` | ✅ 非渲染文本（按钮为中文标题，点击由系统浏览器打开；功能必需） |
+| `dist/assets/share-*.js` | 仅分享落地页 `https://hoowhoami.github.io/yanmusic/share/` | ✅ 非渲染文本（仅写入剪贴板；替换会导致分享链接 404，见 §13.2） |
+| `dist-electron/main/app-*.js` | 市场常量（索引名/仓库地址/统计 API） | ✅ 主进程常量，不上屏 |
+| **`EchoMusic 官方插件源`** | **0 命中** | ✅ 已消除（原先会出现在市场插件卡片） |
+
+保留的 10 处品牌串已逐条分类（见 §13.2/§13.3：主进程常量、插件清单兼容键 `echoMusicVersion`、代码注释、插件文档链接、分享落地页地址），**均不渲染为界面文本**。
+
+### 14.3 GPL 致谢补充（本轮要求）
+`src/renderer/constants/legal.ts`：
+- **致谢段**（唯一允许出现上游字样的界面文案）新增：上游参考版本 **2.3.1-beta.24**（本项目对比基准）、**原始版权归 EchoMusic 项目及其开发者所有**、**本项目修改内容与上游原始内容的差异说明**（适配 libmpv 播放引擎与一体化打包、调整界面文案与品牌标识、修复若干 bug 含恢复直接领取 VIP 功能，差异细节指向本报告）
+- **开源协议段**改为中性表述（原「EchoMusic 项目基于 GPL-3.0…」→「本项目遵循 GPL-3.0…，完整许可证文本见随安装包分发的 LICENSE 文件或本仓库根目录的 LICENSE」），即除致谢段外界面不再出现上游字样
+
+### 14.4 推送（不覆盖远端历史）
+远端 `main` 原有历史仅 2 条（`539afe2 Clean start: Remove large files and history` → `94b3f1a Update LICENSE`，即 tag `v1.0.0`），且与本地开发历史 `master`（17 条提交）**无共同祖先**，直接推送会被拒绝、`--force` 会覆盖远端历史。
+
+采用的方案：**以远端 main 为父提交、以本地 master 的目录树为内容，构造单个发布提交**，再快进推送（等价于「在远端 main 基础上，把本地文件内容作为新提交」，即用户给出的方向 a）：
+```bash
+TREE=$(git rev-parse master^{tree})            # e761f3fa0a77c2b7d9d9e4de6ac412634cbe1f1b
+NEW=$(git commit-tree $TREE -p origin/main -F <发布说明>)
+# => 5ced746467f76425853612a982b498a6075e8324
+git branch -f main $NEW
+git push origin main:main                      # 快进，无需 force
+git tag -a v1.1.0 -m "YanMusic 1.1.0" $NEW
+git push origin v1.1.0
+```
+**推送结果（原样）**：
+```
+To https://github.com/MmlwrYan/YanMusic.git
+   94b3f1a..5ced746  main -> main
+To https://github.com/MmlwrYan/YanMusic.git
+ * [new tag]         v1.1.0 -> v1.1.0
+```
+**推送后远端校验**：
+| 校验项 | 结果 |
+|---|---|
+| 远端 main 历史 | 原有 2 条（`539afe2 Clean start…` → `94b3f1a Update LICENSE`，即 `v1.0.0`）**原样保留**；其上新增发布提交 `5ced746 YanMusic 1.1.0`（仅增加 1 个提交，父提交即 `94b3f1a`）；随后再追加 1 个文档提交（本报告 §14，位于 main 顶端）→ 远端 main 共 **4 条**，**前进而非覆盖** |
+| `v1.0.0` 是否为 origin/main 祖先 | **是**（`git merge-base --is-ancestor` 通过） |
+| 远端 tag | `v1.0.0`（94b3f1a）**保留**、`v2.2.8`（64a23f86）**保留**、新增 `v1.1.0` |
+| 远端 LICENSE | 674 行 / 35,149 B，首行 `GNU GENERAL PUBLIC LICENSE`，与本地对象**完全一致**；`LICENSES/LGPL-2.1.txt` 存在 |
+| 远端 `package.json` | `version = 1.1.0`、`license = GPL-3.0` |
+| 远端 `server` 子模块 | gitlink `160000 commit 99ca12fb…`（CI 可正常拉取） |
+| 远端 `build.yml` | 29,021 B，与本地修复后文件一致 |
+| 改动规模（`v1.0.0 → main`） | 385 files changed, **+30,749 / −1,412** |
+| 本地开发历史 | 保留在本地 `master`（18 条提交），远端另存发布提交；如需可另行推送为侧分支 |
+
+> 旁证：远端上一次 CI 运行（run 34742826629，tag v1.0.0，工作流名仍是小写 `Build yanmusic Desktop`，结论 **failure**）恰好印证 §11 的判断——**推送前远端 CI 本身是失败的**，本轮修复后的工作流才是首次可用版本。
+
+> 说明：tag `v1.1.0` 固定指向发布提交 `5ced746`（即 CI 正在构建、并作为 Release 附件的代码状态），因此**不改写已推送的 tag**；本报告 §14 的文档更新以 main 上的后续文档提交承载，不影响 v1.1.0 产物与代码内容。
+
+### 14.5 CI 触发与产物下载
+- 触发方式：推送 tag `v1.1.0`（工作流 `on: push: tags: ['v*']`）
+- 运行记录：**run `34743992671` / 工作流「Build YanMusic Desktop」/ event=push / head=v1.1.0 / status=in_progress**
+- 运行页：https://github.com/MmlwrYan/YanMusic/actions/runs/34743992671
+- 任务矩阵（6 个构建任务 + 1 个 release 任务）：`macOS-arm64`、`macOS-x64`、`Linux-x64`、`Linux-arm64`、`Windows-x64`、`Windows-arm64`
+- **产物下载位置**：
+  1. 该 run 页面底部 **Artifacts** 区域（保留 7 天）：`YanMusic-macOS-arm64`、`YanMusic-macOS-x64`、`YanMusic-Linux-x64`、`YanMusic-Linux-arm64`、`YanMusic-Windows-x64`、`YanMusic-Windows-arm64`
+  2. 因由 tag 触发，release job 会把全部产物作为 Release 附件发布到 https://github.com/MmlwrYan/YanMusic/releases （tag `v1.1.0`）
+- 具体文件：macOS 取 `YanMusic-1.1.0-macOS-*.dmg`（附带 `latest-mac.yml`）；Linux 取 `YanMusic-1.1.0-Linux-*.AppImage`（免安装）或 `*.deb`；Windows 为 `YanMusic-1.1.0-Windows-Setup-*.exe`
+
+### 14.6 v1.1.0 交付物（本机已验证部分）
+| # | 交付物 | 状态 | 证据 |
+|---|---|---|---|
+| 1 | 绿色版 `release\win-unpacked\` | ✅ | 1,697 文件；`YanMusic.exe` 215 MB，**FileVersion=1.1.0 / ProductVersion=1.1.0.0 / ProductName=YanMusic**；包内 `package.json` 版本 1.1.0；图标/`LICENSE`/`LICENSES` 与源文件 SHA256 全部一致 |
+| 2 | Windows installer `release\YanMusic-1.1.0-Windows-Setup-x64.exe` | ✅ | 140.22 MB；`release/latest.yml` 为 `version: 1.1.0` 且 sha512 与安装包匹配 |
+| 3 | macOS / Linux installer | ⏳ CI 运行中 | §14.5（本机不构建，按既定策略由 CI 产出） |
+| 4 | 远端仓库更新 | ✅ | §14.4（main 前进 + tag v1.1.0 + LICENSE=GPL-3.0） |
+| 5 | 类型检查 | ✅ | `vue-tsc --noEmit` 输出为空，`exit=0` |
+| 6 | 本报告 | ✅ | 本节 |
+
+构建日志：`vite build` exit=0（33 s）；`electron-builder --win --x64` exit=0（362 s），afterPack 校验 `native/*.node` ×4、`mpv/`、`server/`（module=217 util=9）、`icons/` 全部 OK。
+
+### 14.7 本轮事故与更正记录（如实留档）
+1. **`asar extract-file` 覆盖了工作区 `package.json`**：该命令把文件写到当前工作目录，导致仓库 `package.json`（6,729 B，含 `build`/`scripts`）被包内精简版（1,124 B）覆盖。**已发现并修复**：`git checkout -- package.json` 后重新写入 `version: 1.1.0`，`git diff` 确认仅版本号一行改动；产物不受影响（覆盖发生在打包完成之后，时间戳 14:53:25 打包 / 14:53:43 覆盖）。后续读取包内文件一律在临时目录下操作。
+2. **`Select-String -SimpleMatch` 造成假阴性**：早前用 `-SimpleMatch` 搜索含 `|` 的模式，得出「dist 无品牌串」的错误结论；§13、§14.2 的结论均基于更正后的正则审计。
+3. **一次误删代码行**：编辑 `PluginShareResolve.vue` 时误删 `if (installing.value)` 一行，已当场读取文件并修复，`vue-tsc --noEmit exit=0` 与打包产物复核通过。
+
+### 14.8 macOS `latest-mac.yml` 双架构覆盖（本轮结论）
+按「不擅自引入未经测试的修改」处理：**保留现状 + 记录**，理由如下：
+- 两个 macOS 任务（arm64/x64）各自产出 `latest-mac.yml`，release job 以 `merge-multiple: true` 合并同名文件，最终只保留一个架构的元数据 → 影响的是 **macOS 自动更新元数据**，**dmg 安装包本身完整可用**
+- 候选修复（单 job 内同时构建 arm64+x64）在本项目不可行：`build/mpv` 与 `native/*.node` 通过 `extraResources` 按单一架构打包，一个 job 无法同时容纳两种架构的原生依赖；合并元数据则需新增未经验证的后处理脚本
+- 因此本轮不改动，交由后续在真实 runner 上验证后再实施
+
+### 14.9 验收标准对照（v1.1.0）
+| 验收标准 | 结果 | 证据 |
+|---|---|---|
+| 1. 除致谢段外界面无 `EchoMusic`/`hoowhoami`/`echomusic` 字样 | ✅ | §14.2 打包产物审计；`EchoMusic 官方插件源` 已消除 |
+| 2. 功能全量完整、不以「绕过/TODO/挂起」收尾 | ✅ | 缺失功能均已移植实现；剩余 3 处上游取值保留项均为**功能必需**且已逐条说明（§13.2） |
+| 3. 版本号独立：应用 1.1.0、应用内显示 1.1.0、致谢注明上游参考版本 | ✅ | §14.1 / §14.3（`app.getVersion()` 链路 + 致谢段 2.3.1-beta.24） |
+| 4. 远端历史保留：main 原链保留、v1.0.0 保留、体现 v1.0.0→v1.1.0 前进 | ✅ | §14.4（3 条提交、祖先校验通过、+30,749/−1,412） |
 
