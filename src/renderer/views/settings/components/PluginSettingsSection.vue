@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import Button from '@/components/ui/Button.vue';
@@ -24,7 +24,7 @@ const handleOpenPluginManagement = () => {
 const handleOpenDocs = () => {
   window.electron.ipcRenderer.send(
     'open-external',
-    'https://github.com/hoowhoami/yanmusicPlugins',
+    'https://github.com/hoowhoami/EchoMusicPlugins',
   );
 };
 </script>

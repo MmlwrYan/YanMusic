@@ -13,12 +13,16 @@ import Scrollbar from '@/components/ui/Scrollbar.vue';
 import Switch from '@/components/ui/Switch.vue';
 import Tooltip from '@/components/ui/Tooltip.vue';
 import ImportPlaylistDialog from '@/components/music/ImportPlaylistDialog.vue';
+import ScreenshotImportDialog from '@/components/music/ScreenshotImportDialog.vue';
 import {
   iconClock,
   iconCloud,
+  iconCloudDownload,
   iconCompass,
   iconExternalLink,
+  iconHeadphones,
   iconHeart,
+  iconImage,
   iconPlaylistAdd,
   iconPulse,
   iconPlus,
@@ -36,6 +40,7 @@ import type { PlaylistSortOrder } from '@/stores/playlist';
 import { useUserStore } from '@/stores/user';
 import { useToastStore } from '@/stores/toast';
 import { useSettingStore } from '@/stores/setting';
+import { useImportTaskStore } from '@/stores/importTask';
 import PluginIcon from '@/plugins/PluginIcon.vue';
 import { pluginSidebarItems, type PluginIcon as PluginIconValue } from '@/plugins/registry';
 defineOptions({
@@ -53,6 +58,7 @@ const userStore = useUserStore();
 const playlistStore = usePlaylistStore();
 const toastStore = useToastStore();
 const settingStore = useSettingStore();
+const importTaskStore = useImportTaskStore();
 
 const isMac = computed(() => window.electron.platform === 'darwin');
 const isLoggedIn = computed(() => userStore.isLoggedIn);
@@ -86,6 +92,7 @@ const activePlaylistTab = ref(0);
 const showCreateDialog = ref(false);
 const showRemoveDialog = ref(false);
 const showImportDialog = ref(false);
+const showScreenshotImportDialog = ref(false);
 const showCreateMenu = ref(false);
 const showSortMenu = ref(false);
 const isCreatingPlaylist = ref(false);
@@ -111,6 +118,8 @@ const iconMap = {
   clock: iconClock,
   cloud: iconCloud,
   heart: iconHeart,
+  purchased: iconCloudDownload,
+  together: iconHeadphones,
 } as const;
 
 type BuiltinSidebarIcon = keyof typeof iconMap;
@@ -196,6 +205,22 @@ const builtinSidebarSections = [
         path: '/main/cloud',
         builtinIcon: 'cloud',
         order: 30,
+      },
+      {
+        id: 'purchased',
+        key: 'purchased',
+        title: '已购音乐',
+        path: '/main/purchased',
+        builtinIcon: 'purchased',
+        order: 35,
+      },
+      {
+        id: 'together',
+        key: 'together',
+        title: '一起听',
+        path: '/main/together',
+        builtinIcon: 'together',
+        order: 36,
       },
       {
         id: 'history',
@@ -671,6 +696,17 @@ watch(
   },
   { immediate: true },
 );
+
+// 任务中心「查看详情/查看结果」触发的重开：打开导入弹窗
+let lastImportOpenRequested = 0;
+watch(
+  () => importTaskStore.openRequested,
+  (val) => {
+    if (val === lastImportOpenRequested || val <= 0) return;
+    lastImportOpenRequested = val;
+    showImportDialog.value = true;
+  },
+);
 </script>
 
 <template>
@@ -901,6 +937,19 @@ watch(
                 "
               >
                 从链接导入
+              </button>
+              <button
+                type="button"
+                class="sidebar-sort-menu-item"
+                :disabled="!isLoggedIn || activePlaylistTab !== 0"
+                @click="
+                  () => {
+                    showSortMenu = false;
+                    showScreenshotImportDialog = true;
+                  }
+                "
+              >
+                从截图导入
               </button>
               <div class="sidebar-sort-menu-divider"></div>
               <button
@@ -1277,6 +1326,24 @@ watch(
                       <div class="sidebar-create-menu-desc">外部平台 / 文本</div>
                     </div>
                   </button>
+                  <button
+                    type="button"
+                    class="sidebar-create-menu-item"
+                    @click="
+                      () => {
+                        showCreateMenu = false;
+                        showScreenshotImportDialog = true;
+                      }
+                    "
+                  >
+                    <span class="sidebar-create-menu-icon">
+                      <Icon :icon="iconImage" width="16" height="16" />
+                    </span>
+                    <div class="min-w-0 flex-1 text-left">
+                      <div class="sidebar-create-menu-title-row">从截图导入</div>
+                      <div class="sidebar-create-menu-desc">上传截图识别歌曲</div>
+                    </div>
+                  </button>
                 </div>
               </Popover>
             </div>
@@ -1518,6 +1585,7 @@ watch(
   </Dialog>
 
   <ImportPlaylistDialog v-model:open="showImportDialog" />
+  <ScreenshotImportDialog v-model:open="showScreenshotImportDialog" />
 </template>
 
 <style scoped>

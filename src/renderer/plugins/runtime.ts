@@ -71,6 +71,12 @@ import {
 import { registerPluginLyricResolver, type PluginLyricResolverContribution } from './lyrics';
 import { registerPluginLyricEffect, type PluginLyricEffectContribution } from './lyricEffects';
 import { createKugouApi, type PluginKugouApi } from './kugou';
+import { createPluginNetworkApi } from './network';
+import {
+  createWindowDragHandlers,
+  createWindowResizeHandlers,
+  type PluginWindowResizeOptions,
+} from './pluginWindowInteraction';
 import type { Component } from 'vue';
 
 type PluginModule =
@@ -237,6 +243,24 @@ export interface EchoPluginContext {
     hide: (windowId: string) => Promise<unknown>;
     close: (windowId: string) => Promise<unknown>;
     move: (windowId: string, bounds: Partial<PluginWindowBounds>) => Promise<unknown>;
+    drag: {
+      start: (windowId: string, sessionId: string) => Promise<boolean>;
+      move: (windowId: string, sessionId: string, x: number, y: number) => void;
+      end: (windowId: string, sessionId: string) => Promise<unknown>;
+      cancel: (windowId: string, sessionId: string) => Promise<unknown>;
+      bind: (windowId: string, element: HTMLElement) => () => void;
+    };
+    resize: {
+      start: (windowId: string, sessionId: string) => Promise<boolean>;
+      resize: (windowId: string, sessionId: string, bounds: PluginWindowBounds) => void;
+      end: (windowId: string, sessionId: string) => Promise<unknown>;
+      cancel: (windowId: string, sessionId: string) => Promise<unknown>;
+      bind: (
+        windowId: string,
+        element: HTMLElement,
+        options?: PluginWindowResizeOptions,
+      ) => () => void;
+    };
     getBounds: (windowId: string) => Promise<unknown>;
     setIgnoreMouseEvents: (windowId: string, ignore: boolean) => Promise<unknown>;
     showOnTop: (windowId: string, options?: PluginShowOnTopOptions) => Promise<unknown>;
@@ -309,9 +333,7 @@ export interface EchoPluginContext {
       options?: { root?: Element | Document; once?: boolean },
     ) => () => void;
   };
-  net: {
-    fetch: typeof fetch;
-  };
+  net: ReturnType<typeof createPluginNetworkApi>;
   icons: typeof icons;
   electron: Window['electron'];
   dispose: (dispose: () => void) => () => void;
@@ -1291,6 +1313,72 @@ const createToastApi = () => {
 const createPluginWindowsApi = (pluginId: string) => {
   const getWindowsApi = () => window.electron.plugins?.windows;
   const unavailable = () => Promise.reject(new Error('插件窗口 API 不可用'));
+  // 交互通道（拖动/缩放）在窗口关闭过程中可能同步抛错，统一转成 rejected Promise。
+  const invokeDrag = <T>(call: () => T | undefined, missing: () => T) => {
+    try {
+      const result = call();
+      return result === undefined ? missing() : result;
+    } catch (error) {
+      return Promise.reject(error) as T;
+    }
+  };
+  const drag = {
+    start: (windowId: string, sessionId: string) =>
+      invokeDrag(
+        () => getWindowsApi()?.startDrag(pluginId, windowId, sessionId),
+        () => Promise.resolve(false),
+      ),
+    move: (windowId: string, sessionId: string, x: number, y: number) =>
+      invokeDrag(
+        () => getWindowsApi()?.dragMove(pluginId, windowId, sessionId, x, y),
+        () => undefined,
+      ),
+    end: (windowId: string, sessionId: string) =>
+      invokeDrag(() => getWindowsApi()?.endDrag(pluginId, windowId, sessionId), unavailable),
+    cancel: (windowId: string, sessionId: string) =>
+      invokeDrag(() => getWindowsApi()?.cancelDrag(pluginId, windowId, sessionId), unavailable),
+    bind: (windowId: string, element: HTMLElement) =>
+      createWindowDragHandlers(
+        {
+          start: (sessionId) => drag.start(windowId, sessionId),
+          move: (sessionId, event) => drag.move(windowId, sessionId, event.screenX, event.screenY),
+          end: (sessionId) => drag.end(windowId, sessionId),
+          cancel: (sessionId) => drag.cancel(windowId, sessionId),
+        },
+        `plugin-window:${windowId}`,
+      )(element),
+  };
+  const resize = {
+    start: (windowId: string, sessionId: string) =>
+      invokeDrag(
+        () => getWindowsApi()?.startResize(pluginId, windowId, sessionId),
+        () => Promise.resolve(false),
+      ),
+    resize: (windowId: string, sessionId: string, bounds: PluginWindowBounds) =>
+      invokeDrag(
+        () => getWindowsApi()?.resize(pluginId, windowId, sessionId, bounds),
+        () => undefined,
+      ),
+    end: (windowId: string, sessionId: string) =>
+      invokeDrag(() => getWindowsApi()?.endResize(pluginId, windowId, sessionId), unavailable),
+    cancel: (windowId: string, sessionId: string) =>
+      invokeDrag(() => getWindowsApi()?.cancelResize(pluginId, windowId, sessionId), unavailable),
+    bind: (windowId: string, element: HTMLElement, options?: PluginWindowResizeOptions) =>
+      createWindowResizeHandlers(
+        {
+          getBounds: async () => {
+            const result = await getWindowsApi()?.getBounds(pluginId, windowId);
+            return result?.ok ? (result.bounds ?? null) : null;
+          },
+          start: (sessionId) => resize.start(windowId, sessionId),
+          resize: (sessionId, sessionBounds) => resize.resize(windowId, sessionId, sessionBounds),
+          end: (sessionId) => resize.end(windowId, sessionId),
+          cancel: (sessionId) => resize.cancel(windowId, sessionId),
+        },
+        `plugin-window-resize:${windowId}`,
+        options,
+      )(element),
+  };
   return {
     show: (windowId: string, options?: PluginWindowShowOptions) =>
       getWindowsApi()?.show(pluginId, windowId, options) ?? unavailable(),
@@ -1298,6 +1386,8 @@ const createPluginWindowsApi = (pluginId: string) => {
     close: (windowId: string) => getWindowsApi()?.close(pluginId, windowId) ?? unavailable(),
     move: (windowId: string, bounds: Partial<PluginWindowBounds>) =>
       getWindowsApi()?.move(pluginId, windowId, bounds) ?? unavailable(),
+    drag,
+    resize,
     getBounds: (windowId: string) =>
       getWindowsApi()?.getBounds(pluginId, windowId) ?? unavailable(),
     setIgnoreMouseEvents: (windowId: string, ignore: boolean) =>
@@ -1346,6 +1436,8 @@ const createPluginFsApi = (pluginId: string) => {
     ) =>
       getFsApi()?.readFileBytes(pluginId, filePath, serializeForIpc(options) as typeof options) ??
       unavailable(),
+    readAudioMetadata: (filePath: string) =>
+      getFsApi()?.readAudioMetadata(pluginId, filePath) ?? unavailable(),
     writeFile: (
       filePath: string,
       data: Parameters<NonNullable<Window['electron']['plugins']>['fs']['writeFile']>[2],
@@ -1377,6 +1469,9 @@ const createPluginProcessApi = (pluginId: string) => {
       Promise.resolve({ ok: false as const, error: '插件进程 API 不可用' }),
   };
 };
+
+/** 插件网络能力由 `./network` 提供，与插件浮窗入口共用同一份实现。 */
+export type { PluginNetworkRequest, PluginNetworkRequestInit } from './network';
 
 const isArrayBufferLike = (value: unknown): value is ArrayBuffer =>
   value instanceof ArrayBuffer || Object.prototype.toString.call(value) === '[object ArrayBuffer]';
@@ -2439,9 +2534,7 @@ const createPluginContext = (
       on: (event, handler) => registerPlayerEvent(event, handler),
     },
     dom: createDomApi(descriptor.id, addDisposable),
-    net: {
-      fetch: window.fetch.bind(window),
-    },
+    net: createPluginNetworkApi(descriptor, addDisposable),
     icons,
     electron: window.electron,
     dispose: addDisposable,

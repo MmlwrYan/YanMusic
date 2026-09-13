@@ -116,6 +116,15 @@ export const useUpdateStore = defineStore('update', {
       window.electron?.updater?.download();
     },
 
+    /** 中止进行中的下载。仅下载中有效，主进程会回传 idle 状态。 */
+    cancelDownload() {
+      if (this.downloadStatus !== 'downloading') return;
+      this.downloadStatus = 'idle';
+      this.downloadPercent = 0;
+      this.downloadError = '';
+      window.electron?.updater?.cancelDownload?.();
+    },
+
     install() {
       const settingStore = useSettingStore();
       window.electron?.updater?.install(settingStore.silentUpdate);

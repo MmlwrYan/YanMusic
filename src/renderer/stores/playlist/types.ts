@@ -12,7 +12,9 @@ export type PlaybackQueueType =
   | 'history'
   | 'cloud'
   | 'fm'
-  | 'manual';
+  | 'listen-together'
+  | 'manual'
+  | 'purchased';
 
 export type PersonalFmMode = 'normal' | 'small' | 'peak';
 export type PersonalFmSongPoolId = 0 | 1 | 2;

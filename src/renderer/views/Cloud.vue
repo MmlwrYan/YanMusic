@@ -1,7 +1,9 @@
 <script setup lang="ts">
 defineOptions({ name: 'cloud' });
-import { computed, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { getUserCloud } from '@/api/user';
+import { deleteCloudSongs } from '@/api/cloud';
 import { usePlaylistStore } from '@/stores/playlist';
 import type { Song } from '@/models/song';
 import { usePlayerStore } from '@/stores/player';
@@ -14,10 +16,16 @@ import ActionRow from '@/components/music/DetailPageActionRow.vue';
 import SongList from '@/components/music/SongList.vue';
 import SongListHeader from '@/components/music/SongListHeader.vue';
 import BatchActionDrawer from '@/components/music/BatchActionDrawer.vue';
+import CloudUploadDialog from '@/components/music/CloudUploadDialog.vue';
+import Dialog from '@/components/ui/Dialog.vue';
+import { registerSongContextMenuExtension } from '@/components/music/songContextMenuExtensions';
 import { mapCloudSong } from '@/utils/mappers';
 import type { SortField, SortOrder } from '@/components/music/SongListHeader.vue';
 import { iconCloud, iconCurrentLocation, iconList, iconPlay, iconSearch } from '@/icons';
+import cloudUploadIcon from '@iconify/icons-tabler/cloud-upload';
 import { replaceQueueAndPlay } from '@/utils/playback';
+import { useToastStore } from '@/stores/toast';
+import { useCloudUploadStore } from '@/stores/cloudUpload';
 import Button from '@/components/ui/Button.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Tabs from '@/components/ui/Tabs.vue';
@@ -34,6 +42,9 @@ const playerStore = usePlayerStore();
 const settingStore = useSettingStore();
 const userStore = useUserStore();
 const themeStore = useThemeStore();
+const toastStore = useToastStore();
+const cloudUploadStore = useCloudUploadStore();
+const route = useRoute();
 
 const loading = ref(false);
 const loadingMore = ref(false);
@@ -51,6 +62,9 @@ const sliverHeaderRef = ref<{ currentHeight?: number } | null>(null);
 const { tabsTop, tabsMinHeight } = useStickyTabsLayout(sliverHeaderRef);
 const sortField = ref<SortField | null>(null);
 const sortOrder = ref<SortOrder>(null);
+const showUploadDialog = ref(false);
+const deleteTarget = ref<Song | null>(null);
+const deletingCloudSong = ref(false);
 
 const isLoggedIn = computed(() => userStore.isLoggedIn);
 const activeSongId = computed(() => playerStore.currentTrackId ?? undefined);
@@ -258,6 +272,70 @@ const openBatchDrawer = () => {
 
 const handleLocate = () => songListRef.value?.scrollToActive?.();
 
+const secondaryActions = computed(() => [
+  {
+    icon: cloudUploadIcon,
+    label: '上传',
+    onTap: () => {
+      cloudUploadStore.requestOpen('start');
+    },
+  },
+]);
+
+const handleUploadOpenRequest = () => {
+  if (!cloudUploadStore.consumeOpenRequest()) return;
+  showUploadDialog.value = true;
+};
+
+type CloudSongExtras = Song & { cloudFileId?: string | number };
+
+const canDeleteCloudSong = (song: Song) => {
+  const extras = song as CloudSongExtras;
+  return Boolean(
+    String(extras.cloudFileId ?? '').trim() || String(song.hash ?? '').trim(),
+  );
+};
+
+const openDeleteCloudSongDialog = (song: Song) => {
+  if (!canDeleteCloudSong(song)) {
+    toastStore.warning('缺少云盘文件标识，无法删除');
+    return;
+  }
+  deleteTarget.value = song;
+};
+
+const closeDeleteCloudSongDialog = () => {
+  if (deletingCloudSong.value) return;
+  deleteTarget.value = null;
+};
+
+const confirmDeleteCloudSong = async () => {
+  const song = deleteTarget.value;
+  if (!song || deletingCloudSong.value) return;
+  const extras = song as CloudSongExtras;
+  deletingCloudSong.value = true;
+  try {
+    await deleteCloudSongs([
+      {
+        cloudFileId: extras.cloudFileId,
+        hash: song.hash,
+        albumAudioId: song.albumAudioId ?? song.mixSongId,
+      },
+    ]);
+    songs.value = songs.value.filter((item) => item.id !== song.id);
+    totalSongCount.value = Math.max(0, totalSongCount.value - 1);
+    deleteTarget.value = null;
+    toastStore.actionCompleted('已从云盘删除');
+  } catch (error) {
+    const message = error instanceof Error && error.message ? error.message : '删除云盘歌曲失败';
+    toastStore.warning(message);
+  } finally {
+    deletingCloudSong.value = false;
+  }
+};
+
+let unregisterCloudContextMenu: (() => void) | null = null;
+
 watch(
   () => isLoggedIn.value,
   (loggedIn) => {
@@ -269,10 +347,43 @@ watch(
   },
 );
 
+let lastUploadOpenRequested = cloudUploadStore.openRequested;
+watch(
+  () => cloudUploadStore.openRequested,
+  (val) => {
+    if (val !== lastUploadOpenRequested && val > 0) {
+      lastUploadOpenRequested = val;
+      handleUploadOpenRequest();
+    }
+  },
+);
+
+watch(
+  () => cloudUploadStore.changedRevision,
+  () => {
+    if (isLoggedIn.value) void loadCloud();
+  },
+);
+
 onMounted(() => {
+  unregisterCloudContextMenu = registerSongContextMenuExtension({
+    id: 'cloud-delete-song',
+    label: '从云盘删除',
+    order: 1000,
+    danger: true,
+    visible: () => route.name === 'cloud',
+    enabled: (song) => canDeleteCloudSong(song),
+    onSelect: (song) => openDeleteCloudSongDialog(song),
+  });
   if (isLoggedIn.value) {
     void loadCloud();
   }
+  handleUploadOpenRequest();
+});
+
+onUnmounted(() => {
+  unregisterCloudContextMenu?.();
+  unregisterCloudContextMenu = null;
 });
 </script>
 
@@ -322,7 +433,11 @@ onMounted(() => {
           </template>
 
           <template #actions>
-            <ActionRow @play="handlePlayAll" @batch="openBatchDrawer" />
+            <ActionRow
+              @play="handlePlayAll"
+              @batch="openBatchDrawer"
+              :secondaryActions="secondaryActions"
+            />
           </template>
 
           <template #collapsed-actions>
@@ -346,6 +461,39 @@ onMounted(() => {
         </SliverHeader>
 
         <BatchActionDrawer v-model:open="showBatchDrawer" :songs="songs" source-id="cloud" />
+
+        <CloudUploadDialog v-model:open="showUploadDialog" />
+
+        <Dialog
+          :open="Boolean(deleteTarget)"
+          title="删除云盘歌曲"
+          :description="
+            deleteTarget
+              ? `确认从云盘删除「${deleteTarget.title || deleteTarget.name || '这首歌'}」？此操作无法撤销。`
+              : ''
+          "
+          :close-on-interact-outside="!deletingCloudSong"
+          @update:open="(value) => !value && closeDeleteCloudSongDialog()"
+        >
+          <template #footer>
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="deletingCloudSong"
+              @click="closeDeleteCloudSongDialog"
+            >
+              取消
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              :loading="deletingCloudSong"
+              @click="confirmDeleteCloudSong"
+            >
+              确认删除
+            </Button>
+          </template>
+        </Dialog>
 
         <div class="px-6 pt-2.5 pb-1">
           <div class="cloud-info-card">
@@ -435,6 +583,15 @@ onMounted(() => {
               <div class="mt-2 text-[13px] font-medium text-text-secondary/75">
                 上传后会展示在这里
               </div>
+              <Button
+                variant="primary"
+                size="md"
+                class="mt-5 gap-2"
+                @click="cloudUploadStore.requestOpen('start')"
+              >
+                <Icon :icon="cloudUploadIcon" width="16" height="16" />
+                上传音乐
+              </Button>
             </div>
             <SongList
               v-else

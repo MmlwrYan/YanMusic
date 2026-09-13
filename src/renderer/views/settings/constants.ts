@@ -3,21 +3,28 @@ import type { AudioQualityValue, OutputDeviceDisconnectBehavior, ShortcutItem } 
 import type { CloseBehavior, ThemeMode } from '../../../shared/app';
 import {
   iconDeviceSpeaker,
+  iconEye,
   iconFlask,
   iconInfo,
   iconKeyboard,
   iconPalette,
   iconPlayerPlay,
   iconPlugin,
+  iconSettings,
   iconShield,
+  iconSlidersHorizontal,
   iconTypography,
   iconVolume2,
 } from '@/icons';
 
 export const sectionTitles = {
   appearance: { label: '外观与界面', icon: iconPalette },
+  interface: { label: '界面显示', icon: iconEye },
+  window: { label: '窗口与启动', icon: iconSettings },
   font: { label: '字体设置', icon: null },
   playback: { label: '播放体验', icon: iconPlayerPlay },
+  spatialAudio: { label: '音效管理', icon: iconSlidersHorizontal },
+  player: { label: '播放器设置', icon: iconSlidersHorizontal },
   quality: { label: '播放音质', icon: iconVolume2 },
   pageLyric: { label: '页面歌词', icon: null },
   desktopLyric: { label: '桌面歌词', icon: iconTypography },

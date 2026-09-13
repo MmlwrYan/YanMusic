@@ -26,8 +26,15 @@ export interface Song {
   cover?: string;
   audioUrl: string;
   hash: string;
+  // 一起听（房间歌单）用于翻页与同步定位的原始版权 hash
+  originalHash?: string;
   mvHash?: string;
   albumAudioId?: string | number;
+  originalAlbumAudioId?: string | number;
+  // 一起听授权：0=不可播，1=完整播放，2=仅片段
+  listenTogetherCanPlay?: number;
+  // 一起听计费类型：1=免费，2/3=VIP，4/5/6=单曲或专辑付费
+  listenTogetherGenting?: number;
   mixSongId: string | number;
   fileId?: string | number;
   source?: string;

@@ -1,4 +1,4 @@
-﻿name: Build yanmusic Desktop
+﻿name: Build YanMusic Desktop
 
 on:
   push:
@@ -24,55 +24,55 @@ jobs:
           - os: macos-14
             rust_target: aarch64-apple-darwin
             electron_builder_args: ''
-            artifact_name: yanmusic-macOS-arm64
+            artifact_name: YanMusic-macOS-arm64
             artifact_glob: |
-              release/yanmusic-*.zip
-              release/yanmusic-*.dmg
+              release/YanMusic-*.zip
+              release/YanMusic-*.dmg
               release/latest-mac.yml
           - os: macos-14
             rust_target: x86_64-apple-darwin
             electron_builder_args: '--mac --x64'
-            artifact_name: yanmusic-macOS-x64
+            artifact_name: YanMusic-macOS-x64
             artifact_glob: |
-              release/yanmusic-*.zip
-              release/yanmusic-*.dmg
+              release/YanMusic-*.zip
+              release/YanMusic-*.dmg
           - os: ubuntu-22.04
             rust_target: ''
             electron_builder_args: ''
-            artifact_name: yanmusic-Linux-x64
+            artifact_name: YanMusic-Linux-x64
             artifact_glob: |
-              release/yanmusic-*.AppImage
-              release/yanmusic-*.deb
-              release/yanmusic-*.pacman
-              release/yanmusic-*.pkg.tar.zst
-              release/yanmusic-*.rpm
-              release/yanmusic-*.tar.gz
+              release/YanMusic-*.AppImage
+              release/YanMusic-*.deb
+              release/YanMusic-*.pacman
+              release/YanMusic-*.pkg.tar.zst
+              release/YanMusic-*.rpm
+              release/YanMusic-*.tar.gz
               release/latest-linux.yml
           - os: ubuntu-22.04-arm
             rust_target: ''
             electron_builder_args: '--linux --arm64'
-            artifact_name: yanmusic-Linux-arm64
+            artifact_name: YanMusic-Linux-arm64
             artifact_glob: |
-              release/yanmusic-*.AppImage
-              release/yanmusic-*.deb
-              release/yanmusic-*.pacman
-              release/yanmusic-*.pkg.tar.zst
-              release/yanmusic-*.rpm
-              release/yanmusic-*.tar.gz
+              release/YanMusic-*.AppImage
+              release/YanMusic-*.deb
+              release/YanMusic-*.pacman
+              release/YanMusic-*.pkg.tar.zst
+              release/YanMusic-*.rpm
+              release/YanMusic-*.tar.gz
               release/latest-linux-arm64.yml
           - os: windows-latest
             rust_target: ''
             electron_builder_args: '--win --x64'
-            artifact_name: yanmusic-Windows-x64
+            artifact_name: YanMusic-Windows-x64
             artifact_glob: |
-              release/yanmusic-*-Windows-Setup-x64.exe
+              release/YanMusic-*-Windows-Setup-x64.exe
               release/latest.yml
           - os: windows-11-arm
             rust_target: ''
             electron_builder_args: '--win --arm64'
-            artifact_name: yanmusic-Windows-arm64
+            artifact_name: YanMusic-Windows-arm64
             artifact_glob: |
-              release/yanmusic-*-Windows-Setup-arm64.exe
+              release/YanMusic-*-Windows-Setup-arm64.exe
 
     steps:
       - name: Checkout code
@@ -449,7 +449,7 @@ jobs:
         run: |
           set -e
           shopt -s nullglob
-          for package_path in release/yanmusic-*.pacman; do
+          for package_path in release/YanMusic-*.pacman; do
             cp "$package_path" "${package_path%.pacman}.pkg.tar.zst"
           done
 
@@ -460,9 +460,9 @@ jobs:
           set -e
 
           if [ "${{ runner.arch }}" = "ARM64" ]; then
-            app_exe="release/win-arm64-unpacked/yanmusic.exe"
+            app_exe="release/win-arm64-unpacked/YanMusic.exe"
           else
-            app_exe="release/win-unpacked/yanmusic.exe"
+            app_exe="release/win-unpacked/YanMusic.exe"
           fi
 
           if [ ! -f "$app_exe" ]; then
@@ -491,9 +491,9 @@ jobs:
         run: |
           set -e
 
-          app_path=$(find release -maxdepth 3 -type d -name 'yanmusic.app' | head -n 1)
+          app_path=$(find release -maxdepth 3 -type d -name 'YanMusic.app' | head -n 1)
           if [ -z "$app_path" ]; then
-            echo "ERROR: yanmusic.app not found in release output"
+            echo "ERROR: YanMusic.app not found in release output"
             find release -maxdepth 3 -print
             exit 1
           fi
@@ -679,7 +679,7 @@ jobs:
           REPO="${GITHUB_REPOSITORY}"
 
           printf -v MESSAGE '%s\n\n%s\n%s\n\n%s\n%s\n\n%s' \
-            "🎉 <b>yanmusic ${VERSION} 构建成功！</b>" \
+            "🎉 <b>YanMusic ${VERSION} 构建成功！</b>" \
             "📝 <b>更新内容：</b>" \
             "${CHANGELOG}" \
             "📦 <b>下载地址：</b>" \
@@ -788,7 +788,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME}"
           REPO="${GITHUB_REPOSITORY}"
 
-          MESSAGE=$(printf '🎉 yanmusic %s 发布啦！\n\n📝 更新内容：\n%s\n\n📦 下载地址：\n%s\n\n🔗 查看完整 Release：https://github.com/%s/releases/tag/%s' \
+          MESSAGE=$(printf '🎉 YanMusic %s 发布啦！\n\n📝 更新内容：\n%s\n\n📦 下载地址：\n%s\n\n🔗 查看完整 Release：https://github.com/%s/releases/tag/%s' \
             "$VERSION" "$CHANGELOG" "$QQ_ARTIFACT_LINKS" "$REPO" "$VERSION")
 
           HEADERS=(-H "Content-Type: application/json")

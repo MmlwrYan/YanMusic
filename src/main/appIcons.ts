@@ -1,4 +1,4 @@
-﻿import { app, nativeImage, shell, type BrowserWindow } from 'electron';
+import { app, nativeImage, shell, type BrowserWindow } from 'electron';
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -427,7 +427,7 @@ const applyWindowsShortcutIcon = (kind: 'desktop' | 'taskbar', iconPath: string)
       target: details.target || app.getPath('exe'),
       icon: iconPath,
       iconIndex: 0,
-      appUserModelId: 'com.hoowhoami.yanmusic',
+      appUserModelId: 'com.mmlwryan.yanmusic',
     });
     return ok ? { applied: true, error: null } : { applied: false, error: '快捷方式写入失败' };
   } catch (error) {

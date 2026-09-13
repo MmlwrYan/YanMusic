@@ -27,6 +27,7 @@ import { mapPlaylistMeta } from '@/utils/mappers';
 import { usePlaylistStore } from '@/stores/playlist';
 import { useUserStore } from '@/stores/user';
 import { useToastStore } from '@/stores/toast';
+import { useImportTaskStore, type ImportTaskRun } from '@/stores/importTask';
 import type { ExternalPlaylist, ExternalProviderId } from '../../../shared/external';
 import type { PlaylistMeta } from '@/models/playlist';
 
@@ -40,7 +41,13 @@ const open = useVModel(props, 'open', emit, { defaultValue: false });
 const playlistStore = usePlaylistStore();
 const userStore = useUserStore();
 const toastStore = useToastStore();
+const importTaskStore = useImportTaskStore();
 const router = useRouter();
+
+/** 标题栏任务中心：进行中的导入运行世代 */
+let currentDialogRun: ImportTaskRun | null = null;
+/** 任务仍可继续（未被替代、任务条目仍在、未收到中止信号） */
+const canContinueTask = (run: ImportTaskRun) => run.active && !run.signal.aborted;
 
 type Step = 'input' | 'preview' | 'progress' | 'kugou-native';
 const step = ref<Step>('input');
@@ -137,6 +144,13 @@ const isImporting = ref(false);
 const abortFlag = ref(false);
 const summary = ref<ImportSummary | null>(null);
 
+/** 后台运行相关 */
+const backgroundTargetName = ref('导入外部歌单');
+const showBackgroundConfirm = ref(false);
+const neverShowBackgroundConfirm = ref(false);
+/** 会话内记住"以后不再提醒"（setting store 暂无对应持久化字段） */
+const backgroundConfirmDismissed = ref(false);
+
 const reset = () => {
   step.value = 'input';
   inputText.value = '';
@@ -149,21 +163,86 @@ const reset = () => {
   newPlaylistName.value = '';
   newPlaylistIsPrivate.value = false;
   existingListId.value = null;
-  progressItems.value = [];
-  progressDone.value = 0;
-  progressTotal.value = 0;
+  // 后台导入仍在进行时保留任务数据，只清界面状态
+  if (importTaskStore.status !== 'running') {
+    progressItems.value = [];
+    progressDone.value = 0;
+    progressTotal.value = 0;
+    abortFlag.value = false;
+    summary.value = null;
+  }
   isImporting.value = false;
-  abortFlag.value = false;
-  summary.value = null;
   kugouPlaylistMeta.value = null;
   isLoadingKugouMeta.value = false;
 };
 
+/** 从任务中心的任务状态恢复进度/结果页 */
+const resumeFromStore = (completed = false) => {
+  step.value = 'progress';
+  // 取快照而非别名：后续 onProgress 会对本地数组做原地替换（store 也会重建 items）
+  progressItems.value = [...importTaskStore.items];
+  progressDone.value = importTaskStore.done;
+  progressTotal.value = importTaskStore.total || 1;
+  isImporting.value = !completed;
+  summary.value = completed ? importTaskStore.summary : null;
+};
+
+/** 转入后台：任务留在标题栏任务中心继续跑，弹窗回到输入页并关闭 */
+const runInBackground = () => {
+  if (importTaskStore.status !== 'running') return;
+  importTaskStore.enterBackground(backgroundTargetName.value, () => {
+    abortFlag.value = true;
+  });
+  // 先切走 step，避免 watch(open) 再次拦截关闭
+  step.value = 'input';
+  isImporting.value = false;
+  open.value = false;
+};
+
+const confirmBackgroundImport = () => {
+  showBackgroundConfirm.value = false;
+  if (neverShowBackgroundConfirm.value) backgroundConfirmDismissed.value = true;
+  runInBackground();
+};
+
 watch(open, (v) => {
   if (!v) {
+    // 导入进行中关闭弹窗：拦截并确认后台运行（除非用户已勾选不再提醒）
+    if (step.value === 'progress' && isImporting.value && importTaskStore.status === 'running') {
+      if (backgroundConfirmDismissed.value) {
+        runInBackground();
+        return;
+      }
+      showBackgroundConfirm.value = true;
+      // 同步回弹，Vue 批量更新后不会渲染关闭态
+      open.value = true;
+      return;
+    }
+    if (step.value === 'progress' && importTaskStore.status === 'completed') {
+      importTaskStore.dismiss();
+    }
     window.setTimeout(reset, 200);
+    return;
+  }
+  if (importTaskStore.status === 'running') {
+    resumeFromStore();
+    return;
+  }
+  if (importTaskStore.status === 'completed' && importTaskStore.openRequestMode === 'detail') {
+    resumeFromStore(true);
   }
 });
+
+// 任务中心「查看详情/查看结果」触发的重开：仅在 openRequested 增量时恢复结果页
+let lastOpenRequested = 0;
+watch(
+  () => importTaskStore.openRequested,
+  (val) => {
+    if (val === lastOpenRequested || val <= 0) return;
+    lastOpenRequested = val;
+    if (importTaskStore.status === 'completed') resumeFromStore(true);
+  },
+);
 
 const handleResolve = async () => {
   const input = inputText.value.trim();
@@ -296,6 +375,22 @@ const handleStartImport = async () => {
   }
   if (!listId) return;
 
+  // 任务中心条目名称：新建用新歌单名，追加用所选歌单名，兜底用解析出的歌单名
+  const targetPlaylist = ownedPlaylists.value.find(
+    (p) => String(p.listid || p.id) === String(existingListId.value ?? ''),
+  );
+  backgroundTargetName.value =
+    (target.value === 'new' ? newPlaylistName.value.trim() : targetPlaylist?.name || '') ||
+    targetPlaylist?.name ||
+    resolved.value?.name ||
+    '导入外部歌单';
+
+  // 建立任务中心条目：弹窗关闭/后台化后任务继续，可从中止或重新打开
+  const run = importTaskStore.start(backgroundTargetName.value, () => {
+    abortFlag.value = true;
+  });
+  currentDialogRun = run;
+
   step.value = 'progress';
   progressItems.value = tracks.map((t) => ({ external: t, status: 'pending' }));
   progressDone.value = 0;
@@ -303,18 +398,26 @@ const handleStartImport = async () => {
   isImporting.value = true;
   abortFlag.value = false;
   summary.value = null;
+  // 任务条目先落到 store（进度/结果页与任务中心同源），逐条由 onProgress 更新
+  run.updateProgress(0, tracks.length, {
+    external: { title: backgroundTargetName.value, artist: '正在匹配歌曲' },
+    status: 'matching',
+  });
 
   try {
     const result = await runImport(tracks, listId, {
-      shouldAbort: () => abortFlag.value,
+      shouldAbort: () => !canContinueTask(run) || abortFlag.value || importTaskStore.abortRequested,
       onProgress: (done, total, item) => {
         progressDone.value = done;
         progressTotal.value = total;
         const idx = progressItems.value.findIndex((it) => it.external === item.external);
         if (idx >= 0) progressItems.value[idx] = { ...item };
+        run.updateProgress(done, total, item);
       },
     });
+    if (!canContinueTask(run)) return;
     summary.value = result;
+    run.complete(result);
     if (result.success > 0) {
       toastStore.success(`导入完成：成功 ${result.success} / ${result.total}`);
       await playlistStore.fetchUserPlaylists();
@@ -322,23 +425,37 @@ const handleStartImport = async () => {
       toastStore.warning('未能匹配到任何歌曲');
     }
   } catch (e: unknown) {
-    toastStore.actionFailed('导入');
     resolveError.value = e instanceof Error ? e.message : '导入失败';
+    if (canContinueTask(run)) {
+      const failedItem: ImportItemResult = {
+        external: { title: '导入失败', artist: '' },
+        status: 'failed',
+        error: resolveError.value,
+      };
+      progressItems.value = [failedItem];
+      summary.value = { total: 1, success: 0, low: 0, skipped: 0, failed: 1 };
+      run.updateProgress(1, 1, failedItem);
+      run.complete(summary.value);
+      toastStore.actionFailed('导入');
+    }
   } finally {
-    isImporting.value = false;
+    if (currentDialogRun === run) isImporting.value = false;
   }
 };
 
+/** 中止按钮：请求 store 中止（任务中心同步显示"已中止"，且不再弹后台确认） */
 const handleAbort = () => {
   if (!isImporting.value) return;
   abortFlag.value = true;
+  if (importTaskStore.status === 'running') {
+    importTaskStore.requestAbort({ feedback: false });
+  }
+  isImporting.value = false;
 };
 
 const handleClose = () => {
-  if (isImporting.value) {
-    abortFlag.value = true;
-    return;
-  }
+  if (isImporting.value) return;
+  if (importTaskStore.status === 'completed') importTaskStore.dismiss();
   open.value = false;
 };
 
@@ -773,10 +890,49 @@ const statusLabel = (status: ImportItemResult['status']): string => {
         <Button v-if="isImporting" variant="secondary" size="sm" type="button" @click="handleAbort">
           中止
         </Button>
+        <Button
+          v-if="isImporting"
+          variant="primary"
+          size="sm"
+          type="button"
+          @click="runInBackground"
+        >
+          后台运行
+        </Button>
         <Button v-else variant="primary" size="sm" type="button" @click="handleClose">
           完成
         </Button>
       </template>
+    </template>
+  </Dialog>
+
+  <!-- 转入后台确认 -->
+  <Dialog
+    v-model:open="showBackgroundConfirm"
+    content-class="import-background-confirm-dialog"
+    :close-on-escape="false"
+    :close-on-interact-outside="false"
+  >
+    <template #title>导入将在后台继续</template>
+    <div class="flex flex-col gap-4 py-1">
+      <p class="text-[13px] text-text-secondary leading-relaxed">
+        关闭弹窗不会中断导入，你可以在标题栏任务中心查看进度或中止任务。
+      </p>
+      <label class="flex items-center gap-2 cursor-pointer select-none">
+        <CheckboxRoot
+          v-model:model-value="neverShowBackgroundConfirm"
+          class="w-4 h-4 rounded border border-[var(--border-main)] flex items-center justify-center data-[state=checked]:bg-[var(--color-primary)] data-[state=checked]:border-[var(--color-primary)]"
+        >
+          <CheckboxIndicator class="text-white">
+            <Icon :icon="iconCheckMark" width="12" height="12" />
+          </CheckboxIndicator>
+        </CheckboxRoot>
+        <span class="text-[12px] text-text-secondary">以后不再提醒</span>
+      </label>
+    </div>
+    <template #footer>
+      <Button variant="ghost" size="sm" @click="showBackgroundConfirm = false">留在本页</Button>
+      <Button variant="primary" size="sm" @click="confirmBackgroundImport">我知道了</Button>
     </template>
   </Dialog>
 </template>
@@ -1127,5 +1283,10 @@ const statusLabel = (status: ImportItemResult['status']): string => {
   50% {
     opacity: 1;
   }
+}
+
+:global(.dialog-content.import-background-confirm-dialog) {
+  width: 400px;
+  max-width: calc(100vw - 48px);
 }
 </style>

@@ -84,6 +84,18 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/Cloud.vue'),
       },
       {
+        path: 'purchased',
+        name: 'purchased',
+        component: () => import('@/views/Purchased.vue'),
+        meta: { title: '已购音乐' },
+      },
+      {
+        path: 'together',
+        name: 'listen-together',
+        component: () => import('@/views/listenTogether/index.vue'),
+        meta: { title: '一起听' },
+      },
+      {
         path: 'profile',
         name: 'profile',
         component: () => import('@/views/Profile.vue'),
@@ -147,6 +159,12 @@ const routes: RouteRecordRaw[] = [
         name: 'share-resolve',
         component: () => import('@/views/ShareResolve.vue'),
         meta: { title: '分享链接' },
+      },
+      {
+        path: 'effect-plaza',
+        name: 'effect-plaza',
+        component: () => import('@/views/EffectPlaza/EffectPlazaPage.vue'),
+        meta: { title: '音效广场', keepAlive: true },
       },
       {
         path: 'error',

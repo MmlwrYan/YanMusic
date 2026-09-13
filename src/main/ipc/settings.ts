@@ -1,25 +1,63 @@
-﻿import { ipcRegistry } from './registry';
-import { shell, app, session, dialog, type OpenDialogOptions } from 'electron';
+import { ipcRegistry } from './registry';
+import {
+  shell,
+  app,
+  net,
+  session,
+  dialog,
+  type ClientRequest,
+  type IncomingMessage,
+  type OpenDialogOptions,
+  type Session,
+} from 'electron';
 import log from 'electron-log';
 import fs from 'fs';
 import { execFile } from 'child_process';
 import { dirname, extname, join, resolve, sep, basename } from 'path';
-import { autoUpdater } from 'electron-updater';
+import { autoUpdater, CancellationToken } from 'electron-updater';
 import { getFonts } from 'font-list';
 import { coerce as semverCoerce, gt as semverGt, valid as semverValid } from 'semver';
-import type { AppInfoResult, UpdateCheckResult, UpdateDownloadResult } from '../../shared/app';
-import type { NetworkSettings } from '../../shared/network';
+import type {
+  AppInfoResult,
+  UpdateCheckResult,
+  UpdateDownloadResult,
+  UpdateInstallResult,
+} from '../../shared/app';
+import type { NetworkSettingsUpdateRequest } from '../../shared/network';
 import {
-  normalizeImpulseResponseName,
+  applyGithubAcceleratorUrl,
+  runGithubAcceleratorFallback,
+} from '../../shared/github-accelerator';
+import {
+  normalizeCommunityAudioResourceUrl,
+  normalizeCommunityImpulseResponseUrl,
+  normalizeCommunityVpfUrl,
+  normalizeAudioEffectName,
+  type CommunityAudioResourceKind,
+  type DownloadCommunityAudioEffectRequest,
+  type DownloadCommunityAudioEffectResult,
   type ImportImpulseResponseResult,
-  type ImpulseResponseFile,
+  type SpatialAudioEffectEntry,
 } from '../../shared/audio';
 import type { LogSettings } from '../../shared/logging';
+import { formatUpdateCheckError } from '../../shared/update-error';
 import { applyLogSettings, getLogSettings } from '../logger';
 import { getPlaybackQueueStorage } from '../storage/playbackQueues';
 import { setMainAppSetting } from '../storage/settings';
-import { updateNetworkSettings } from '../networkSettings';
+import { getNetworkSettingsState, updateNetworkSettings } from '../networkSettings';
+import {
+  COMMUNITY_AUDIO_SESSION_PARTITION,
+  attachProxyLoginHandler,
+  getManagedNetworkSession,
+  getProxyCredentials,
+  networkFetch,
+} from '../networkPolicy';
+import {
+  clearUpdateInstallQuitRequested,
+  markUpdateInstallQuitRequested,
+} from '../updateInstallQuit';
 import type { IpcContext } from './types';
+import { createImportedAudioEffectId } from '../audioEffectFiles';
 
 const openLogDirectory = async () => {
   const logFile = log.transports.file.getFile();
@@ -45,6 +83,19 @@ const SUPPORTED_IMPULSE_RESPONSE_EXTENSIONS = new Set([
   '.aac',
   '.opus',
 ]);
+const MAX_COMMUNITY_IMPULSE_RESPONSE_BYTES = 32 * 1024 * 1024;
+const MAX_COMMUNITY_VPF_BYTES = 1024 * 1024;
+const VPF_MAGIC = Buffer.from('ViPER4WindowsX', 'ascii');
+// Keep in sync with SECTION_SIZES in native/echo-ffmpeg-player/src/vpf.rs.
+const VPF_SECTION_SIZES = [0x170, 0x2e4, 0x2e8, 0x31c] as const;
+const MAX_COMMUNITY_AUDIO_PENDING_WRITE_BYTES = 4 * 1024 * 1024;
+const COMMUNITY_AUDIO_DOWNLOAD_TIMEOUT_MS = 30_000;
+const MAX_COMMUNITY_AUDIO_REDIRECTS = 5;
+const COMMUNITY_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const communityAudioEffectDownloads = new Map<
+  string,
+  Promise<DownloadCommunityAudioEffectResult>
+>();
 
 type GithubReleaseAsset = {
   name?: unknown;
@@ -66,6 +117,28 @@ type LinuxDistribution = {
 };
 
 type LinuxPackageType = 'deb' | 'rpm' | 'pacman';
+const UPDATE_INSTALL_EXIT_TIMEOUT_MS = 15000;
+let echoUpdaterSilent = false;
+
+const setEchoSilent = (silent: boolean) => {
+  echoUpdaterSilent = silent;
+};
+
+const getEchoSilent = () => echoUpdaterSilent;
+
+const normalizeOpenExternalUrl = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const raw = value.trim();
+  if (!raw) return null;
+
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+};
 
 const readLinuxDistribution = (): LinuxDistribution | null => {
   if (process.platform !== 'linux') return null;
@@ -108,44 +181,20 @@ const shouldUseArchManualUpdate = (): boolean => {
   return readLinuxPackageType() !== 'pacman';
 };
 
-const requestJson = <T>(url: string): Promise<T> =>
-  new Promise((resolveRequest, rejectRequest) => {
-    import('https')
-      .then((https) => {
-        const req = https.get(
-          url,
-          { headers: { 'User-Agent': 'yanmusic-Updater', Accept: 'application/json' } },
-          (res) => {
-            const statusCode = res.statusCode || 0;
-            if (statusCode >= 300 && statusCode < 400 && res.headers.location) {
-              res.resume();
-              requestJson<T>(res.headers.location).then(resolveRequest, rejectRequest);
-              return;
-            }
-
-            let data = '';
-            res.setEncoding('utf8');
-            res.on('data', (chunk: string) => (data += chunk));
-            res.on('end', () => {
-              if (statusCode < 200 || statusCode >= 300) {
-                rejectRequest(new Error(`GitHub API returned HTTP ${statusCode}`));
-                return;
-              }
-              try {
-                resolveRequest(JSON.parse(data) as T);
-              } catch (error) {
-                rejectRequest(error);
-              }
-            });
-          },
-        );
-        req.on('error', rejectRequest);
-        req.setTimeout(15000, () => {
-          req.destroy(new Error('GitHub API request timed out'));
-        });
-      })
-      .catch(rejectRequest);
-  });
+const requestJson = async <T>(url: string): Promise<T> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await networkFetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'YanMusic-Updater', Accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error(`GitHub API returned HTTP ${response.status}`);
+    return (await response.json()) as T;
+  } finally {
+    clearTimeout(timeout);
+  }
+};
 
 const normalizeReleaseVersion = (tagName: unknown): string => {
   const raw = String(tagName || '')
@@ -210,12 +259,6 @@ const getArchLinuxPackageAsset = (release: GithubRelease): GithubReleaseAsset | 
   );
 };
 
-const withGithubProxy = (url: string, githubProxyUrl: string): string => {
-  const proxyBase = githubProxyUrl.trim();
-  if (!proxyBase || !url.startsWith('http')) return url;
-  return `${proxyBase.endsWith('/') ? proxyBase : `${proxyBase}/`}${url}`;
-};
-
 const probeAudioFileWithFfprobe = async (filePath: string): Promise<boolean | null> =>
   new Promise((resolveProbe) => {
     execFile(
@@ -270,6 +313,29 @@ const isSupportedImpulseResponseAudio = async (filePath: string): Promise<boolea
   }
 };
 
+const isSupportedVpf = async (filePath: string): Promise<boolean> => {
+  const stat = await fs.promises.stat(filePath);
+  if (!stat.isFile() || stat.size < VPF_MAGIC.length + VPF_SECTION_SIZES.length) return false;
+  if (stat.size > MAX_COMMUNITY_VPF_BYTES) return false;
+  const handle = await fs.promises.open(filePath, 'r');
+  try {
+    const header = Buffer.alloc(VPF_MAGIC.length + VPF_SECTION_SIZES.length);
+    const { bytesRead } = await handle.read(header, 0, header.length, 0);
+    if (bytesRead !== header.length) return false;
+    if (!header.subarray(0, VPF_MAGIC.length).equals(VPF_MAGIC)) return false;
+    const flags = header.subarray(VPF_MAGIC.length);
+    if (!flags.every((value) => value <= 1) || flags[3] !== 1) return false;
+    const expectedSize =
+      header.length +
+      VPF_SECTION_SIZES.reduce((size, sectionSize, index) => {
+        return size + (flags[index] === 1 ? sectionSize : 0);
+      }, 0);
+    return stat.size === expectedSize;
+  } finally {
+    await handle.close();
+  }
+};
+
 const isPathInside = (targetPath: string, parentPath: string): boolean => {
   const normalizedParent = resolve(parentPath);
   const normalizedTarget = resolve(targetPath);
@@ -281,7 +347,7 @@ const isPathInside = (targetPath: string, parentPath: string): boolean => {
 
 const importImpulseResponseFile = async (
   sourcePath: string,
-): Promise<{ file?: ImpulseResponseFile; error?: string }> => {
+): Promise<{ file?: SpatialAudioEffectEntry; error?: string }> => {
   const extension = extname(sourcePath).toLowerCase();
   const sourceName = basename(sourcePath);
   const targetExtension = SUPPORTED_IMPULSE_RESPONSE_EXTENSIONS.has(extension)
@@ -296,40 +362,506 @@ const importImpulseResponseFile = async (
     return { error: `${sourceName}: 该文件不是可识别的音频文件。` };
   }
 
-  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const id = await createImportedAudioEffectId(sourcePath);
   const irsDir = getImpulseResponseDir();
   await fs.promises.mkdir(irsDir, { recursive: true });
 
   const targetPath = join(irsDir, `${id}${targetExtension}`);
-  await fs.promises.copyFile(sourcePath, targetPath);
+  if (resolve(sourcePath) !== resolve(targetPath)) {
+    await fs.promises.copyFile(sourcePath, targetPath);
+  }
 
   return {
     file: {
       id,
-      name: normalizeImpulseResponseName(sourceName),
-      path: targetPath,
+      name: normalizeAudioEffectName(sourceName),
       size: stat.size,
       importedAt: Date.now(),
       format: targetExtension.slice(1),
+      kind: 'imported-ir',
+      impulseResponsePath: targetPath,
     },
   };
 };
 
+interface CommunityAudioDownloadResponse {
+  request: ClientRequest;
+  response: IncomingMessage;
+}
+
+interface CommunityAudioNetworkContext {
+  networkSession: Session;
+}
+
+const getCommunityAudioNetworkContext = async (): Promise<CommunityAudioNetworkContext> => {
+  const networkSession = await getManagedNetworkSession(COMMUNITY_AUDIO_SESSION_PARTITION);
+  return { networkSession };
+};
+
+const requestCommunityAudioResource = (
+  sourceUrl: URL,
+  signal: AbortSignal,
+  { networkSession }: CommunityAudioNetworkContext,
+): Promise<CommunityAudioDownloadResponse> =>
+  new Promise((resolve, reject) => {
+    let settled = false;
+    let redirectCount = 0;
+    const request = net.request({
+      url: sourceUrl.toString(),
+      method: 'GET',
+      session: networkSession,
+      redirect: 'manual',
+    });
+
+    const rejectOnce = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    signal.addEventListener(
+      'abort',
+      () => {
+        request.abort();
+        rejectOnce(new Error('download timed out'));
+      },
+      { once: true },
+    );
+    request.on('redirect', (statusCode, _method, redirectUrl) => {
+      if (!COMMUNITY_REDIRECT_STATUSES.has(statusCode)) {
+        rejectOnce(new Error(`unsupported redirect status ${statusCode}`));
+        request.abort();
+        return;
+      }
+      redirectCount += 1;
+      if (redirectCount > MAX_COMMUNITY_AUDIO_REDIRECTS) {
+        rejectOnce(new Error('too many redirects'));
+        request.abort();
+        return;
+      }
+      if (!normalizeCommunityAudioResourceUrl(redirectUrl, null, false)) {
+        rejectOnce(new Error('redirected to an unsupported host'));
+        request.abort();
+        return;
+      }
+      // Electron 要求在 redirect 回调内同步调用，否则会取消请求。
+      request.followRedirect();
+    });
+    request.on('response', (response) => {
+      if (settled) return;
+      settled = true;
+      resolve({ request, response });
+    });
+    request.on('error', rejectOnce);
+    request.on('abort', () => rejectOnce(new Error('request aborted')));
+    attachProxyLoginHandler(request);
+    request.end();
+  });
+
+const getCommunityResponseHeader = (response: IncomingMessage, name: string): string => {
+  const value = response.headers[name.toLowerCase()];
+  return Array.isArray(value) ? value[0] || '' : value || '';
+};
+
+const writeCommunityAudioResource = (
+  request: ClientRequest,
+  response: IncomingMessage,
+  handle: fs.promises.FileHandle,
+  sizeLimit: number,
+): Promise<number> =>
+  new Promise((resolve, reject) => {
+    let size = 0;
+    let failed = false;
+    let pendingWriteBytes = 0;
+    let writeQueue = Promise.resolve();
+    const rejectOnce = (error: unknown) => {
+      if (failed) return;
+      failed = true;
+      request.abort();
+      reject(error);
+    };
+
+    response.on('end', () => {
+      writeQueue.then(() => resolve(size), rejectOnce);
+    });
+    response.on('error', rejectOnce);
+    response.on('aborted', () => rejectOnce(new Error('response aborted')));
+    response.on('data', (chunk) => {
+      if (failed) return;
+      const chunkSize = chunk.byteLength;
+      size += chunkSize;
+      if (size > sizeLimit) {
+        rejectOnce(new Error('file is too large'));
+        return;
+      }
+      if (pendingWriteBytes + chunkSize > MAX_COMMUNITY_AUDIO_PENDING_WRITE_BYTES) {
+        rejectOnce(new Error('disk write backlog is too large'));
+        return;
+      }
+      pendingWriteBytes += chunkSize;
+      writeQueue = writeQueue.then(async () => {
+        try {
+          await handle.writeFile(chunk);
+        } finally {
+          pendingWriteBytes -= chunkSize;
+        }
+      });
+      writeQueue.catch(rejectOnce);
+    });
+  });
+
+const downloadCommunityAudioResourceCandidate = async (
+  sourceUrl: URL,
+  targetPath: string,
+  id: string,
+  kind: CommunityAudioResourceKind,
+  sizeLimit: number,
+): Promise<number> => {
+  const targetDir = dirname(targetPath);
+  await fs.promises.mkdir(targetDir, { recursive: true });
+  const temporaryPath = join(
+    targetDir,
+    `.${id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.download`,
+  );
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), COMMUNITY_AUDIO_DOWNLOAD_TIMEOUT_MS);
+  let handle: fs.promises.FileHandle | null = null;
+
+  try {
+    const networkContext = await getCommunityAudioNetworkContext();
+    const { request, response } = await requestCommunityAudioResource(
+      sourceUrl,
+      abortController.signal,
+      networkContext,
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      request.abort();
+      throw new Error(`HTTP ${response.statusCode}`);
+    }
+
+    const contentLength = Number(getCommunityResponseHeader(response, 'content-length') || 0);
+    if (contentLength > sizeLimit) {
+      request.abort();
+      throw new Error('file is too large');
+    }
+
+    handle = await fs.promises.open(temporaryPath, 'wx');
+    const size = await writeCommunityAudioResource(request, response, handle, sizeLimit);
+    await handle.close();
+    handle = null;
+
+    const valid =
+      kind === 'vpf'
+        ? await isSupportedVpf(temporaryPath)
+        : await isSupportedImpulseResponseAudio(temporaryPath);
+    if (size === 0 || !valid) {
+      throw new Error('downloaded file is not a supported audio effect resource');
+    }
+    await fs.promises.rename(temporaryPath, targetPath);
+    return size;
+  } catch (error) {
+    if (abortController.signal.aborted) throw new Error('download timed out');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    if (handle) await handle.close().catch(() => undefined);
+    await fs.promises.unlink(temporaryPath).catch(() => undefined);
+  }
+};
+
+const uniqueCommunityUrls = (values: unknown, kind: CommunityAudioResourceKind): URL[] => [
+  ...new Map(
+    (Array.isArray(values) ? values : [])
+      .map((value) =>
+        kind === 'vpf'
+          ? normalizeCommunityVpfUrl(value)
+          : normalizeCommunityImpulseResponseUrl(value),
+      )
+      .filter((url): url is URL => url !== null)
+      .map((url) => [url.toString(), url] as const),
+  ).values(),
+];
+
+const downloadCommunityResource = async (
+  sourceUrls: URL[],
+  targetPath: string,
+  id: string,
+  modelId: string,
+  kind: CommunityAudioResourceKind,
+): Promise<number> => {
+  const sizeLimit = kind === 'vpf' ? MAX_COMMUNITY_VPF_BYTES : MAX_COMMUNITY_IMPULSE_RESPONSE_BYTES;
+  let lastError: unknown;
+  for (const sourceUrl of sourceUrls) {
+    try {
+      return await downloadCommunityAudioResourceCandidate(
+        sourceUrl,
+        targetPath,
+        id,
+        kind,
+        sizeLimit,
+      );
+    } catch (error) {
+      lastError = error;
+      log.warn('[Audio] Download community audio effect candidate failed:', {
+        modelId,
+        resourceKind: kind,
+        hostname: sourceUrl.hostname,
+        error,
+      });
+    }
+  }
+  throw lastError ?? new Error('no valid resource candidate');
+};
+
+const performCommunityAudioEffectDownload = async (
+  payload: DownloadCommunityAudioEffectRequest,
+  modelId: string,
+): Promise<DownloadCommunityAudioEffectResult> => {
+  const impulseResponseUrls = uniqueCommunityUrls(payload?.impulseResponseUrls, 'impulse-response');
+  const vpfUrls = uniqueCommunityUrls(payload?.vpfUrls, 'vpf');
+  if (impulseResponseUrls.length === 0 && vpfUrls.length === 0) {
+    return { error: '社区音效地址无效。' };
+  }
+
+  const id = `community-effect-${modelId}`;
+  const name = normalizeAudioEffectName(String(payload?.name ?? '')).slice(0, 120);
+  const communityDir = join(app.getPath('userData'), 'audio-effects');
+  const targetDir = join(communityDir, id);
+  const transactionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const stagingDir = join(communityDir, `.${id}-${transactionId}.download`);
+  const backupDir = join(communityDir, `.${id}-${transactionId}.backup`);
+  const impulseResponsePath =
+    impulseResponseUrls.length > 0 ? join(targetDir, 'impulse-response.wav') : undefined;
+  const vpfPath = vpfUrls.length > 0 ? join(targetDir, 'effect.vpf') : undefined;
+  const stagingImpulseResponsePath = impulseResponsePath
+    ? join(stagingDir, 'impulse-response.wav')
+    : undefined;
+  const stagingVpfPath = vpfPath ? join(stagingDir, 'effect.vpf') : undefined;
+  await fs.promises.mkdir(communityDir, { recursive: true });
+  await fs.promises.mkdir(stagingDir, { recursive: true });
+
+  try {
+    const impulseResponseSize = stagingImpulseResponsePath
+      ? await downloadCommunityResource(
+          impulseResponseUrls,
+          stagingImpulseResponsePath,
+          id,
+          modelId,
+          'impulse-response',
+        )
+      : 0;
+    const vpfSize = stagingVpfPath
+      ? await downloadCommunityResource(vpfUrls, stagingVpfPath, id, modelId, 'vpf')
+      : 0;
+    let previousPackageMoved = false;
+    try {
+      await fs.promises.rename(targetDir, backupDir);
+      previousPackageMoved = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    try {
+      await fs.promises.rename(stagingDir, targetDir);
+    } catch (error) {
+      if (previousPackageMoved) {
+        await fs.promises.rename(backupDir, targetDir);
+      }
+      throw error;
+    }
+    if (previousPackageMoved) {
+      await fs.promises.rm(backupDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+    const kind = vpfPath
+      ? impulseResponsePath
+        ? 'community-combined'
+        : 'community-vpf'
+      : 'community-ir';
+    return {
+      file: {
+        id,
+        name,
+        size: impulseResponseSize + vpfSize,
+        importedAt: Date.now(),
+        format: vpfPath && !impulseResponsePath ? 'vpf' : 'wav',
+        kind,
+        impulseResponsePath,
+        vpfPath,
+      },
+    };
+  } catch (error) {
+    await fs.promises.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+    const message = error instanceof Error ? error.message : '';
+    if (message === 'download timed out') return { error: '社区音效下载超时。' };
+    return { error: '社区音效下载或校验失败。' };
+  }
+};
+
+const downloadCommunityAudioEffect = async (
+  payload: DownloadCommunityAudioEffectRequest,
+): Promise<DownloadCommunityAudioEffectResult> => {
+  const modelId = String(payload?.modelId ?? '').trim();
+  if (!/^\d{1,20}$/.test(modelId)) return { error: '社区音效地址无效。' };
+
+  const inFlight = communityAudioEffectDownloads.get(modelId);
+  if (inFlight) return inFlight;
+
+  const task = performCommunityAudioEffectDownload(payload, modelId).catch((error) => {
+    log.warn('[Audio] Download community audio effect failed:', { modelId, error });
+    return { error: '社区音效下载或校验失败。' };
+  });
+  communityAudioEffectDownloads.set(modelId, task);
+  try {
+    return await task;
+  } finally {
+    if (communityAudioEffectDownloads.get(modelId) === task) {
+      communityAudioEffectDownloads.delete(modelId);
+    }
+  }
+};
+
 const getAppInfo = (): AppInfoResult => {
   const version = app.getVersion();
-  return { version, isPrerelease: version.includes('-') };
+  return { version, isPrerelease: version.includes('-'), isPackaged: app.isPackaged };
 };
 
 export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) => {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.logger = log;
+  autoUpdater.on('login', (authInfo, callback) => {
+    const credentials = getProxyCredentials();
+    if (authInfo.isProxy && credentials) {
+      callback(credentials.username, credentials.password);
+      return;
+    }
+    callback('', '');
+  });
 
   const isDev = !app.isPackaged;
 
   // 更新状态的单一可信来源（供渲染层在重新打开弹窗时恢复进度）
   let lastCheckResult: UpdateCheckResult | null = null;
   let downloadState: UpdateDownloadResult = { status: 'idle' };
+  let downloadCancellationToken: CancellationToken | null = null;
+  let updateInstallExitTimeout: ReturnType<typeof setTimeout> | null = null;
+  let managedUpdaterOperationCount = 0;
+  let activeUpdateSource = {
+    prerelease: false,
+    acceleratorUrl: '',
+    usingAccelerator: false,
+  };
+
+  const runManagedUpdaterOperation = async <T>(operation: () => Promise<T>): Promise<T> => {
+    managedUpdaterOperationCount += 1;
+    try {
+      return await operation();
+    } finally {
+      managedUpdaterOperationCount -= 1;
+    }
+  };
+
+  const configureGithubUpdateSource = (prerelease: boolean) => {
+    autoUpdater.setFeedURL({
+      provider: 'github',
+      owner: 'MmlwrYan',
+      repo: 'YanMusic',
+    });
+    autoUpdater.allowPrerelease = prerelease;
+    activeUpdateSource = {
+      ...activeUpdateSource,
+      prerelease,
+      usingAccelerator: false,
+    };
+  };
+
+  const configureAcceleratedUpdateSource = async (context: {
+    prerelease: boolean;
+    acceleratorUrl: string;
+  }) => {
+    let githubFeedUrl = 'https://github.com/MmlwrYan/YanMusic/releases/latest/download';
+    if (context.prerelease) {
+      log.info('[Updater] Fetching latest prerelease tag via GitHub API...');
+      const releases = await requestJson<GithubRelease[]>(
+        'https://api.github.com/repos/MmlwrYan/YanMusic/releases?per_page=1',
+      );
+      const tag = String(releases[0]?.tag_name ?? '').trim();
+      if (!tag) throw new Error('未找到可用的 GitHub 预发布版本');
+      githubFeedUrl = `https://github.com/MmlwrYan/YanMusic/releases/download/${tag}`;
+    }
+    const feedUrl = applyGithubAcceleratorUrl(githubFeedUrl, context.acceleratorUrl);
+    if (feedUrl === githubFeedUrl) throw new Error('GitHub 加速地址无效');
+    log.info(`[Updater] Using accelerated feed URL: ${feedUrl}`);
+    autoUpdater.setFeedURL({ provider: 'generic', url: feedUrl });
+    autoUpdater.allowPrerelease = context.prerelease;
+    activeUpdateSource = {
+      ...context,
+      usingAccelerator: true,
+    };
+  };
+
+  const checkForUpdatesWithFallback = async (context: {
+    prerelease: boolean;
+    acceleratorUrl: string;
+  }) => {
+    activeUpdateSource = { ...context, usingAccelerator: false };
+    return runGithubAcceleratorFallback({
+      acceleratorEnabled: Boolean(context.acceleratorUrl),
+      accelerated: async () => {
+        await configureAcceleratedUpdateSource(context);
+        return autoUpdater.checkForUpdates();
+      },
+      github: async () => {
+        configureGithubUpdateSource(context.prerelease);
+        return autoUpdater.checkForUpdates();
+      },
+      onAcceleratorFailure: (error) => {
+        log.warn('[Updater] GitHub accelerator failed, retrying original GitHub:', error);
+      },
+    });
+  };
+
+  const downloadUpdateWithFallback = async (token: CancellationToken) =>
+    runGithubAcceleratorFallback({
+      acceleratorEnabled: activeUpdateSource.usingAccelerator,
+      accelerated: () => autoUpdater.downloadUpdate(token),
+      github: async () => {
+        configureGithubUpdateSource(activeUpdateSource.prerelease);
+        await autoUpdater.checkForUpdates();
+        if (token.cancelled) throw new Error('cancelled');
+        return autoUpdater.downloadUpdate(token);
+      },
+      shouldFallback: () => !token.cancelled,
+      onAcceleratorFailure: (error) => {
+        log.warn('[Updater] Accelerator download failed, retrying original GitHub:', error);
+      },
+    });
+
+  const clearUpdateInstallExitTimeout = () => {
+    if (!updateInstallExitTimeout) return;
+    clearTimeout(updateInstallExitTimeout);
+    updateInstallExitTimeout = null;
+  };
+
+  const failUpdateInstall = (error: string, source: string) => {
+    clearUpdateInstallExitTimeout();
+    clearUpdateInstallQuitRequested();
+    downloadState = { status: 'error', error };
+    sendToRenderer('update-download-status', downloadState);
+    log.error(`[Updater] ${source}: ${error}`);
+  };
+
+  const scheduleUpdateInstallExitTimeout = () => {
+    clearUpdateInstallExitTimeout();
+    updateInstallExitTimeout = setTimeout(() => {
+      if (downloadState.status !== 'installing') return;
+      failUpdateInstall(
+        '更新安装器已启动但应用未能退出，请关闭 YanMusic 后重试。',
+        'Install exit timeout',
+      );
+      log.error('[Updater] Force exiting after install quit timeout');
+      app.exit(1);
+    }, UPDATE_INSTALL_EXIT_TIMEOUT_MS);
+    updateInstallExitTimeout.unref?.();
+  };
 
   const readCurrentVersionChangelog = (): string => {
     const version = app.getVersion();
@@ -362,7 +894,7 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
   // --- autoUpdater 事件 ---
   autoUpdater.on('update-available', (info) => {
     const { version: currentVersion } = getAppInfo();
-    const silent = (autoUpdater as any)._echoSilent ?? false;
+    const silent = getEchoSilent();
 
     // releaseNotes 可能是 string 或 Array<{ version: string; note: string | null }>
     // 只展示最新版本的更新内容
@@ -378,7 +910,7 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
       currentVersion,
       latestVersion: info.version,
       releaseName: info.releaseName || `v${info.version}`,
-      releaseUrl: `https://github.com/hoowhoami/yanmusic/releases/tag/v${info.version}`,
+      releaseUrl: `https://github.com/MmlwrYan/YanMusic/releases/tag/v${info.version}`,
       body,
       silent,
     };
@@ -388,13 +920,13 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
 
   autoUpdater.on('update-not-available', (info) => {
     const { version: currentVersion } = getAppInfo();
-    const silent = (autoUpdater as any)._echoSilent ?? false;
+    const silent = getEchoSilent();
     const result: UpdateCheckResult = {
       status: 'latest',
       currentVersion,
       latestVersion: info.version,
       releaseName: info.releaseName || `v${info.version}`,
-      releaseUrl: `https://github.com/hoowhoami/yanmusic/releases/tag/v${info.version}`,
+      releaseUrl: `https://github.com/MmlwrYan/YanMusic/releases/tag/v${info.version}`,
       body: readCurrentVersionChangelog(),
       silent,
     };
@@ -403,23 +935,35 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
   });
 
   autoUpdater.on('error', (error) => {
+    if (managedUpdaterOperationCount > 0) {
+      log.warn('[Updater] Managed operation failed; fallback or caller will handle it:', error);
+      return;
+    }
     log.error('[Updater] Error:', error);
     const message = error?.message || '更新失败，请稍后重试。';
+    // 用户主动取消下载导致的错误，静默忽略（token 已被清空，state 已是 idle）
+    if (!downloadCancellationToken && downloadState.status === 'idle') return;
     // 区分检查阶段与下载阶段的错误，避免下载出错时弹窗被「检查更新失败」覆盖
-    if (downloadState.status === 'downloading') {
+    if (downloadState.status === 'downloading' || downloadState.status === 'installing') {
+      downloadCancellationToken = null;
+      if (downloadState.status === 'installing') {
+        clearUpdateInstallExitTimeout();
+        clearUpdateInstallQuitRequested();
+      }
       downloadState = { status: 'error', error: message };
       sendToRenderer('update-download-status', downloadState);
     } else {
       sendToRenderer('update-check-result', {
         status: 'error',
         currentVersion: getAppInfo().version,
-        message,
-        silent: (autoUpdater as any)._echoSilent ?? false,
+        message: formatUpdateCheckError(error),
+        silent: getEchoSilent(),
       } satisfies UpdateCheckResult);
     }
   });
 
   autoUpdater.on('download-progress', (progress) => {
+    if (!downloadCancellationToken || downloadState.status !== 'downloading') return;
     downloadState = {
       status: 'downloading',
       progress: {
@@ -433,6 +977,8 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
   });
 
   autoUpdater.on('update-downloaded', () => {
+    if (!downloadCancellationToken || downloadState.status !== 'downloading') return;
+    downloadCancellationToken = null;
     downloadState = { status: 'downloaded' };
     sendToRenderer('update-download-status', downloadState);
   });
@@ -444,8 +990,8 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
   }): Promise<void> => {
     const { version: currentVersion } = getAppInfo();
     const releasesUrl = payload.prerelease
-      ? 'https://api.github.com/repos/hoowhoami/yanmusic/releases?per_page=20'
-      : 'https://api.github.com/repos/hoowhoami/yanmusic/releases/latest';
+      ? 'https://api.github.com/repos/MmlwrYan/YanMusic/releases?per_page=20'
+      : 'https://api.github.com/repos/MmlwrYan/YanMusic/releases/latest';
 
     const response = payload.prerelease
       ? await requestJson<GithubRelease[]>(releasesUrl)
@@ -462,7 +1008,7 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
     const releaseUrl =
       typeof release.html_url === 'string'
         ? release.html_url
-        : `https://github.com/hoowhoami/yanmusic/releases/tag/${release.tag_name}`;
+        : `https://github.com/MmlwrYan/YanMusic/releases/tag/${release.tag_name}`;
 
     if (!isNewerRelease(latestVersion, currentVersion)) {
       const result: UpdateCheckResult = {
@@ -484,7 +1030,7 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
     const isPacmanPackage = isPacmanAssetName(archiveName);
     const downloadUrl =
       typeof archiveAsset?.browser_download_url === 'string'
-        ? withGithubProxy(archiveAsset.browser_download_url, payload.githubProxyUrl)
+        ? applyGithubAcceleratorUrl(archiveAsset.browser_download_url, payload.githubProxyUrl)
         : releaseUrl;
     const downloadLabel = archiveAsset
       ? isPacmanPackage
@@ -534,7 +1080,7 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
     async (): Promise<ImportImpulseResponseResult> => {
       const win = getMainWindow();
       const options: OpenDialogOptions = {
-        title: '导入空间音效文件',
+        title: '导入音效文件',
         properties: ['openFile', 'multiSelections'],
         filters: [
           {
@@ -566,7 +1112,7 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
         return { canceled: true };
       }
 
-      const files: ImpulseResponseFile[] = [];
+      const files: SpatialAudioEffectEntry[] = [];
       const errors: string[] = [];
 
       for (const sourcePath of result.filePaths) {
@@ -590,9 +1136,25 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
     },
   );
 
-  ipcRegistry.registerHandler('audio:delete-impulse-response', async (_event, filePath: string) => {
+  ipcRegistry.registerHandler(
+    'audio:download-community-audio-effect',
+    async (
+      _event,
+      payload: DownloadCommunityAudioEffectRequest,
+    ): Promise<DownloadCommunityAudioEffectResult> => downloadCommunityAudioEffect(payload),
+  );
+
+  ipcRegistry.registerHandler('audio:delete-audio-effect', async (_event, filePath: string) => {
     if (typeof filePath !== 'string' || !filePath) return false;
     const irsDir = getImpulseResponseDir();
+    const communityDir = join(app.getPath('userData'), 'audio-effects');
+    if (isPathInside(filePath, communityDir)) {
+      const relative = filePath.slice(resolve(communityDir).length + 1).split(sep);
+      const id = relative[0] || '';
+      if (!/^community-effect-\d{1,20}$/.test(id)) return false;
+      await fs.promises.rm(join(communityDir, id), { recursive: true, force: true });
+      return true;
+    }
     if (!isPathInside(filePath, irsDir)) return false;
     try {
       await fs.promises.unlink(filePath);
@@ -604,21 +1166,78 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
   });
 
   ipcRegistry.registerHandler(
-    'audio:reconcile-impulse-responses',
-    async (_event, files: ImpulseResponseFile[] = []) => {
+    'audio:reconcile-audio-effects',
+    async (_event, files: SpatialAudioEffectEntry[] = []) => {
       if (!Array.isArray(files)) return [];
       const irsDir = getImpulseResponseDir();
-      const next: ImpulseResponseFile[] = [];
+      const communityDir = join(app.getPath('userData'), 'audio-effects');
+      const next: SpatialAudioEffectEntry[] = [];
+      const importedIds = new Set<string>();
 
       for (const file of files) {
-        if (!file?.path || !isPathInside(file.path, irsDir)) continue;
+        if (!file) continue;
         try {
-          const stat = await fs.promises.stat(file.path);
+          if (
+            file.kind === 'community-ir' ||
+            file.kind === 'community-vpf' ||
+            file.kind === 'community-combined'
+          ) {
+            if (!/^community-effect-\d{1,20}$/.test(file.id)) continue;
+            const targetDir = join(communityDir, file.id);
+            const impulseResponsePath = file.impulseResponsePath;
+            const vpfPath = file.vpfPath;
+            if (file.kind === 'community-ir' && (!impulseResponsePath || vpfPath)) continue;
+            if (file.kind === 'community-vpf' && (impulseResponsePath || !vpfPath)) continue;
+            if (file.kind === 'community-combined' && (!impulseResponsePath || !vpfPath)) continue;
+            let size = 0;
+            if (impulseResponsePath) {
+              if (
+                resolve(impulseResponsePath) !== resolve(join(targetDir, 'impulse-response.wav'))
+              ) {
+                continue;
+              }
+              const stat = await fs.promises.stat(impulseResponsePath);
+              if (
+                !stat.isFile() ||
+                stat.size === 0 ||
+                stat.size > MAX_COMMUNITY_IMPULSE_RESPONSE_BYTES ||
+                !(await isSupportedImpulseResponseAudio(impulseResponsePath))
+              ) {
+                continue;
+              }
+              size += stat.size;
+            }
+            if (vpfPath) {
+              if (resolve(vpfPath) !== resolve(join(targetDir, 'effect.vpf'))) continue;
+              const stat = await fs.promises.stat(vpfPath);
+              if (
+                !stat.isFile() ||
+                stat.size === 0 ||
+                stat.size > MAX_COMMUNITY_VPF_BYTES ||
+                !(await isSupportedVpf(vpfPath))
+              ) {
+                continue;
+              }
+              size += stat.size;
+            }
+            if (!impulseResponsePath && !vpfPath) continue;
+            next.push({ ...file, size });
+            continue;
+          }
+          if (file.kind !== 'imported-ir') continue;
+          const impulseResponsePath = file.impulseResponsePath;
+          if (!impulseResponsePath || file.vpfPath) continue;
+          if (!isPathInside(impulseResponsePath, irsDir)) continue;
+          const stat = await fs.promises.stat(impulseResponsePath);
           if (!stat.isFile()) continue;
-          if (!(await isSupportedImpulseResponseAudio(file.path))) continue;
-          const format = file.format || extname(file.path).replace(/^\./, '');
+          if (!(await isSupportedImpulseResponseAudio(impulseResponsePath))) continue;
+          const id = await createImportedAudioEffectId(impulseResponsePath);
+          if (importedIds.has(id)) continue;
+          importedIds.add(id);
+          const format = file.format || extname(impulseResponsePath).replace(/^\./, '');
           next.push({
             ...file,
+            id,
             size: stat.size,
             format: format || undefined,
           });
@@ -651,14 +1270,16 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
     },
   );
 
+  ipcRegistry.registerHandler('network:get-settings', () => getNetworkSettingsState());
+
   ipcRegistry.registerHandler(
     'network:update-settings',
-    async (_event, settings: Partial<NetworkSettings>) => {
-      const next = updateNetworkSettings(settings);
+    async (_event, request: NetworkSettingsUpdateRequest) => {
+      const next = await updateNetworkSettings(request);
       try {
-        await mpvRef.current?.setNetworkSettings(next);
+        await mpvRef.current?.setNetworkSettings(next.settings);
       } catch (error) {
-        log.warn('[Network] Failed to apply mpv network settings:', error);
+        log.warn('[Network] Failed to apply player network settings:', error);
       }
       return next;
     },
@@ -668,6 +1289,7 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
     'check-for-updates',
     (_event, payload?: { prerelease?: boolean; silent?: boolean; githubProxyUrl?: string }) => {
       const silent = Boolean(payload?.silent);
+      setEchoSilent(silent);
       const prerelease = Boolean(payload?.prerelease);
       const githubProxyUrl = payload?.githubProxyUrl?.trim() || '';
 
@@ -705,122 +1327,14 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
         return;
       }
 
-      // 配置更新源
-      if (githubProxyUrl) {
-        const proxyBase = githubProxyUrl.endsWith('/') ? githubProxyUrl : `${githubProxyUrl}/`;
-
-        if (prerelease) {
-          // 预发布 + 代理：先通过 GitHub API 查询最新 prerelease 的 tag，再用代理下载
-          log.info('[Updater] Fetching latest prerelease tag via GitHub API...');
-          import('https')
-            .then((https) => {
-              const apiUrl = 'https://api.github.com/repos/hoowhoami/yanmusic/releases?per_page=1';
-              const req = https.get(
-                apiUrl,
-                { headers: { 'User-Agent': 'yanmusic-Updater', Accept: 'application/json' } },
-                (res) => {
-                  let data = '';
-                  res.on('data', (chunk: string) => (data += chunk));
-                  res.on('end', () => {
-                    try {
-                      const releases = JSON.parse(data);
-                      const latest = releases[0];
-                      if (!latest?.tag_name) {
-                        log.warn('[Updater] No prerelease found, falling back to github provider');
-                        autoUpdater.setFeedURL({
-                          provider: 'github',
-                          owner: 'hoowhoami',
-                          repo: 'yanmusic',
-                        });
-                      } else {
-                        const tag = latest.tag_name;
-                        const feedUrl = `${proxyBase}https://github.com/hoowhoami/yanmusic/releases/download/${tag}`;
-                        log.info(`[Updater] Using proxy feed URL for prerelease: ${feedUrl}`);
-                        autoUpdater.setFeedURL({
-                          provider: 'generic',
-                          url: feedUrl,
-                        });
-                      }
-                    } catch {
-                      log.warn('[Updater] Failed to parse API response, falling back');
-                      autoUpdater.setFeedURL({
-                        provider: 'github',
-                        owner: 'hoowhoami',
-                        repo: 'yanmusic',
-                      });
-                    }
-                    autoUpdater.allowPrerelease = prerelease;
-                    (autoUpdater as any)._echoSilent = silent;
-                    autoUpdater.checkForUpdates().catch((error) => {
-                      log.error('[Updater] Check failed:', error);
-                      sendToRenderer('update-check-result', {
-                        status: 'error',
-                        currentVersion: getAppInfo().version,
-                        message: error?.message || '更新检查失败，请稍后重试。',
-                        silent,
-                      } satisfies UpdateCheckResult);
-                    });
-                  });
-                },
-              );
-              req.on('error', (error) => {
-                log.warn('[Updater] API request failed, falling back to github provider:', error);
-                autoUpdater.setFeedURL({
-                  provider: 'github',
-                  owner: 'hoowhoami',
-                  repo: 'yanmusic',
-                });
-                autoUpdater.allowPrerelease = prerelease;
-                (autoUpdater as any)._echoSilent = silent;
-                autoUpdater.checkForUpdates().catch((err) => {
-                  log.error('[Updater] Check failed:', err);
-                  sendToRenderer('update-check-result', {
-                    status: 'error',
-                    currentVersion: getAppInfo().version,
-                    message: err?.message || '更新检查失败，请稍后重试。',
-                    silent,
-                  } satisfies UpdateCheckResult);
-                });
-              });
-            })
-            .catch(() => {
-              autoUpdater.setFeedURL({
-                provider: 'github',
-                owner: 'hoowhoami',
-                repo: 'yanmusic',
-              });
-              autoUpdater.allowPrerelease = prerelease;
-              (autoUpdater as any)._echoSilent = silent;
-              autoUpdater.checkForUpdates();
-            });
-          return;
-        } else {
-          // 正式版 + 代理：直接用 releases/latest/download
-          const feedUrl = `${proxyBase}https://github.com/hoowhoami/yanmusic/releases/latest/download`;
-          log.info(`[Updater] Using proxy feed URL: ${feedUrl}`);
-          autoUpdater.setFeedURL({
-            provider: 'generic',
-            url: feedUrl,
-          });
-        }
-      } else {
-        // 无代理：用 github provider 直连
-        autoUpdater.setFeedURL({
-          provider: 'github',
-          owner: 'hoowhoami',
-          repo: 'yanmusic',
-        });
-      }
-
-      autoUpdater.allowPrerelease = prerelease;
-      (autoUpdater as any)._echoSilent = silent;
-
-      autoUpdater.checkForUpdates().catch((error) => {
+      runManagedUpdaterOperation(() =>
+        checkForUpdatesWithFallback({ prerelease, acceleratorUrl: githubProxyUrl }),
+      ).catch((error) => {
         log.error('[Updater] Check failed:', error);
         sendToRenderer('update-check-result', {
           status: 'error',
           currentVersion: getAppInfo().version,
-          message: error?.message || '更新检查失败，请稍后重试。',
+          message: formatUpdateCheckError(error),
           silent,
         } satisfies UpdateCheckResult);
       });
@@ -832,9 +1346,22 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
     download: downloadState,
   }));
 
+  ipcRegistry.registerListener('update:cancel-download', () => {
+    if (downloadCancellationToken) {
+      downloadCancellationToken.cancel();
+      downloadCancellationToken = null;
+    }
+    downloadState = { status: 'idle' };
+    sendToRenderer('update-download-status', downloadState);
+  });
+
   ipcRegistry.registerListener('update:download', () => {
     // 防重入：正在下载或已下载完成时忽略，仅回传当前状态
-    if (downloadState.status === 'downloading' || downloadState.status === 'downloaded') {
+    if (
+      downloadState.status === 'downloading' ||
+      downloadState.status === 'downloaded' ||
+      downloadState.status === 'installing'
+    ) {
       sendToRenderer('update-download-status', downloadState);
       return;
     }
@@ -843,7 +1370,13 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
       progress: { percent: 0, bytesPerSecond: 0, transferred: 0, total: 0 },
     };
     sendToRenderer('update-download-status', downloadState);
-    autoUpdater.downloadUpdate().catch((error) => {
+    const token = new CancellationToken();
+    downloadCancellationToken = token;
+    runManagedUpdaterOperation(() => downloadUpdateWithFallback(token)).catch((error) => {
+      // 中止后立即重下时，旧下载尝试（如取消）的失败回调不能覆盖新下载：
+      // 仅当 token 仍是当前下载的 token 时才更新错误状态。
+      if (downloadCancellationToken !== token) return;
+      downloadCancellationToken = null;
       log.error('[Updater] Download failed:', error);
       downloadState = {
         status: 'error',
@@ -853,14 +1386,71 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
     });
   });
 
-  ipcRegistry.registerListener('update:install', (_event, payload?: { silent?: boolean }) => {
-    const isSilent = payload?.silent ?? false;
-    autoUpdater.quitAndInstall(isSilent, true);
-  });
+  ipcRegistry.registerHandler(
+    'update:install',
+    (_event, payload?: { silent?: boolean }): UpdateInstallResult => {
+      if (downloadState.status !== 'downloaded') {
+        const error = '更新尚未下载完成，请下载完成后再安装。';
+        downloadState = { status: 'error', error };
+        sendToRenderer('update-download-status', downloadState);
+        return { ok: false, error };
+      }
+
+      const isSilent = payload?.silent ?? false;
+      downloadState = { status: 'installing' };
+      sendToRenderer('update-download-status', downloadState);
+      log.info('[Updater] Starting update install', {
+        silent: isSilent,
+        platform: process.platform,
+      });
+      markUpdateInstallQuitRequested();
+      scheduleUpdateInstallExitTimeout();
+
+      try {
+        const updater = autoUpdater as unknown as {
+          install?: (isSilent?: boolean, isForceRunAfter?: boolean) => boolean;
+          autoRunAppAfterInstall?: boolean;
+          quitAndInstall: (isSilent?: boolean, isForceRunAfter?: boolean) => void;
+        };
+
+        if (typeof updater.install === 'function') {
+          const forceRunAfter = isSilent ? true : (updater.autoRunAppAfterInstall ?? true);
+          const started = updater.install(isSilent, forceRunAfter);
+          if (!started) {
+            const error = '更新安装器未能启动，请重新下载或前往发布页手动安装。';
+            failUpdateInstall(error, 'install() returned false');
+            return { ok: false, error };
+          }
+
+          setImmediate(() => {
+            try {
+              app.quit();
+            } catch (error) {
+              const message = error instanceof Error ? error.message : '更新安装退出失败，请重试。';
+              failUpdateInstall(message, 'Quit after install failed');
+            }
+          });
+        } else {
+          updater.quitAndInstall(isSilent, true);
+        }
+
+        return { ok: true };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : '更新安装器启动失败，请前往发布页手动安装。';
+        failUpdateInstall(message, 'Install failed');
+        return { ok: false, error: message };
+      }
+    },
+  );
 
   ipcRegistry.registerListener('open-external', async (_event, url: string) => {
-    if (typeof url !== 'string' || !url.startsWith('http')) return;
-    await shell.openExternal(url);
+    const safeUrl = normalizeOpenExternalUrl(url);
+    if (!safeUrl) {
+      log.warn('[MainIPC] Blocked unsafe external URL:', url);
+      return;
+    }
+    await shell.openExternal(safeUrl);
   });
 
   ipcRegistry.registerListener('open-disclaimer', () => {

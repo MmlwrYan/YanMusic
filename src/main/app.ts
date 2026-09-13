@@ -23,6 +23,7 @@ import { clearPluginRuntimeSession, setPluginSafeMode } from './plugins';
 import { applyDesktopAppIcon, applyTaskbarShortcutIcon, refreshAppIconConfig } from './appIcons';
 import { setupThumbarButtons } from './thumbar';
 import { setupTaskbarThumbnail, destroyTaskbarThumbnail } from './taskbarThumbnail';
+import { refreshTaskbarProgress } from './taskbarProgress';
 import { configureApplicationMenu, configureWebContentsShortcuts } from './applicationMenu';
 import {
   flushPendingShareTargets,
@@ -69,6 +70,12 @@ const installWindowsTrayRecovery = () => {
 
   mainWindow.hookWindowMessage(WM_TASKBARCREATED, () => {
     refreshTray();
+    // 任务栏重建会清空进度条，按当前播放状态重新应用一次（与下方缩略图重建保持一致）
+    try {
+      refreshTaskbarProgress();
+    } catch (err) {
+      log.error('[Main] Failed to refresh taskbar progress after taskbar created:', err);
+    }
     // Windows 资源管理器重启后需要重新设置 thumbar 按钮
     try {
       setupThumbarButtons(mainWindow);
@@ -206,6 +213,8 @@ if (!gotTheLock) {
       await createWindow();
       setupThumbarButtons(getMainWindow()!);
       setupTaskbarThumbnail(getMainWindow()!);
+      // 窗口重建后任务栏按钮是新的，进度条需要重新应用一次
+      refreshTaskbarProgress();
       installWindowsTrayRecovery();
       await restoreActiveWindowMode();
     }

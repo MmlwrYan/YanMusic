@@ -1,4 +1,4 @@
-﻿export const PLUGIN_STATE_KEY = 'plugins:enabled';
+export const PLUGIN_STATE_KEY = 'plugins:enabled';
 export const PLUGIN_SAFE_MODE_KEY = 'plugins:safe-mode';
 export const PLUGIN_LAST_FAILURE_KEY = 'plugins:last-failure';
 export const PLUGIN_STARTUP_SESSION_KEY = 'plugins:startup-session';
@@ -8,13 +8,19 @@ export const PLUGIN_MARKETPLACE_SOURCES_KEY = 'plugins:marketplace:sources';
 export const PLUGIN_MARKETPLACE_CACHE_KEY = 'plugins:marketplace:cache';
 export const PLUGIN_PROCESS_CONSENTS_KEY = 'plugins:process-consents';
 export const PLUGIN_MANIFEST_FILE = 'manifest.json';
-export const PLUGIN_MARKETPLACE_INDEX_FILE = 'yan-plugins.json';
+export const PLUGIN_MARKETPLACE_INDEX_FILE = 'echo-plugins.json';
 export const PLUGIN_MARKETPLACE_CACHE_VERSION = 5;
 export const DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL =
-  'https://github.com/hoowhoami/yanmusicPlugins';
-export const DEFAULT_PLUGIN_MARKETPLACE_SOURCE_ID = 'github:hoowhoami/yanmusicplugins';
+  'https://github.com/hoowhoami/EchoMusicPlugins';
+export const DEFAULT_PLUGIN_MARKETPLACE_SOURCE_ID = 'github:hoowhoami/echomusicplugins';
 export const DEFAULT_PLUGIN_MARKETPLACE_STATS_API_URL =
-  'https://yanmusic-plugin-marketplace.hoowhoami.dpdns.org';
+  'https://echomusic-plugin-marketplace.hoowhoami.dpdns.org';
+/**
+ * 内置官方插件源在界面上的显示名。
+ * 一律使用本地名称，不采用远端索引（echo-plugins.json 的 name 字段）返回的名称，
+ * 避免远端数据把上游品牌文案带进应用界面。
+ */
+export const OFFICIAL_PLUGIN_MARKETPLACE_SOURCE_NAME = 'YanMusic 官方插件源';
 
 export const PLUGIN_IMAGE_EXTENSIONS = new Set([
   '.apng',
@@ -26,12 +32,14 @@ export const PLUGIN_IMAGE_EXTENSIONS = new Set([
   '.svg',
   '.webp',
 ]);
+// 该清单需与本地可播放格式（FFmpeg 解码/解复用白名单）保持一致，作为唯一事实源。
 export const PLUGIN_AUDIO_EXTENSIONS = new Set([
   '.aac',
   '.aif',
   '.aiff',
   '.alac',
   '.ape',
+  '.caf',
   '.dff',
   '.dsf',
   '.flac',
@@ -41,6 +49,7 @@ export const PLUGIN_AUDIO_EXTENSIONS = new Set([
   '.ogg',
   '.opus',
   '.wav',
+  '.wave',
   '.webm',
   '.wma',
   '.wv',

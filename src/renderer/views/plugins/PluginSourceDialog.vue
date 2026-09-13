@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed } from 'vue';
 import { Icon } from '@iconify/vue';
 import Button from '@/components/ui/Button.vue';
@@ -27,13 +27,20 @@ const emit = defineEmits<{
 }>();
 
 const canAdd = computed(() => Boolean(props.sourceUrl.trim()) && !props.adding);
+
+/**
+ * 内置官方源的地址由应用内置管理，界面上不展示其原始地址字符串，
+ * 仅显示中性说明；显示名与地址的实际取值不受影响。
+ */
+const sourceAddressLabel = (source: PluginMarketplaceSource) =>
+  source.official ? '官方内置源（自动同步）' : source.url;
 </script>
 
 <template>
   <Dialog
     :open="open"
     title="插件源"
-    description="添加 GitHub 仓库地址后，YanMusic 会读取 yan-plugins.json 索引并同步插件清单。"
+    description="添加 GitHub 仓库地址后，YanMusic 会读取仓库内的插件索引文件并同步插件清单。"
     show-close
     content-class="plugin-source-dialog"
     body-class="plugin-source-dialog-body"
@@ -74,7 +81,7 @@ const canAdd = computed(() => Boolean(props.sourceUrl.trim()) && !props.adding);
               <strong>{{ source.name }}</strong>
               <span v-if="source.official">官方</span>
             </div>
-            <p :title="source.url">{{ source.url }}</p>
+            <p :title="source.official ? undefined : source.url">{{ sourceAddressLabel(source) }}</p>
             <small>
               {{ source.pluginCount }} 个插件
               <template v-if="source.lastFetchedAt">

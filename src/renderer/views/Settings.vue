@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 defineOptions({ name: 'settings-page' });
 import { computed, ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import type { Component } from 'vue';
@@ -15,6 +15,8 @@ import { sanitizeHtml } from '@/utils/sanitize';
 import AppearanceSettingsSection from './settings/components/AppearanceSettingsSection.vue';
 import FontSettingsSection from './settings/components/FontSettingsSection.vue';
 import PlaybackSettingsSection from './settings/components/PlaybackSettingsSection.vue';
+import SpatialAudioSettingsSection from './settings/components/SpatialAudioSettingsSection.vue';
+import PlayerSettingsSection from './settings/components/PlayerSettingsSection.vue';
 import QualitySettingsSection from './settings/components/QualitySettingsSection.vue';
 import PageLyricSettingsSection from './settings/components/PageLyricSettingsSection.vue';
 import DesktopLyricSettingsSection from './settings/components/DesktopLyricSettingsSection.vue';
@@ -233,6 +235,54 @@ const builtinSettingsSections = computed<SettingsRenderSection[]>(() => [
       '防止系统休眠',
       '音频缓冲时长',
       '音频设备缓冲',
+      '播放卡死自动恢复',
+      '播放卡死',
+      '最大自动恢复次数',
+      '网络波动',
+      '播放稳定性',
+    ],
+  },
+  {
+    id: 'spatialAudio',
+    label: '音效管理',
+    order: 350,
+    component: SpatialAudioSettingsSection,
+    searchKeywords: [
+      '音效管理',
+      '播放音效',
+      '空间音效',
+      '音效广场',
+      '音效市场',
+      '歌手音效',
+      '耳机专属',
+      '音效引擎',
+      'IRS',
+      'WAV',
+      'VPF',
+      'Provider',
+      '卷积',
+      '脉冲响应',
+    ],
+  },
+  {
+    id: 'player',
+    label: '播放器设置',
+    order: 360,
+    component: PlayerSettingsSection,
+    searchKeywords: [
+      '音频缓冲时长',
+      '预读缓存上限',
+      '回退缓存上限',
+      '音频设备缓冲',
+      'packet cache',
+      '缓存耗尽时暂停',
+      '缓存恢复等待',
+      '音频采样率',
+      '音频声道',
+      '音频格式',
+      '无缝播放',
+      'gapless',
+      '播放恢复超时',
       '播放卡死自动恢复',
       '播放卡死',
       '最大自动恢复次数',

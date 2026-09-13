@@ -1,7 +1,8 @@
 {
   "name": "YanMusic",
-  "version": "2.2.8",
+  "version": "1.1.0",
   "description": "YanMusic desktop client.",
+  "license": "GPL-3.0",
   "author": {
     "name": "Yan",
     "email": "a18821657632@outlook.com"
@@ -22,6 +23,7 @@
     "@iconify/icons-tabler": "^1.2.95",
     "@iconify/types": "^2.0.0",
     "@iconify/vue": "^5.0.1",
+    "@internationalized/date": "3.12.0",
     "@vue/runtime-core": "^3.5.41",
     "@vueuse/core": "^14.3.0",
     "axios": "^1.18.0",
@@ -71,13 +73,13 @@
     "vue-tsc": "^3.3.3"
   },
   "build": {
-    "appId": "com.hoowhoami.yanmusic",
+    "appId": "com.mmlwryan.yanmusic",
     "productName": "YanMusic",
     "publish": [
       {
         "provider": "github",
-        "owner": "hoowhoami",
-        "repo": "yanmusic"
+        "owner": "MmlwrYan",
+        "repo": "YanMusic"
       }
     ],
     "directories": {
@@ -147,6 +149,17 @@
       {
         "from": "CHANGELOG.md",
         "to": "CHANGELOG.md"
+      },
+      {
+        "from": "LICENSE",
+        "to": "LICENSE"
+      },
+      {
+        "from": "LICENSES",
+        "to": "LICENSES",
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "server/module",

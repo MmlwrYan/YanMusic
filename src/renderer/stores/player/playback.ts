@@ -16,7 +16,7 @@ import {
   findPlayableIndex,
   findTrackById,
 } from './utils';
-import type { ResolvedAudioSource } from './types';
+import type { PlaybackSourceKind, ResolvedAudioSource } from './types';
 
 export const createPlaybackManager = (
   state: PlayerState,
@@ -33,6 +33,7 @@ export const createPlaybackManager = (
     state.isLoading = false;
     state.isPlaying = false;
     state.currentTime = 0;
+    state.currentTimeUpdatedAt = Date.now();
     state.duration = 0;
     state.awaitingTrackLoad = false;
     if (!options?.keepResolvedSource) {
@@ -66,6 +67,77 @@ export const createPlaybackManager = (
     track.audioUrl = resolved.url;
   };
 
+  // 预解析音源（preResolved，一起听房间授权地址）的一次性完整解析兜底。
+  // 房间授权地址可能在 setSource 成功之后才由 mpv 报告解码错误，此时本地候选链
+  // 往往只有一个地址（urls: [roomUrl]），必须回退到完整解析链。
+  // 未调用方传入 preResolved 时该变量恒为 null，consumeDeferredPreResolvedFallback
+  // 立即返回 false，既有播放路径行为完全不变。
+  let deferredPreResolvedFallback: {
+    trackId: string;
+    onFailure?: (reason: string) => void;
+    consumed: boolean;
+  } | null = null;
+
+  const consumeDeferredPreResolvedFallback = async (options?: {
+    reason?: string;
+    autoPlay?: boolean;
+    trackId?: string;
+  }): Promise<boolean> => {
+    const deferred = deferredPreResolvedFallback;
+    if (!deferred || deferred.consumed) return false;
+
+    // 关键护栏：只允许为「当前正在失败重试的那一首」消费兜底任务。
+    // 否则上一首遗留的 deferred 任务会在新曲目出错时被误消费，
+    // 导致把旧曲目的完整解析结果加载进当前播放（串歌）。
+    const trackId = String(options?.trackId ?? state.currentTrackId ?? '');
+    if (!trackId || deferred.trackId !== trackId) return false;
+
+    const track =
+      findTrackById(trackId, state.currentPlaylist, playlistStore) || state.currentTrackSnapshot;
+    if (!track) return false;
+
+    // “取值 → 标记 → 清空”在首个 await 之前同步完成：JS 单线程内不会被另一次
+    // 事件回调穿插，因此并发的 error/stalled 事件只能有一个消费这次兜底。
+    deferred.consumed = true;
+    deferredPreResolvedFallback = null;
+
+    const reason = options?.reason ?? 'pre-resolved-candidate-exhausted';
+    try {
+      deferred.onFailure?.(reason);
+    } catch (error) {
+      logger.warn('PlayerPlayback', 'Pre-resolved failure callback failed:', error);
+    }
+
+    const rejectedUrl = state.currentAudioUrl;
+    try {
+      // forceReload 取回完整解析链结果，并排除已经失败的预解析地址
+      const fallbackResolved = await resolver.resolveAudioUrl(track, { forceReload: true });
+      if (String(state.currentTrackId ?? '') !== trackId) return false;
+      if (!fallbackResolved?.url || fallbackResolved.url === rejectedUrl) return false;
+
+      applyResolvedAudioSource(track, fallbackResolved);
+      state.lastError = null;
+      state.isLoading = true;
+      state.awaitingTrackLoad = true;
+      logger.info('PlayerPlayback', 'Retrying with fully resolved audio source', {
+        trackId,
+        reason,
+      });
+      engine.reloadSource(fallbackResolved.url);
+      // 与 playTrack 一致：仅在调用方没有显式要求不自动播放时才起播
+      if (options?.autoPlay !== false) {
+        await engine.play();
+        if (String(state.currentTrackId ?? '') !== trackId) return false;
+        state.isLoading = false;
+        state.isPlaying = true;
+      }
+      return true;
+    } catch (error) {
+      logger.warn('PlayerPlayback', 'Pre-resolved fallback failed:', error);
+      return false;
+    }
+  };
+
   const tryNextAudioCandidate = async (options?: {
     position?: number;
     reason?: string;
@@ -75,7 +147,14 @@ export const createPlaybackManager = (
     const trackId = String(options?.trackId ?? state.currentTrackId ?? '');
     if (!trackId) return false;
     const candidates = state.currentAudioCandidateUrls;
-    if (candidates.length <= 1) return false;
+    // 单候选源仍可能登记了延迟的 preResolved 完整解析兜底，不能在这里直接返回。
+    if (candidates.length <= 1) {
+      return await consumeDeferredPreResolvedFallback({
+        reason: options?.reason,
+        autoPlay: options?.autoPlay,
+        trackId,
+      });
+    }
 
     const track =
       findTrackById(trackId, state.currentPlaylist, playlistStore) || state.currentTrackSnapshot;
@@ -102,6 +181,7 @@ export const createPlaybackManager = (
         state.stallRecoverTarget = targetPosition;
         state.stallRecoverDeadline = Date.now() + 20000;
         state.currentTime = targetPosition;
+        state.currentTimeUpdatedAt = Date.now();
       }
 
       logger.warn('PlayerPlayback', 'Trying fallback audio url', {
@@ -123,7 +203,12 @@ export const createPlaybackManager = (
       }
     }
 
-    return false;
+    // 候选全部失效后，消费一次性 preResolved 完整解析兜底
+    return await consumeDeferredPreResolvedFallback({
+      reason: options?.reason,
+      autoPlay: options?.autoPlay,
+      trackId,
+    });
   };
 
   const clearAutoNextTimer = () => {
@@ -172,6 +257,9 @@ export const createPlaybackManager = (
   };
 
   const scheduleAutoNext = () => {
+    // 一起听房间内听众由房主驱动切歌，本地不得自行兜底推进。
+    // autoNextSuppressed 默认 false，既有自动切歌行为不变。
+    if (state.autoNextSuppressed) return;
     if (!settingStore.autoNext || !state.currentTrackId) return;
     const list =
       (playlistStore.activeQueue?.songs?.length ?? 0) > 0
@@ -205,6 +293,16 @@ export const createPlaybackManager = (
       preserveFailureChain?: boolean;
       autoPlay?: boolean;
       sourceQueueId?: string | null;
+      // 可选扩展（一起听房间授权音源）：直接注入已解析音源，跳过完整解析链。
+      // 不传时下方解析逻辑与改动前逐字节等价，既有播放行为零回归。
+      preResolved?: ResolvedAudioSource;
+      // Echo 的插件音源转换阶段标记。Yan 无插件音源流水线，此字段仅作兼容占位，
+      // 不参与任何决策。
+      preResolvedStage?: PlaybackSourceKind;
+      // 预解析音源播放失败时，是否回退到完整解析链
+      fallbackOnPreResolvedFailure?: boolean;
+      // 回退发生时的一次性通知（用于把房间授权地址标记为不可用）
+      onPreResolvedFailure?: (reason: string) => void;
     },
   ) => {
     const requestSeq = ++state.playbackRequestSeq;
@@ -278,6 +376,7 @@ export const createPlaybackManager = (
     state.currentResolvedAudioQuality = null;
     state.currentResolvedAudioEffect = 'none';
     state.currentTime = 0;
+    state.currentTimeUpdatedAt = Date.now();
     state.duration = 0;
     state.isPlaying = false;
     state.isLoading = true;
@@ -308,6 +407,9 @@ export const createPlaybackManager = (
       });
     }
 
+    // 未使用预解析音源的普通切歌：作废上一首遗留的一次性兜底任务
+    if (!options?.preResolved) deferredPreResolvedFallback = null;
+
     const pendingMediaMeta = buildMediaMeta(track);
     if (pendingMediaMeta) {
       engine.updateMediaMetadata({
@@ -318,7 +420,12 @@ export const createPlaybackManager = (
     // 切歌期间不发送 Paused 状态，避免蓝牙耳机多点连接将音频路由切走
     // 保持上一首的 Playing 状态，直到新歌开始播放或加载失败
 
-    const resolved = await resolver.resolveAudioUrl(track);
+    // 一起听房间授权音源：调用方已解析好地址时直接采用，跳过完整解析链。
+    // 未传 preResolved 时走原有 resolver.resolveAudioUrl，路径与改动前一致。
+    const usedPreResolvedSource = Boolean(options?.preResolved?.url);
+    const resolved = usedPreResolvedSource
+      ? (options?.preResolved as ResolvedAudioSource)
+      : await resolver.resolveAudioUrl(track);
     if (requestSeq !== state.playbackRequestSeq) return;
 
     if (!resolved.url) {
@@ -336,6 +443,15 @@ export const createPlaybackManager = (
     }
 
     applyResolvedAudioSource(track, resolved);
+    // 登记一次性完整解析兜底：预解析地址可能在 setSource 成功后才由 mpv 报解码错误。
+    // 未使用预解析音源时不登记，tryNextAudioCandidate 的兜底分支立即返回 false。
+    if (usedPreResolvedSource && options?.fallbackOnPreResolvedFailure) {
+      deferredPreResolvedFallback = {
+        trackId: resolvedId,
+        onFailure: options.onPreResolvedFailure,
+        consumed: false,
+      };
+    }
 
     engine.setSource(resolved.url);
     engine.applyTrackLoudness(resolved.loudness);
@@ -440,6 +556,7 @@ export const createPlaybackManager = (
     state.seekTimestamp = Date.now();
     engine.seek(targetTime);
     state.currentTime = targetTime;
+    state.currentTimeUpdatedAt = Date.now();
 
     // 当 seek 目标接近结尾时（距结尾 < 2 秒），不忽略 EOF 事件，
     // 否则播放完毕后不会自动切下一首
@@ -724,6 +841,7 @@ export const createPlaybackManager = (
     state.historyUploadTrackId = null;
     engine.reset();
     state.currentTime = 0;
+    state.currentTimeUpdatedAt = Date.now();
     state.duration = 0;
     state.isPlaying = false;
     state.stallRecovering = false;
@@ -788,6 +906,7 @@ export const createPlaybackManager = (
     state.stallRecoverTarget = targetPosition;
     state.stallRecoverDeadline = Date.now() + 20000;
     state.currentTime = targetPosition;
+    state.currentTimeUpdatedAt = Date.now();
 
     logger.warn('PlayerPlayback', 'Recovering from playback stall', {
       trackId,

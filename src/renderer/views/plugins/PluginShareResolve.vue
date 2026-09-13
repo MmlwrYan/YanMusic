@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 defineOptions({ name: 'plugin-share-resolve-page' });
 
 import { computed, onMounted, ref } from 'vue';
@@ -61,6 +61,16 @@ const target = computed<SharedPluginTarget | null>(() => {
   };
 });
 
+/**
+ * 「插件源」一栏只展示本地已知插件源的显示名；对尚未添加的插件源，
+ * 不展示分享链接里携带的原始地址/标识字符串。
+ */
+const sourceLabelText = computed(() => {
+  if (targetSource.value) return targetSource.value.name;
+  if (!target.value) return '未指定';
+  return target.value.sourceUrl || target.value.sourceId ? '尚未添加的插件源' : '未指定';
+});
+
 const titleText = computed(() => {
   if (installing.value)
     return `${targetPlugin.value?.updateAvailable ? '正在更新' : '正在安装'}插件`;
@@ -86,7 +96,7 @@ const descriptionText = computed(() => {
     return `分享的插件「${name}」来自新的插件源，添加后会继续查找插件。`;
   }
   if (state.value === 'ready' && targetPlugin.value) {
-    return `来源：${targetPlugin.value.sourceName || targetPlugin.value.sourceUrl} · 将安装 v${targetPlugin.value.version}`;
+    return `来源：${targetPlugin.value.sourceName || '未知插件源'} · 将安装 v${targetPlugin.value.version}`;
   }
   if (state.value === 'installed') return '已完成安装，即将回到插件管理页。';
   if (reason.value === 'invalid') return '这个插件分享链接格式不正确。';
@@ -378,7 +388,7 @@ onMounted(() => {
         <span>插件 ID</span>
         <strong>{{ target.pluginId }}</strong>
         <span>插件源</span>
-        <strong>{{ target.sourceUrl || target.sourceId || '未指定' }}</strong>
+        <strong>{{ sourceLabelText }}</strong>
       </div>
 
       <div class="plugin-share-actions">

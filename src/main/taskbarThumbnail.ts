@@ -2,6 +2,7 @@ import type { BrowserWindow } from 'electron';
 import { app } from 'electron';
 import path from 'path';
 import log from './logger';
+import { getMainAppSettings } from './storage/settings';
 
 /**
  * Windows 任务栏 iconic 缩略图。
@@ -9,6 +10,7 @@ import log from './logger';
  * 有封面时把任务栏悬停预览替换为歌曲封面，无封面时回退为窗口实时画面。
  * 通过 DWM iconic representation 实现：开启后系统会发来缩略图请求消息，
  * 这里用 `hookWindowMessage` 接收并调用原生模块写入封面位图。
+ * 开关由设置「外观-任务栏封面预览」控制（默认关闭）。
  */
 
 // DWM 缩略图请求消息
@@ -34,6 +36,8 @@ let hwndStr: string | null = null;
 let coverBuffer: Buffer | null = null;
 let iconicEnabled = false;
 let hooked = false;
+// 任务栏封面预览开关：关闭时走 DWM 默认实时窗口画面，不启用 iconic 封面
+let coverPreviewEnabled = false;
 
 /** 加载 native addon（与 mediaControls 共用同一个 .node，require 缓存保证单例） */
 function loadNativeModule(): NativeTaskbar | null {
@@ -68,10 +72,10 @@ function resolveHwnd(win: BrowserWindow): string | null {
   }
 }
 
-/** 根据「是否有封面」决定开启或关闭 iconic 表示（有封面就显示封面，否则窗口实时预览） */
+/** 开关由「任务栏封面预览」控制：开且已有封面时显示封面，否则回退到 DWM 实时窗口画面 */
 function applyState(): void {
   if (!nativeModule || !hwndStr) return;
-  const shouldShowCover = !!coverBuffer;
+  const shouldShowCover = coverPreviewEnabled && !!coverBuffer;
   try {
     if (shouldShowCover) {
       if (!iconicEnabled) {
@@ -105,8 +109,11 @@ function disableIconicFallback(reason: string, err?: unknown): void {
 /** 处理悬停缩略图请求：从 lParam 解析最大尺寸并写入封面 */
 function onThumbnailRequest(lParam: Buffer): void {
   if (!nativeModule || !hwndStr) return;
-  if (!coverBuffer) {
-    disableIconicFallback('thumbnail requested without cover');
+  // 开关关闭或暂无封面时保留 DWM 已有的实时窗口画面，不写封面位图
+  if (!coverPreviewEnabled || !coverBuffer) {
+    disableIconicFallback(
+      coverPreviewEnabled ? 'thumbnail requested without cover' : 'cover preview disabled',
+    );
     return;
   }
   let maxWidth = DEFAULT_THUMBNAIL_MAX;
@@ -132,8 +139,11 @@ function onThumbnailRequest(lParam: Buffer): void {
 /** 处理 Aero Peek 大预览请求：写入封面 */
 function onLivePreviewRequest(): void {
   if (!nativeModule || !hwndStr) return;
-  if (!coverBuffer) {
-    disableIconicFallback('live preview requested without cover');
+  // 开关关闭或暂无封面时保留 DWM 已有的实时窗口画面，不写封面位图
+  if (!coverPreviewEnabled || !coverBuffer) {
+    disableIconicFallback(
+      coverPreviewEnabled ? 'live preview requested without cover' : 'cover preview disabled',
+    );
     return;
   }
   try {
@@ -148,6 +158,10 @@ function onLivePreviewRequest(): void {
 export function setupTaskbarThumbnail(win: BrowserWindow): void {
   if (process.platform !== 'win32') return;
   if (win.isDestroyed()) return;
+
+  // 先按已持久化的主进程设置初始化开关，再加载原生模块：
+  // 即使原生模块不可用（无缩略图能力），标题逻辑仍能读到正确的开关值
+  coverPreviewEnabled = Boolean(getMainAppSettings().taskbarCoverPreview);
 
   if (!nativeModule) {
     nativeModule = loadNativeModule();
@@ -184,6 +198,17 @@ export function setupTaskbarThumbnail(win: BrowserWindow): void {
 export function setTaskbarCover(cover: Buffer | null): void {
   if (process.platform !== 'win32') return;
   coverBuffer = cover && cover.length > 0 ? cover : null;
+  applyState();
+}
+
+/** 任务栏封面预览当前是否开启 */
+export function isCoverPreviewEnabled(): boolean {
+  return coverPreviewEnabled;
+}
+
+/** 设置任务栏封面预览开关（关闭时回退到 DWM 实时窗口画面） */
+export function setCoverPreviewEnabled(enabled: boolean): void {
+  coverPreviewEnabled = enabled;
   applyState();
 }
 

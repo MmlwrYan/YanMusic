@@ -58,6 +58,17 @@ export function getSongPrivilegeLite(hash: string, albumId?: string | number) {
 }
 
 /**
+ * 批量获取歌曲元信息。一起听歌单有时只返回 hash，需要用该接口补齐歌名、歌手和封面。
+ * 与 Echo 实现逐字节一致；Yan 的 server/module/audio.js 同样按逗号分隔读取 params.hash。
+ */
+export function getAudioMetadata(hashes: string[]) {
+  const normalized = Array.from(new Set(hashes.map((hash) => String(hash).trim()).filter(Boolean)));
+  return request.get('/audio', {
+    params: { hash: normalized.join(',') },
+  });
+}
+
+/**
  * 获取云盘歌曲播放地址
  */
 export async function getCloudSongUrl(hash: string): Promise<string | null> {

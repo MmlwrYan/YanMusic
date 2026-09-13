@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { reactive, toRefs, watch } from 'vue';
+import { computed, reactive, toRefs, watch } from 'vue';
 import { PERSONAL_FM_QUEUE_ID, usePlaylistStore } from './playlist';
 import { useLyricStore } from './lyric';
 import { useSettingStore } from './setting';
@@ -14,6 +14,7 @@ import { createPlaybackManager } from './player/playback';
 import { createAudioManager } from './player/audio';
 import { createResolver } from './player/resolver';
 import { createHistoryManager } from './player/history';
+import { createListeningTimeManager } from './player/listeningTime';
 import { createDeviceManager } from './player/device';
 import {
   createPlayerEventBus,
@@ -41,6 +42,7 @@ export const usePlayerStore = defineStore(
 
     const resolver = createResolver(state, playlistStore, settingStore);
     const historyManager = createHistoryManager(state);
+const listeningTimeManager = createListeningTimeManager(state);
 
     // 播放生命周期事件总线：随 store 单例创建，全程存活，供插件等订阅方感知播放事件
     const playerEvents = createPlayerEventBus();
@@ -58,6 +60,17 @@ export const usePlayerStore = defineStore(
     });
     const emitPlayerEvent = (event: PlayerEventName, extra?: Partial<PlayerEventPayload>) =>
       playerEvents.emit(event, getPlayerEventPayload(event, extra));
+
+    // 播放展示状态。Yan 没有 Echo 的 playbackIntent / enginePlayback 状态机，
+    // 因此按 Yan 既有 state 派生（Echo 对应 getPlaybackDisplayState）。
+    // 一起听 store 仅判断是否 === 'error'，此处只保证该判定与 Yan 的失败态
+    // （isLoading=false 且 lastError 已置位）一致。
+    const playbackDisplayState = computed<'loading' | 'playing' | 'paused' | 'error'>(() => {
+      if (state.isLoading) return 'loading';
+      if (state.lastError) return 'error';
+      if (state.isPlaying) return 'playing';
+      return 'paused';
+    });
 
     // 切歌与跳转事件来自状态跃迁，覆盖所有调用路径（含快捷键、媒体控制、mini 播放器等）
     watch(
@@ -135,6 +148,7 @@ export const usePlayerStore = defineStore(
         if (actualDuration > 0 && previousTime >= actualDuration - 0.5) safeTime = 0;
         engine.seek(safeTime);
         state.currentTime = safeTime;
+        state.currentTimeUpdatedAt = Date.now();
       }
 
       if (wasPlaying) {
@@ -158,7 +172,7 @@ export const usePlayerStore = defineStore(
     const deviceManager = createDeviceManager(state, engine, settingStore);
     const getActiveImpulseResponsePath = () => {
       if (!settingStore.impulseResponseEnabled) return null;
-      return settingStore.getSelectedImpulseResponse()?.path ?? null;
+      return settingStore.getSelectedImpulseResponse()?.impulseResponsePath ?? null;
     };
     const showPlaybackNotice = (code: string, track?: Song | null) => {
       const userStore = useUserStore();
@@ -213,6 +227,13 @@ export const usePlayerStore = defineStore(
       if (handlingPlaybackEnd) return;
       handlingPlaybackEnd = true;
       try {
+        // 一起听房间内听众（非房主）不得自行推进到下一首，由房主的远端状态驱动。
+        // autoNextSuppressed 默认 false，普通播放路径行为不变。
+        if (state.autoNextSuppressed) {
+          state.isPlaying = false;
+          engine.updateMediaPlaybackState(buildMediaState(state));
+          return;
+        }
         if (playlistStore.activeQueue?.id === PERSONAL_FM_QUEUE_ID) {
           const playedQueuedNext = await playbackManager.playQueuedNextOutsidePersonalFm({
             track: state.currentTrackSnapshot,
@@ -326,7 +347,8 @@ export const usePlayerStore = defineStore(
 
     const disableActiveImpulseResponse = (failedPath?: string) => {
       const active = settingStore.getSelectedImpulseResponse();
-      if (failedPath && active?.path && active.path !== failedPath) return;
+      const activePath = active?.impulseResponsePath ?? active?.vpfPath;
+      if (failedPath && activePath && activePath !== failedPath) return;
       if (!settingStore.impulseResponseEnabled) return;
       settingStore.impulseResponseEnabled = false;
       audioManager.setImpulseResponse(null, settingStore.impulseResponseMix);
@@ -346,6 +368,7 @@ export const usePlayerStore = defineStore(
       state.isPlaying = false;
       state.isLoading = false;
       state.currentTime = 0;
+      state.currentTimeUpdatedAt = Date.now();
       state.currentAudioUrl = '';
       state.currentAudioCandidateUrls = [];
       state.currentAudioCandidateIndex = -1;
@@ -470,6 +493,7 @@ export const usePlayerStore = defineStore(
             return;
           state.seekTargetTime = null;
           state.currentTime = currentTime;
+          state.currentTimeUpdatedAt = Date.now();
           const now = Date.now();
           if (now - lastEventTimeUpdate >= EVENT_TIMEUPDATE_MS) {
             lastEventTimeUpdate = now;
@@ -478,6 +502,9 @@ export const usePlayerStore = defineStore(
           if (now - lastHistoryCheck >= HISTORY_CHECK_MS) {
             lastHistoryCheck = now;
             void historyManager.commitListeningHistory();
+            // 听歌时长累计（等级积分）：与历史记录同一 5s 节拍，内部自带
+            // 播放中/非加载/非酷狗源等护栏与 60s 阈值、5min 失败退避
+            void listeningTimeManager.tick();
           }
           if (now - lastMediaSessionSync >= MEDIA_SESSION_SYNC_MS) {
             lastMediaSessionSync = now;
@@ -501,6 +528,8 @@ export const usePlayerStore = defineStore(
           }
         },
         fileLoaded: () => {
+          // 切歌后立即重置听歌时长累计基准点，避免跨曲目误累计
+          listeningTimeManager.resetPosition();
           // 新文件真正加载完成，解除切歌加载护栏，放行后续进度回报
           if (!state.awaitingTrackLoad) return;
           state.awaitingTrackLoad = false;
@@ -514,6 +543,8 @@ export const usePlayerStore = defineStore(
           if (!state.recentSeekIgnoreEnd) {
             emitPlayerEvent('ended');
             handlePlaybackEnded();
+            // 播放结束：尝试上报已累计的听歌时长（未达 60s 阈值或处于退避窗口时自动跳过）
+            void listeningTimeManager.flush();
           } else state.recentSeekIgnoreEnd = false;
         },
         play: () => {
@@ -564,7 +595,10 @@ export const usePlayerStore = defineStore(
           settingStore.syncPreventSleep(true);
         }
         if (mpvState.duration > 0) state.duration = mpvState.duration;
-        if (mpvState.timePos > 0) state.currentTime = mpvState.timePos;
+        if (mpvState.timePos > 0) {
+          state.currentTime = mpvState.timePos;
+          state.currentTimeUpdatedAt = Date.now();
+        }
       });
     };
 
@@ -574,9 +608,18 @@ export const usePlayerStore = defineStore(
       if (state.volume > 0) state.lastNonZeroVolume = state.volume;
     };
 
+    // 自动切歌抑制开关（一起听：听众侧抑制本地自动推进）。
+    // suppressed=true 时清掉已排定的自动切歌定时器，避免听众本地抢跳。
+    // Echo 此处还会 clearGaplessPreparedSource；Yan 无无缝预解析音源子系统，故不迁移。
+    const setAutoNextSuppressed = (suppressed: boolean) => {
+      state.autoNextSuppressed = suppressed;
+      if (suppressed) playbackManager.clearAutoNextTimer();
+    };
+
     // Explicitly return state and actions to help TypeScript
     return {
       ...toRefs(state),
+      playbackDisplayState,
       // State-like (actually actions but Pinia treats them as actions)
       getEffectiveAudioQuality: resolver.getEffectiveAudioQuality,
       getResolvedAudioQuality: resolver.getResolvedAudioQuality,
@@ -586,6 +629,8 @@ export const usePlayerStore = defineStore(
 
       resetHistoryUploadState: historyManager.resetHistoryUploadState,
       commitListeningHistory: historyManager.commitListeningHistory,
+      flushListeningTime: listeningTimeManager.flush,
+      resetListeningTimePosition: listeningTimeManager.resetPosition,
 
       setVolume: audioManager.setVolume,
       adjustVolume: audioManager.adjustVolume,
@@ -617,6 +662,7 @@ export const usePlayerStore = defineStore(
       refreshCurrentTrack,
       init,
       setVolumeSmooth,
+      setAutoNextSuppressed,
       onPlayerEvent: playerEvents.on,
       getPlayerEventPayload,
     };

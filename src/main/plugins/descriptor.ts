@@ -178,6 +178,19 @@ export const readManifest = (
 const getHostVersion = () =>
   semverValid(app.getVersion()) ?? semverCoerce(app.getVersion())?.version ?? '';
 
+/**
+ * 读取主程序版本要求：优先 yanmusicVersion；该键缺失或为空时回退到旧版清单键
+ * echoMusicVersion（上游插件清单沿用旧键），保证旧插件仍按原语义做版本门槛判断。
+ * 错误文案统一使用当前主程序键名，避免把兼容键名暴露到界面。
+ */
+const getVersionRequirement = (manifest: EchoPluginManifest): unknown => {
+  const requires = manifest.requires;
+  if (!requires || typeof requires !== 'object') return undefined;
+  const primary = requires.yanmusicVersion;
+  if (primary !== undefined && primary !== null && String(primary).trim()) return primary;
+  return requires.echoMusicVersion;
+};
+
 const normalizeyanmusicVersionRequirement = (value: unknown) => {
   const text = String(value ?? '').trim();
   if (!text) return { range: '', error: '' };
@@ -195,7 +208,7 @@ const normalizeyanmusicVersionRequirement = (value: unknown) => {
 };
 
 const validateyanmusicVersionRequirement = (manifest: EchoPluginManifest) => {
-  const requirement = manifest.requires?.yanmusicVersion;
+  const requirement = getVersionRequirement(manifest);
   if (!requirement) return '';
 
   return normalizeyanmusicVersionRequirement(requirement).error;
@@ -237,6 +250,12 @@ const validateManifestCapabilities = (manifest: EchoPluginManifest) => {
   if (capabilities.sqlite !== undefined && typeof capabilities.sqlite !== 'boolean') {
     return 'manifest.capabilities.sqlite 必须是布尔值';
   }
+  if (
+    capabilities.unrestrictedNetwork !== undefined &&
+    typeof capabilities.unrestrictedNetwork !== 'boolean'
+  ) {
+    return 'manifest.capabilities.unrestrictedNetwork 必须是布尔值';
+  }
   if (capabilities.webServer !== undefined && typeof capabilities.webServer !== 'boolean') {
     return 'manifest.capabilities.webServer 必须是布尔值';
   }
@@ -246,7 +265,7 @@ const validateManifestCapabilities = (manifest: EchoPluginManifest) => {
 export const getyanmusicCompatibility = (
   manifest: EchoPluginManifest,
 ): EchoPluginCompatibility => {
-  const requirement = String(manifest.requires?.yanmusicVersion ?? '').trim();
+  const requirement = String(getVersionRequirement(manifest) ?? '').trim();
   const hostVersion = getHostVersion();
 
   if (!requirement) {

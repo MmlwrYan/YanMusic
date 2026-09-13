@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { RouterView, useRoute, useRouter } from 'vue-router';
 import AuthExpiredDialog from '@/components/app/AuthExpiredDialog.vue';
@@ -51,6 +51,7 @@ let disposeNowPlayingSync: (() => void) | null = null;
 let disposeTrayPlayModeSync: (() => void) | null = null;
 let disposePowerResumeSync: (() => void) | null = null;
 let disposePluginRuntimeReload: (() => void) | null = null;
+let disposeTaskBridges: (() => void) | null = null;
 let disposeShareOpen: (() => void) | null = null;
 let silentUpdateCheckTimer: number | null = null;
 let clipboardShareCheckTimer: number | null = null;
@@ -240,6 +241,8 @@ onMounted(async () => {
     }) ?? null;
   syncTrayPlayback();
   void updateStore.init();
+  const { setupTaskBridges } = await import('@/tasks/taskBridges');
+  disposeTaskBridges = setupTaskBridges();
   if (settings.autoCheckUpdate) {
     silentUpdateCheckTimer = window.setTimeout(() => {
       updateStore.check(true);
@@ -277,6 +280,8 @@ onUnmounted(() => {
   disposePowerResumeSync = null;
   disposePluginRuntimeReload?.();
   disposePluginRuntimeReload = null;
+  disposeTaskBridges?.();
+  disposeTaskBridges = null;
   disposeShareOpen?.();
   disposeShareOpen = null;
   colorSchemeMediaQuery?.removeEventListener('change', updateTheme);

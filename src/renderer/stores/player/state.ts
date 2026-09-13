@@ -9,6 +9,10 @@ export const createPlayerState = () => ({
   volume: DEFAULT_PLAYER_VOLUME,
   lastNonZeroVolume: DEFAULT_PLAYER_VOLUME,
   currentTime: 0,
+  // 本地播放位置的最后写入时刻（毫秒）。用于一起听远端同步时的本地时钟漂移补偿：
+  // 读取方按 Date.now() - currentTimeUpdatedAt 外推当前位置。0 表示尚未上报过。
+  // 该字段不参与任何既有播放决策，默认值 0 使既有行为完全不变。
+  currentTimeUpdatedAt: 0,
   duration: 0,
   playbackRate: 1,
   playMode: 'list' as PlayMode,
@@ -38,6 +42,10 @@ export const createPlayerState = () => ({
   historyUploadTrackId: null as string | null,
   historyLocalRecorded: false,
   autoNextTimer: null as number | null,
+  // 自动切歌抑制：一起听房间内非房主（听众）由房主驱动切歌，本地不得自行推进。
+  // 默认 false 表示不抑制，既有自动切歌行为完全不变；仅由一起听 store 通过
+  // setAutoNextSuppressed 切换。
+  autoNextSuppressed: false,
   autoNextAttempts: 0,
   autoNextSourceTrackId: null as string | null,
   playbackNotice: null as PlaybackNotice | null,

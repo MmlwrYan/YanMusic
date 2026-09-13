@@ -1,4 +1,12 @@
-﻿import { BrowserWindow, shell, app, nativeTheme, powerSaveBlocker, screen } from 'electron';
+import {
+  BrowserWindow,
+  shell,
+  app,
+  nativeTheme,
+  powerSaveBlocker,
+  screen,
+  type BrowserWindowConstructorOptions,
+} from 'electron';
 import { join } from 'path';
 import type { CloseBehavior, ThemeMode } from '../shared/app';
 import {
@@ -10,6 +18,7 @@ import { getActiveWindowMode, setActiveWindowMode } from './windowMode';
 import { isPluginRendererGoneFailureReason, reportPluginRendererFailure } from './plugins';
 import { ipcRegistry } from './ipc/registry';
 import { applyWindowAppIcon, resolveWindowIconPath } from './appIcons';
+import { logMainMemory } from './diagnostics/memory';
 
 const minWidth: number = 1100;
 const defaultWidth: number = 1150;
@@ -105,6 +114,7 @@ export function requestMainWindowClose() {
 
 // 监听应用准备退出
 app.on('before-quit', () => {
+  flushPersistWindowState();
   isQuitting = true;
 });
 
@@ -186,7 +196,19 @@ const hasVisibleArea = (bounds: { x?: number; y?: number; width: number; height:
   });
 };
 
-const buildWindowBounds = () => {
+const shouldUseContentWindowState = () => process.platform !== 'win32';
+const shouldPersistDirtyWindowStateOnly = () => process.platform === 'win32';
+
+// 非 Windows 平台按内容区尺寸记忆窗口（macOS 的窗口尺寸含标题栏，Linux 的 WM 边框差异大，
+// 用内容区才能保证跨会话恢复出的可视区域一致）。Yan 的持久化 WindowState 类型不含
+// boundsMode 字段（该文件由其他代理维护），因此用模块级变量记录：以「内容区」为基准
+// 读写，并在持久化时用 getContentBounds()，两者始终同源。
+let windowBoundsMode: 'content' | 'window' = shouldUseContentWindowState() ? 'content' : 'window';
+
+const buildWindowBounds = (): Pick<
+  BrowserWindowConstructorOptions,
+  'width' | 'height' | 'x' | 'y' | 'useContentSize'
+> => {
   if (!rememberWindowSize) {
     return { width: defaultWidth, height: defaultHeight } as const;
   }
@@ -198,6 +220,9 @@ const buildWindowBounds = () => {
     height: Math.max(minHeight, state.height || defaultHeight),
     ...(typeof state.x === 'number' ? { x: state.x } : {}),
     ...(typeof state.y === 'number' ? { y: state.y } : {}),
+    ...(shouldUseContentWindowState() && windowBoundsMode === 'content'
+      ? { useContentSize: true }
+      : {}),
   };
 
   if ((typeof bounds.x === 'number' || typeof bounds.y === 'number') && !hasVisibleArea(bounds)) {
@@ -207,7 +232,71 @@ const buildWindowBounds = () => {
   return bounds;
 };
 
-const persistWindowState = () => {
+type WindowBoundsChangeKind = 'move' | 'resize';
+
+/**
+ * Windows 在窗口创建、展示或 DPI 校正之后同样会发出 moved/resized，若不加区分地落盘，
+ * 会把非用户操作产生的临时尺寸写进记忆。只有紧邻的 will-move/will-resize 才能证明
+ * 这次变化来自用户拖拽。非 win32 平台没有这个歧义，直接放行。
+ */
+class WindowBoundsPersistenceGate {
+  private readonly requireManualChange: boolean;
+  private readonly pendingManualChange: Record<WindowBoundsChangeKind, boolean> = {
+    move: false,
+    resize: false,
+  };
+
+  constructor(platform: NodeJS.Platform = process.platform) {
+    this.requireManualChange = platform === 'win32';
+  }
+
+  markManualChange(kind: WindowBoundsChangeKind) {
+    this.pendingManualChange[kind] = true;
+  }
+
+  shouldPersist(kind: WindowBoundsChangeKind): boolean {
+    if (!this.requireManualChange) return true;
+    if (!this.pendingManualChange[kind]) return false;
+    this.pendingManualChange[kind] = false;
+    return true;
+  }
+}
+
+const windowBoundsPersistenceGate = new WindowBoundsPersistenceGate();
+
+const dirtyWindowState = {
+  size: false,
+  position: false,
+};
+
+const markWindowStateDirty = (fields: Partial<typeof dirtyWindowState>) => {
+  dirtyWindowState.size = dirtyWindowState.size || Boolean(fields.size);
+  dirtyWindowState.position = dirtyWindowState.position || Boolean(fields.position);
+};
+
+const markManualWindowResize = () => {
+  windowBoundsPersistenceGate.markManualChange('resize');
+  // 从左侧或顶部缩放时坐标也会变化。
+  markWindowStateDirty({ size: true, position: true });
+};
+
+const markManualWindowMove = () => {
+  windowBoundsPersistenceGate.markManualChange('move');
+  markWindowStateDirty({ position: true });
+};
+
+const consumeWindowBoundsChange = (kind: WindowBoundsChangeKind) => {
+  if (!windowBoundsPersistenceGate.shouldPersist(kind)) return false;
+  markWindowStateDirty(kind === 'resize' ? { size: true, position: true } : { position: true });
+  return true;
+};
+
+const resetDirtyWindowState = () => {
+  dirtyWindowState.size = false;
+  dirtyWindowState.position = false;
+};
+
+const persistWindowState = (dirtyOnly = false) => {
   if (!win || !rememberWindowSize || win.isDestroyed()) return;
   const maximized = win.isMaximized();
   // 最大化时 getBounds 返回的是全屏尺寸，会污染窗口化后恢复的大小
@@ -223,14 +312,22 @@ const persistWindowState = () => {
     });
     return;
   }
+  const prev = getPersistedWindowState();
   const bounds = win.getBounds();
+  const contentBounds = win.getContentBounds();
+  const sizeBounds = shouldUseContentWindowState() ? contentBounds : bounds;
+  const shouldUpdateSize = !dirtyOnly || dirtyWindowState.size;
+  const shouldUpdatePosition = !dirtyOnly || dirtyWindowState.position;
+
   setMainAppSetting('windowState', {
-    width: bounds.width,
-    height: bounds.height,
-    x: bounds.x,
-    y: bounds.y,
+    width: shouldUpdateSize ? sizeBounds.width : prev.width,
+    height: shouldUpdateSize ? sizeBounds.height : prev.height,
+    x: shouldUpdatePosition ? bounds.x : prev.x,
+    y: shouldUpdatePosition ? bounds.y : prev.y,
     isMaximized: false,
   });
+  windowBoundsMode = shouldUseContentWindowState() ? 'content' : 'window';
+  resetDirtyWindowState();
 };
 
 let persistWindowStateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -245,13 +342,13 @@ const schedulePersistWindowState = () => {
   clearPersistWindowStateTimer();
   persistWindowStateTimer = setTimeout(() => {
     persistWindowStateTimer = null;
-    persistWindowState();
+    persistWindowState(shouldPersistDirtyWindowStateOnly());
   }, 180);
 };
 
 const flushPersistWindowState = () => {
   clearPersistWindowStateTimer();
-  persistWindowState();
+  persistWindowState(shouldPersistDirtyWindowStateOnly());
 };
 
 export function getMainWindow() {
@@ -259,6 +356,7 @@ export function getMainWindow() {
 }
 
 export async function createWindow() {
+  await logMainMemory('createWindow:start');
   const preload = join(__dirname, '../preload/index.js');
   const url = process.env.VITE_DEV_SERVER_URL;
   const indexHtml = join(__dirname, '../../dist/index.html');
@@ -278,6 +376,7 @@ export async function createWindow() {
   const initialWindowState = getPersistedWindowState();
   const windowIconPath = resolveWindowIconPath();
   const minHeight = getMinHeight();
+  await logMainMemory('createWindow:before BrowserWindow');
 
   win = new BrowserWindow({
     title: 'YanMusic',
@@ -297,6 +396,7 @@ export async function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      spellcheck: false,
       webSecurity: false, // 禁用 CORS 限制
       allowRunningInsecureContent: true, // 允许混合内容
       backgroundThrottling: false, // 最小化后不节流，保证播放状态和歌词同步
@@ -304,18 +404,37 @@ export async function createWindow() {
       devTools: devToolsEnabled, // 控制是否允许打开开发者工具
     },
   });
+  await logMainMemory('createWindow:after BrowserWindow');
+
   applyWindowAppIcon(win);
+  await logMainMemory('createWindow:after window icon');
 
   if (rememberWindowSize && initialWindowState.isMaximized) {
     win.maximize();
+    await logMainMemory('createWindow:after maximize');
   }
 
   // 当窗口准备好显示时再展示，优雅解决启动白屏
   // 如果启用了启动时最小化，则不自动显示窗口，由用户通过托盘恢复
   win.once('ready-to-show', () => {
+    void logMainMemory('main window:ready-to-show');
     if (!initialSettings.startMinimized) {
       win?.show();
+      void logMainMemory('main window:after show');
     }
+  });
+
+  win.webContents.once('dom-ready', () => {
+    void logMainMemory('main window:dom-ready');
+  });
+
+  win.webContents.once('did-finish-load', () => {
+    void logMainMemory('main window:did-finish-load');
+    const memoryLogTimer = setTimeout(
+      () => void logMainMemory('main window:did-finish-load +2s'),
+      2000,
+    );
+    if (typeof memoryLogTimer.unref === 'function') memoryLogTimer.unref();
   });
 
   win.webContents.on('render-process-gone', (_event, details) => {
@@ -343,11 +462,23 @@ export async function createWindow() {
   } else {
     win.loadFile(indexHtml);
   }
+  await logMainMemory('createWindow:after load request');
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https:')) shell.openExternal(url);
     return { action: 'deny' };
   });
+
+  const handleSystemSessionEnd = () => {
+    isQuitting = true;
+    flushPersistWindowState();
+  };
+
+  if (process.platform === 'win32') {
+    // Windows 关机/重启/注销不会触发 app.before-quit，必须在窗口会话结束事件里落盘。
+    win.on('query-session-end', handleSystemSessionEnd);
+    win.on('session-end', handleSystemSessionEnd);
+  }
 
   // 拦截关闭事件
   win.on('close', (event) => {
@@ -361,13 +492,23 @@ export async function createWindow() {
     }
   });
 
-  win.on('resize', () => {
-    if (!win?.isMaximized()) schedulePersistWindowState();
-  });
+  const handleWindowBoundsChanged = (kind: WindowBoundsChangeKind) => {
+    if (!win || win.isDestroyed() || win.isMaximized()) return;
+    if (!consumeWindowBoundsChange(kind)) return;
+    schedulePersistWindowState();
+  };
 
-  win.on('move', () => {
-    if (!win?.isMaximized()) schedulePersistWindowState();
-  });
+  if (process.platform === 'win32') {
+    // Windows 上程序化移动/缩放（创建、展示、DPI 校正）同样会触发 moved/resized，
+    // 只有紧邻的 will-move/will-resize 才能证明这次变化来自用户操作。
+    win.on('will-resize', markManualWindowResize);
+    win.on('will-move', markManualWindowMove);
+    win.on('resized', () => handleWindowBoundsChanged('resize'));
+    win.on('moved', () => handleWindowBoundsChanged('move'));
+  } else {
+    win.on('resize', () => handleWindowBoundsChanged('resize'));
+    win.on('move', () => handleWindowBoundsChanged('move'));
+  }
 
   win.on('maximize', () => {
     flushPersistWindowState();

@@ -1,4 +1,4 @@
-﻿import { createApp } from 'vue';
+import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { Icon } from '@iconify/vue';
 import type { ComponentPublicInstance } from 'vue';
@@ -7,6 +7,10 @@ import router from './router';
 import { logger } from '@/utils/logger';
 import { sqlitePersistPlugin } from '@/stores/sqlitePersist';
 import { installPluginRuntime } from '@/plugins/runtime';
+import { useSettingStore } from '@/stores/setting';
+import { installInputBehaviorGuard } from '@/utils/inputBehaviorGuard';
+import { registerContentBlacklistIntegration } from '@/services/contentBlacklistIntegration';
+import { startRendererMemoryDiagnostics } from '@/utils/rendererMemoryDiagnostics';
 import './style.css';
 
 const app = createApp(App);
@@ -230,7 +234,15 @@ router.onError((error) => {
 });
 
 app.use(pinia);
+// 内容黑名单集成：必须在 pinia 激活后注册（内部会取用 store）
+registerContentBlacklistIntegration();
 app.use(router);
 app.component('Icon', Icon);
 installPluginRuntime({ app, router, pinia });
+// 诊断模式下的渲染层内存周期采样（未开启诊断模式时内部直接返回）
+startRendererMemoryDiagnostics();
+// 屏蔽空格/方向键等浏览器默认行为，避免播放器交互时页面滚动
+installInputBehaviorGuard({
+  isEnabled: () => useSettingStore().suppressDefaultKeyBehaviors,
+});
 app.mount('#app');

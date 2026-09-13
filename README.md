@@ -1,4 +1,4 @@
-﻿# yanmusic
+# yanmusic
 
 <p align="center">
   <img src="build/icons/icon.png" width="128" height="128" alt="yanmusic Logo">
@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/TypeScript-5.9-blue?logo=typescript" alt="TypeScript">
   <img src="https://img.shields.io/badge/Rust-napi--rs-orange?logo=rust" alt="Rust">
   <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-brightgreen" alt="Platform">
-  <img src="https://img.shields.io/badge/License-MIT-orange" alt="License">
+  <img src="https://img.shields.io/badge/License-GPL--3.0-blue" alt="License">
 </p>
 
 ---
@@ -126,8 +126,8 @@
 1. **克隆仓库**
 
    ```bash
-   git clone https://github.com/hoowhoami/yanmusic.git
-   cd yanmusic
+   git clone https://github.com/MmlwrYan/YanMusic.git
+   cd YanMusic
    git submodule update --init --recursive
    ```
 
@@ -212,7 +212,7 @@ export async function activate(ctx) {
 }
 ```
 
-👉 **[插件开发文档](https://github.com/hoowhoami/yanmusicPlugins)**
+👉 **[插件开发文档](https://github.com/hoowhoami/EchoMusicPlugins)**
 
 ## 🏗️ 编译发布
 
@@ -264,6 +264,6 @@ xattr -cr /Applications/yanmusic.app && codesign --force --deep --sign - /Applic
 
 ## ⚖️ 开源协议
 
-基于 [MIT License](LICENSE) 协议发布。
+基于 [GPL-3.0 License](LICENSE) 协议发布。
 
 本项目使用 [mpv](https://mpv.io/) 作为音频播放引擎（LGPL-2.1+ / GPL-2.0+），通过动态链接方式加载。

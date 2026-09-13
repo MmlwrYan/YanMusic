@@ -1,6 +1,7 @@
 import type { BrowserWindow } from 'electron';
 import { MpvController } from './controller';
 import log from '../logger';
+import { destroyTaskbarProgress, setupTaskbarProgress } from '../taskbarProgress';
 
 let mpvController: MpvController | null = null;
 let cachedGetMainWindow: (() => BrowserWindow | null) | null = null;
@@ -94,6 +95,9 @@ export async function initMpvPlayer(
     await controller.start();
     log.info('[Main] libmpv player engine started successfully');
     mpvController = controller;
+    // 任务栏进度条随播放器生命周期起停（订阅 time-update / duration-change /
+    // state-change / mpv:file-loaded / playback-end），启动成功后才订阅，失败时不留悬挂监听
+    setupTaskbarProgress(controller);
     return controller;
   } catch (err) {
     log.error('[Main] libmpv player engine failed to start:', err);
@@ -114,5 +118,6 @@ export async function restartMpvPlayer(): Promise<MpvController | null> {
 
 export function destroyMpvPlayer(): void {
   mpvController?.destroy();
+  destroyTaskbarProgress();
   mpvController = null;
 }

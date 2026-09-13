@@ -1,1 +1,0 @@
-import{kt as e}from"./preload-helper-BFM87vNv.js";import{_n as t,yt as n}from"./style-LXRD4usz.js";var r=e({recognizeAudio:()=>i});async function i(e){let r=await t.post(`/audio/match`,new Uint8Array(e),{headers:{"Content-Type":`application/octet-stream`},params:{t:Date.now()}}),i=r?.status,a=r?.data;return i===1?n(a):[]}export{r as n,i as t};

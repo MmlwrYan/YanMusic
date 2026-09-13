@@ -16,6 +16,8 @@ import { accentModeOptions, closeBehaviorOptions, sectionTitles, themeOptions } 
 
 const settingStore = useSettingStore();
 const themeStore = useThemeStore();
+// 任务栏相关开关仅 Windows 生效（与上游 window 分区同一判断）
+const isWindows = window.electron?.platform === 'win32';
 const showAccentPicker = ref(false);
 const accentPresetValues = ACCENT_PRESETS.map((item) => item.color);
 const title = sectionTitles.appearance;
@@ -149,6 +151,36 @@ const resolvedTitle = computed(() => title.label);
       </div>
       <Switch v-model="settingStore.showFullscreenButton" />
     </div>
+    <template v-if="isWindows">
+      <div class="settings-divider"></div>
+      <div class="settings-item">
+        <div class="space-y-1">
+          <h3 class="font-semibold">任务栏封面预览</h3>
+          <p class="text-sm text-text-secondary">在任务栏窗口以及后台窗口显示封面和歌曲标题</p>
+        </div>
+        <Switch
+          :model-value="settingStore.taskbarCoverPreview"
+          @update:model-value="
+            settingStore.taskbarCoverPreview = Boolean($event);
+            settingStore.syncTaskbarCoverPreview();
+          "
+        />
+      </div>
+      <div class="settings-divider"></div>
+      <div class="settings-item">
+        <div class="space-y-1">
+          <h3 class="font-semibold">任务栏播放进度条</h3>
+          <p class="text-sm text-text-secondary">在任务栏显示播放进度</p>
+        </div>
+        <Switch
+          :model-value="settingStore.taskbarProgress"
+          @update:model-value="
+            settingStore.taskbarProgress = Boolean($event);
+            settingStore.syncTaskbarProgress();
+          "
+        />
+      </div>
+    </template>
     <div class="settings-divider"></div>
     <div class="settings-item">
       <div class="space-y-1">

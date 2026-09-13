@@ -1,6 +1,6 @@
-﻿# yanmusic Plugin Marketplace Worker
+# 插件市场统计 Worker
 
-这个 Worker 只提供在线插件热度统计。yanmusic 客户端安装/更新在线插件时仍然使用原来的下载逻辑，也就是插件源里的 `downloadUrl`，并继续尊重用户配置的 GitHub 加速地址；安装成功、更新成功、失败时再向 Worker 上报统计事件。
+这个 Worker 只提供在线插件热度统计。客户端安装/更新在线插件时仍然使用原来的下载逻辑，也就是插件源里的 `downloadUrl`，并继续尊重用户配置的 GitHub 加速地址；安装成功、更新成功、失败时再向 Worker 上报统计事件。
 
 ## API
 
@@ -16,13 +16,13 @@
 
 ```bash
 cd cloudflare/plugin-marketplace-worker
-pnpm dlx wrangler@latest d1 create yanmusic-plugin-stats
+pnpm dlx wrangler@latest d1 create echomusic-plugin-stats
 ```
 
 把输出的 `database_id` 写入本地的 `wrangler.toml`，然后初始化表：
 
 ```bash
-pnpm dlx wrangler@latest d1 execute yanmusic-plugin-stats --remote --file schema.sql
+pnpm dlx wrangler@latest d1 execute echomusic-plugin-stats --remote --file schema.sql
 pnpm dlx wrangler@latest deploy
 ```
 
@@ -35,7 +35,7 @@ pnpm dlx wrangler@latest deploy
 部署完成后，把客户端常量 `DEFAULT_PLUGIN_MARKETPLACE_STATS_API_URL` 改为你的 Worker 域名，或在构建主进程时设置：
 
 ```bash
-yanmusic_PLUGIN_STATS_API_URL=https://your-worker.example.com pnpm run build
+ECHOMUSIC_PLUGIN_STATS_API_URL=https://your-worker.example.com pnpm run build
 ```
 
 可以用下面的请求快速验证线上 D1 是否可用：
@@ -44,7 +44,7 @@ yanmusic_PLUGIN_STATS_API_URL=https://your-worker.example.com pnpm run build
 curl https://your-worker.example.com/health
 curl -X POST https://your-worker.example.com/v1/plugins/stats \
   -H 'content-type: application/json' \
-  --data '{"plugins":[{"sourceId":"github:hoowhoami/yanmusicplugins","pluginId":"test"}]}'
+  --data '{"plugins":[{"sourceId":"github:hoowhoami/echomusicplugins","pluginId":"test"}]}'
 ```
 
 ## 统计口径

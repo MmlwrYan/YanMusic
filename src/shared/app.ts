@@ -25,7 +25,7 @@ export type UpdateDownloadProgress = {
   total: number;
 };
 
-export type UpdateDownloadStatus = 'idle' | 'downloading' | 'downloaded' | 'error';
+export type UpdateDownloadStatus = 'idle' | 'downloading' | 'downloaded' | 'installing' | 'error';
 
 export type UpdateDownloadResult = {
   status: UpdateDownloadStatus;
@@ -38,7 +38,13 @@ export type UpdateState = {
   download: UpdateDownloadResult;
 };
 
+export type UpdateInstallResult = {
+  ok: boolean;
+  error?: string;
+};
+
 export type AppInfoResult = {
   version: string;
   isPrerelease: boolean;
+  isPackaged: boolean;
 };

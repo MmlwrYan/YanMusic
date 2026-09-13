@@ -4,14 +4,27 @@ import {
   getServerNow,
   getUserDetail,
   getUserFollow,
+  getUserGradeInfo,
   getUserVipDetail,
   upgradeDayVip,
 } from '@/api/user';
+import { useListenReportStore } from '@/stores/listenReport';
 import type { User, UserExtendsInfo } from '@/models/user';
 import { mapUser } from '@/utils/mappers';
 import logger from '@/utils/logger';
 
 export type UserInfo = User;
+
+// 听歌等级字段白名单：合并进用户档案 detail 时仅取这些字段，
+// 避免覆盖档案原有字段（如 detail.duration 的语义/单位与等级 duration 不同）
+const GRADE_DETAIL_KEYS = [
+  'd_sec',
+  'p_grade',
+  'p_current_point',
+  'p_grade_point',
+  'p_next_grade',
+  'p_next_grade_point',
+] as const;
 
 interface ApiPayload {
   status?: number;
@@ -180,6 +193,10 @@ export const useUserStore = defineStore('user', {
           );
         }
 
+        // 等级信息（累计听歌时长/等级/积分）：随用户信息一并拉取。
+        // 上游实现由个人页触发；这里跟随用户信息流程，以避免改动个人页（红线文件）。
+        void this.fetchGradeInfo();
+
         return true;
       } catch (e) {
         logger.error('UserStore', 'Fetch user info error:', e);
@@ -276,6 +293,44 @@ export const useUserStore = defineStore('user', {
       return local.toISOString().split('T')[0];
     },
 
+    async fetchGradeInfo() {
+      if (!this.isLoggedIn || !this.info) return;
+      try {
+        const res = await getUserGradeInfo();
+        const payload = asApiPayload(res);
+        if (payload?.status !== 1) return;
+
+        const gradeData = isRecord(payload.data) ? payload.data : {};
+        // 仅取等级相关白名单字段合并，避免覆盖档案既有字段（如 detail.duration）
+        const gradeDetail = Object.fromEntries(
+          GRADE_DETAIL_KEYS.filter((key) => key in gradeData).map((key) => [key, gradeData[key]]),
+        );
+        if (Object.keys(gradeDetail).length === 0) return;
+
+        const currentDetail = isRecord(this.info.extendsInfo?.detail)
+          ? (this.info.extendsInfo.detail as Record<string, unknown>)
+          : {};
+        const mergedExtends = mergeExtendsInfo(this.info.extendsInfo, {
+          detail: { ...currentDetail, ...gradeDetail },
+        });
+
+        this.setUserInfo(
+          buildPatchedUserInfo(this.info, {
+            ...(mergedExtends
+              ? {
+                  extends: mergedExtends,
+                  extendsInfo: mergedExtends,
+                  ...(mergedExtends.detail ? { detail: mergedExtends.detail } : {}),
+                }
+              : {}),
+          }),
+        );
+        logger.info('UserStore', 'Grade info fetched');
+      } catch (e) {
+        logger.warn('UserStore', 'Fetch grade info error:', e);
+      }
+    },
+
     logout() {
       this.info = null;
       this.isLoggedIn = false;
@@ -286,6 +341,8 @@ export const useUserStore = defineStore('user', {
       this.isAutoClaimingVip = false;
       this.followedArtistIds = new Set();
       this.hasFetchedFollowedArtists = false;
+      // 清空听歌时长上报状态，避免跨账号串号
+      useListenReportStore().reset();
     },
 
     isArtistFollowed(artistId: string | number): boolean {

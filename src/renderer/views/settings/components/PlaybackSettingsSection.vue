@@ -13,7 +13,10 @@ import { Icon } from '@iconify/vue';
 import { iconCheckMark, iconPencil, iconPlayerPlay, iconPlus, iconTrash, iconX } from '@/icons';
 import SettingsSectionShell from './SettingsSectionShell.vue';
 import { sectionTitles } from '../constants';
-import { normalizeImpulseResponseName, type ImpulseResponseFile } from '../../../../shared/audio';
+import {
+  normalizeImpulseResponseName,
+  type SpatialAudioEffectEntry,
+} from '../../../../shared/audio';
 
 const settingStore = useSettingStore();
 const playerStore = usePlayerStore();
@@ -57,7 +60,7 @@ const handleReferenceLufsSlider = (value: number) => {
 
 const getImpulseResponseDisplayName = (name: string) => normalizeImpulseResponseName(name);
 
-const beginRenameImpulseResponse = (file: ImpulseResponseFile) => {
+const beginRenameImpulseResponse = (file: SpatialAudioEffectEntry) => {
   editingImpulseResponseId.value = file.id;
   impulseResponseNameDraft.value = getImpulseResponseDisplayName(file.name);
 };

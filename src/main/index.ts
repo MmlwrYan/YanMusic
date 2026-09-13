@@ -1,4 +1,4 @@
-﻿import { app } from 'electron';
+import { app } from 'electron';
 import { initMain as initAudioLoopback } from 'electron-audio-loopback';
 import { ensureLinuxMpvEnv } from './mpv/linuxEnv';
 import { getDisableGpuAccelerationSetting, getHighDpiSettings } from './storage/settings';
@@ -12,7 +12,7 @@ if (!ensureLinuxMpvEnv()) {
 
 // Windows 音频/媒体会话初始化前先固定应用身份，避免系统把后续会话识别成临时客户端。
 if (process.platform === 'win32') {
-  app.setAppUserModelId('com.hoowhoami.yanmusic');
+  app.setAppUserModelId('com.mmlwryan.yanmusic');
 }
 
 // 初始化系统音频 loopback（必须在 app.ready 之前）

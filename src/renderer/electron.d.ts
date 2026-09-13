@@ -21,9 +21,11 @@ import type {
   MiniPlayerSnapshotPatch,
 } from '../shared/mini-player';
 import type {
+  DownloadCommunityAudioEffectRequest,
+  DownloadCommunityAudioEffectResult,
   ImportImpulseResponseResult,
-  ImpulseResponseFile,
   ImpulseResponsePlaybackOptions,
+  SpatialAudioEffectEntry,
 } from '../shared/audio';
 import type {
   AudioSpectrumFrame,
@@ -34,6 +36,14 @@ import type { LogSettings } from '../shared/logging';
 import type { NetworkSettings } from '../shared/network';
 import type { ResolvePlaylistRequest, ResolvePlaylistResponse } from '../shared/external';
 import type { ShareCaptureRect, ShareTarget } from '../shared/share';
+import type {
+  SettingsBackupExportRequest,
+  SettingsBackupExportResult,
+  SettingsBackupImportRequest,
+  SettingsBackupImportResult,
+  SettingsBackupInspectResult,
+} from '../shared/settingsBackup';
+import type { DiagnosticsMemorySnapshot } from '../shared/diagnostics';
 import type {
   PluginAssetSourceResult,
   PluginAppIconRefreshResult,
@@ -56,10 +66,13 @@ import type {
   PluginMarketplaceSourceListResult,
   PluginMarketplaceSourceMutationResult,
   PluginMarketplaceSourcePatch,
+  PluginNetworkRequestOptions,
+  PluginNetworkResponse,
   PluginOpenDialogOptions,
   PluginProcessLaunchOptions,
   PluginProcessLaunchResult,
   PluginProcessTerminateResult,
+  PluginReadAudioMetadataResult,
   PluginReadFileBytesOptions,
   PluginReadFileBytesResult,
   PluginReadTextFileOptions,
@@ -148,11 +161,15 @@ export interface IElectronAPI {
   };
   audioEffects: {
     importImpulseResponse: () => Promise<ImportImpulseResponseResult>;
-    deleteImpulseResponse: (filePath: string) => Promise<boolean>;
-    reconcileImpulseResponses: (files: ImpulseResponseFile[]) => Promise<ImpulseResponseFile[]>;
+    downloadCommunityAudioEffect: (
+      payload: DownloadCommunityAudioEffectRequest,
+    ) => Promise<DownloadCommunityAudioEffectResult>;
+    deleteAudioEffect: (filePath: string) => Promise<boolean>;
+    reconcileAudioEffects: (files: SpatialAudioEffectEntry[]) => Promise<SpatialAudioEffectEntry[]>;
   };
   updater: {
     download: () => void;
+    cancelDownload: () => void;
     install: (silent?: boolean) => void;
     getState: () => Promise<UpdateState>;
     onDownloadStatus: (func: (result: UpdateDownloadResult) => void) => () => void;
@@ -160,6 +177,9 @@ export interface IElectronAPI {
   apiServer: {
     start: () => Promise<{ success: boolean; error?: string }>;
     status: () => Promise<ApiServerStatus>;
+  };
+  diagnostics?: {
+    getMemory: (label?: string) => Promise<DiagnosticsMemorySnapshot>;
   };
   api: {
     request: (config: {
@@ -316,6 +336,42 @@ export interface IElectronAPI {
         windowId: string,
         bounds: Partial<PluginWindowBounds>,
       ) => Promise<PluginWindowResult>;
+      startDrag: (pluginId: string, windowId: string, sessionId: string) => Promise<boolean>;
+      dragMove: (
+        pluginId: string,
+        windowId: string,
+        sessionId: string,
+        x: number,
+        y: number,
+      ) => void;
+      endDrag: (
+        pluginId: string,
+        windowId: string,
+        sessionId: string,
+      ) => Promise<PluginWindowBounds | null>;
+      cancelDrag: (
+        pluginId: string,
+        windowId: string,
+        sessionId: string,
+      ) => Promise<PluginWindowBounds | null>;
+      startResize: (pluginId: string, windowId: string, sessionId: string) => Promise<boolean>;
+      resize: (
+        pluginId: string,
+        windowId: string,
+        sessionId: string,
+        bounds: PluginWindowBounds,
+      ) => void;
+      endResize: (
+        pluginId: string,
+        windowId: string,
+        sessionId: string,
+      ) => Promise<PluginWindowBounds | null>;
+      cancelResize: (
+        pluginId: string,
+        windowId: string,
+        sessionId: string,
+      ) => Promise<PluginWindowBounds | null>;
+      onCancelInteraction: (listener: (bounds?: PluginWindowBounds) => void) => () => void;
       getBounds: (pluginId: string, windowId: string) => Promise<PluginWindowResult>;
       setIgnoreMouseEvents: (
         pluginId: string,
@@ -365,6 +421,10 @@ export interface IElectronAPI {
         filePath: string,
         options?: PluginReadFileBytesOptions,
       ) => Promise<PluginReadFileBytesResult>;
+      readAudioMetadata: (
+        pluginId: string,
+        filePath: string,
+      ) => Promise<PluginReadAudioMetadataResult>;
       writeFile: (
         pluginId: string,
         filePath: string,
@@ -379,6 +439,14 @@ export interface IElectronAPI {
         options: PluginProcessLaunchOptions,
       ) => Promise<PluginProcessLaunchResult>;
       terminate: (pluginId: string, pid: number) => Promise<PluginProcessTerminateResult>;
+    };
+    net: {
+      request: (
+        pluginId: string,
+        requestId: string,
+        options: PluginNetworkRequestOptions,
+      ) => Promise<PluginNetworkResponse>;
+      cancel: (pluginId: string, requestId: string) => Promise<boolean>;
     };
     webServer: {
       listen: (
@@ -469,6 +537,11 @@ export interface IElectronAPI {
     setKv: (key: string, value: unknown) => Promise<StorageResetResult>;
     deleteKv: (key: string) => Promise<StorageResetResult>;
     resetAll: () => Promise<StorageResetResult>;
+  };
+  settingsBackup: {
+    export: (request: SettingsBackupExportRequest) => Promise<SettingsBackupExportResult>;
+    inspect: () => Promise<SettingsBackupInspectResult>;
+    import: (request: SettingsBackupImportRequest) => Promise<SettingsBackupImportResult>;
   };
   mediaControls: {
     updateMetadata: (payload: {

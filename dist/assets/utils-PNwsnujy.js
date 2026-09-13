@@ -1,1 +1,0 @@
-function e(e,t){return`${e}-trigger-${t}`}function t(e,t){return`${e}-content-${t}`}export{e as n,t};

@@ -1,4 +1,4 @@
-﻿import { defineStore } from 'pinia';
+import { defineStore } from 'pinia';
 import type { CloseBehavior, ThemeMode } from '../../shared/app';
 import type { AppLogLevel, LogSettings } from '../../shared/logging';
 import type {
@@ -8,7 +8,7 @@ import type {
   OutputDeviceStatus,
 } from '../types';
 import { buildFontFamily } from '../../shared/font';
-import { normalizeImpulseResponseName, type ImpulseResponseFile } from '../../shared/audio';
+import { normalizeImpulseResponseName, type SpatialAudioEffectEntry } from '../../shared/audio';
 import {
   DEFAULT_NETWORK_SETTINGS,
   normalizeNetworkSettings,
@@ -63,13 +63,18 @@ const getUniqueImpulseResponseName = (name: string, existingNames: string[]): st
   }
 };
 
-const toImpulseResponseFilePayload = (file: ImpulseResponseFile): ImpulseResponseFile => ({
+const toImpulseResponseFilePayload = (
+  file: SpatialAudioEffectEntry,
+): SpatialAudioEffectEntry => ({
   id: String(file.id || ''),
   name: String(file.name || ''),
-  path: String(file.path || ''),
   size: Number(file.size) || 0,
   importedAt: Number(file.importedAt) || 0,
   format: file.format ? String(file.format) : undefined,
+  kind: file.kind,
+  source: file.source,
+  impulseResponsePath: file.impulseResponsePath,
+  vpfPath: file.vpfPath,
 });
 
 export const useSettingStore = defineStore('setting', {
@@ -123,15 +128,20 @@ export const useSettingStore = defineStore('setting', {
     outputDeviceDisconnectBehavior: 'pause' as OutputDeviceDisconnectBehavior,
     showAudioQualityBadge: true,
     showDesktopLyricStatus: true,
+    // 任务栏封面预览 / 播放进度条（Windows）
+    taskbarCoverPreview: false,
+    taskbarProgress: true,
     volumeNormalization: true,
     volumeNormalizationLufs: -14,
     impulseResponseEnabled: false,
     selectedImpulseResponseId: '',
     impulseResponseMix: 0.4,
-    impulseResponseFiles: [] as ImpulseResponseFile[],
+    impulseResponseFiles: [] as SpatialAudioEffectEntry[],
     impulseResponseSafetyMigrationDone: false,
     keepAliveEnabled: true,
     keepAliveMax: 20,
+    // 屏蔽空格、方向键、翻页键等浏览器默认滚动/激活行为（快捷键分区可关闭）
+    suppressDefaultKeyBehaviors: true,
     playResumeTimeout: 5,
     autoReceiveVip: false,
     silentUpdate: true,
@@ -164,6 +174,15 @@ export const useSettingStore = defineStore('setting', {
     audioDemuxerMaxMB: 48,
     audioDemuxerBackMB: 12,
     audioBufferSecs: 0.5,
+    // mpv 解复用 / 输出调优（对应 mpv 原生属性，见 player 调优接线）
+    demuxerReadaheadSecs: 1,
+    cache: 'auto' as 'auto' | 'yes' | 'no',
+    cachePause: true,
+    cachePauseWaitSecs: 1,
+    audioSamplerate: 'auto',
+    audioChannels: 'auto-safe',
+    audioFormat: 'auto',
+    gaplessAudio: 'weak',
     kugouApiProxyUrl: DEFAULT_NETWORK_SETTINGS.kugouApiProxyUrl,
     kugouApiTimeoutSecs: DEFAULT_NETWORK_SETTINGS.kugouApiTimeoutSecs,
     mpvHttpProxyUrl: DEFAULT_NETWORK_SETTINGS.mpvHttpProxyUrl,
@@ -240,7 +259,7 @@ export const useSettingStore = defineStore('setting', {
     },
     openRepo() {
       if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.send('open-external', 'https://github.com/hoowhoami/yanmusic');
+        window.electron.ipcRenderer.send('open-external', 'https://github.com/MmlwrYan/YanMusic');
       }
     },
     openDisclaimer() {
@@ -353,12 +372,21 @@ export const useSettingStore = defineStore('setting', {
       this.outputDeviceStatus = status;
       this.outputDeviceStatusMessage = message;
     },
-    addImpulseResponseFile(file: ImpulseResponseFile) {
-      this.addImpulseResponseFiles([file]);
+    syncTaskbarCoverPreview() {
+      window.electron?.ipcRenderer?.send('update-taskbar-cover-preview', this.taskbarCoverPreview);
     },
-    addImpulseResponseFiles(files: ImpulseResponseFile[]) {
-      const normalizedFiles: ImpulseResponseFile[] = [];
-      let names = this.impulseResponseFiles.map((item) => item.name);
+    syncTaskbarProgress() {
+      window.electron?.ipcRenderer?.send('update-taskbar-progress', this.taskbarProgress);
+    },
+    addImpulseResponseFile(file: SpatialAudioEffectEntry, options?: { select?: boolean }) {
+      this.addImpulseResponseFiles([file], options);
+    },
+    addImpulseResponseFiles(files: SpatialAudioEffectEntry[], options?: { select?: boolean }) {
+      const normalizedFiles: SpatialAudioEffectEntry[] = [];
+      const incomingIds = new Set(files.map((item) => item.id));
+      let names = this.impulseResponseFiles
+        .filter((item) => !incomingIds.has(item.id))
+        .map((item) => item.name);
       for (const file of files) {
         const normalizedFile = {
           ...file,
@@ -377,11 +405,11 @@ export const useSettingStore = defineStore('setting', {
           (item) => !normalizedFiles.some((file) => file.id === item.id),
         ),
       ];
-      this.selectedImpulseResponseId = normalizedFile.id;
+      if (options?.select !== false) this.selectedImpulseResponseId = normalizedFile.id;
     },
     async reconcileImpulseResponseFiles() {
-      if (!window.electron?.audioEffects?.reconcileImpulseResponses) return;
-      const nextFiles = await window.electron.audioEffects.reconcileImpulseResponses(
+      if (!window.electron?.audioEffects?.reconcileAudioEffects) return;
+      const nextFiles = await window.electron.audioEffects.reconcileAudioEffects(
         this.impulseResponseFiles.map(toImpulseResponseFilePayload),
       );
       const nextIds = new Set(nextFiles.map((item) => item.id));
@@ -403,8 +431,9 @@ export const useSettingStore = defineStore('setting', {
         this.selectedImpulseResponseId = next?.id ?? '';
         this.impulseResponseEnabled = false;
       }
-      if (target?.path && window.electron?.audioEffects) {
-        void window.electron.audioEffects.deleteImpulseResponse(target.path);
+      const resourcePath = target?.impulseResponsePath ?? target?.vpfPath;
+      if (resourcePath && window.electron?.audioEffects) {
+        void window.electron.audioEffects.deleteAudioEffect(resourcePath);
       }
     },
     setSelectedImpulseResponse(id: string) {
@@ -424,7 +453,7 @@ export const useSettingStore = defineStore('setting', {
     setImpulseResponseMix(value: number) {
       this.impulseResponseMix = Math.min(1, Math.max(0.1, Number(value) || 0.4));
     },
-    getSelectedImpulseResponse(): ImpulseResponseFile | null {
+    getSelectedImpulseResponse(): SpatialAudioEffectEntry | null {
       if (!this.selectedImpulseResponseId) return null;
       return (
         this.impulseResponseFiles.find((item) => item.id === this.selectedImpulseResponseId) ?? null

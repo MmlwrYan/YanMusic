@@ -1,4 +1,4 @@
-﻿import { app, dialog, shell, type BrowserWindow, type WebContents } from 'electron';
+import { app, dialog, shell, type BrowserWindow, type WebContents } from 'electron';
 import { spawn, type ChildProcess } from 'child_process';
 import {
   cpSync,
@@ -26,6 +26,7 @@ import type {
   EchoPluginDescriptor,
   EchoPluginManifest,
   PluginAssetSourceResult,
+  PluginAudioMetadata,
   PluginImageFileEntry,
   PluginFileUrlResult,
   PluginFailureRecord,
@@ -51,9 +52,12 @@ import type {
   PluginMarketplaceSourceMutationResult,
   PluginMarketplaceSourcePatch,
   PluginMarketplaceStats,
+  PluginNetworkRequestOptions,
+  PluginNetworkResponse,
   PluginProcessLaunchOptions,
   PluginProcessLaunchResult,
   PluginProcessTerminateResult,
+  PluginReadAudioMetadataResult,
   PluginReadFileBytesOptions,
   PluginReadFileBytesResult,
   PluginReadTextFileOptions,
@@ -101,6 +105,7 @@ import {
   MAX_PLUGIN_PROCESS_ENV_VALUE_LENGTH,
   MAX_PLUGIN_READ_BYTES,
   MAX_PLUGIN_WRITE_BYTES,
+  OFFICIAL_PLUGIN_MARKETPLACE_SOURCE_NAME,
   PLUGIN_ACTIVE_SESSION_KEY,
   PLUGIN_AUDIO_EXTENSIONS,
   PLUGIN_CUE_EXTENSIONS,
@@ -141,6 +146,8 @@ import {
   resolvePluginFile,
   toPortableRelativePath,
 } from './plugins/path';
+import { requestPluginNetwork } from './plugins/network';
+import { readAudioMetadata, resolveAudioTitleAndArtist } from './plugins/audioMetadata';
 import {
   closePluginWebServer,
   closePluginWebServers,
@@ -580,6 +587,30 @@ const getPluginCompatibilityError = (plugin: EchoPluginDescriptor) =>
 
 export const getPluginDescriptor = (pluginId: string) => findPlugin(pluginId);
 
+/**
+ * 插件原生网络请求入口：逐项校验安全模式、插件有效性、启用状态，
+ * 并要求清单显式声明 capabilities.unrestrictedNetwork 才放行。
+ */
+export const requestPluginNetworkForPlugin = (
+  pluginId: string,
+  options: PluginNetworkRequestOptions,
+  signal?: AbortSignal,
+): Promise<PluginNetworkResponse> => {
+  if (getPluginSafeMode()) return Promise.reject(new Error('插件安全模式已开启'));
+
+  const plugin = findPlugin(pluginId);
+  if (!plugin) return Promise.reject(new Error('插件不存在'));
+  if (plugin.invalid) return Promise.reject(new Error(plugin.error || '插件无效'));
+  const compatibilityError = getPluginCompatibilityError(plugin);
+  if (compatibilityError) return Promise.reject(new Error(compatibilityError));
+  if (!plugin.enabled) return Promise.reject(new Error('插件未启用'));
+  if (plugin.manifest.capabilities?.unrestrictedNetwork !== true) {
+    return Promise.reject(new Error('插件未声明不受限网络能力'));
+  }
+
+  return requestPluginNetwork(options, signal);
+};
+
 const getPluginWebServerAccessError = (plugin: EchoPluginDescriptor) => {
   if (plugin.invalid) return plugin.error || '插件无效';
   const compatibilityError = getPluginCompatibilityError(plugin);
@@ -743,7 +774,7 @@ export const closePluginWebServerForPlugin = async (
 
 const createDefaultMarketplaceSource = (): PluginMarketplaceSource => ({
   id: DEFAULT_PLUGIN_MARKETPLACE_SOURCE_ID,
-  name: 'YanMusic 官方插件源',
+  name: OFFICIAL_PLUGIN_MARKETPLACE_SOURCE_NAME,
   url: DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL,
   enabled: true,
   official: true,
@@ -786,7 +817,13 @@ const getMarketplaceCache = (): PluginMarketplaceCache => {
   }
   return {
     schemaVersion: PLUGIN_MARKETPLACE_CACHE_VERSION,
-    plugins: cache.plugins,
+    // 缓存可能由旧版本写入（sourceName 取自远端索引的 name 字段），
+    // 读取时统一改写为本地显示名，避免上游品牌文案出现在插件卡片上。
+    plugins: cache.plugins.map((plugin) =>
+      plugin.sourceId === DEFAULT_PLUGIN_MARKETPLACE_SOURCE_ID
+        ? { ...plugin, sourceName: OFFICIAL_PLUGIN_MARKETPLACE_SOURCE_NAME }
+        : plugin,
+    ),
     fetchedAt: Number(cache.fetchedAt) || 0,
   };
 };
@@ -1150,9 +1187,9 @@ const normalizeMarketplaceSource = (
   const isOfficial = normalized.id === DEFAULT_PLUGIN_MARKETPLACE_SOURCE_ID;
   return {
     id: normalized.id,
-    name: String(
-      source?.name || (isOfficial ? 'YanMusic 官方插件源' : normalized.repo.repo),
-    ).trim(),
+    name: isOfficial
+      ? OFFICIAL_PLUGIN_MARKETPLACE_SOURCE_NAME
+      : String(source?.name || normalized.repo.repo).trim(),
     url: normalized.url,
     enabled: source?.enabled !== false,
     official: Boolean(source?.official) || isOfficial,
@@ -1488,12 +1525,13 @@ const fetchMarketplaceSourceCatalog = async (
     );
     const now = Date.now();
     const sourceRepo = parseGithubRepository(source.url);
-    const inferredName =
-      source.id === DEFAULT_PLUGIN_MARKETPLACE_SOURCE_ID
-        ? 'YanMusic 官方插件源'
-        : sourceRepo?.repo || source.name;
-    const sourceName =
-      source.name && source.name !== inferredName
+    const isOfficialSource = source.id === DEFAULT_PLUGIN_MARKETPLACE_SOURCE_ID;
+    const inferredName = isOfficialSource
+      ? OFFICIAL_PLUGIN_MARKETPLACE_SOURCE_NAME
+      : sourceRepo?.repo || source.name;
+    const sourceName = isOfficialSource
+      ? OFFICIAL_PLUGIN_MARKETPLACE_SOURCE_NAME
+      : source.name && source.name !== inferredName
         ? source.name
         : String(result.index.name || source.name || '').trim() || source.name;
     return {
@@ -2078,6 +2116,7 @@ const installPluginFromLocalSource = async (
     if (source.kind === 'directory') {
       const sourceDirectory = findPluginInstallSourceDirectory(source.path, '');
       const installed = await installPluginDirectory(sourceDirectory, {
+        expectedPluginId: options.expectedPluginId,
         enableAfterInstall: Boolean(options.enableAfterInstall),
       });
       return {
@@ -2104,6 +2143,7 @@ const installPluginFromLocalSource = async (
       );
       const sourceDirectory = findPluginInstallSourceDirectory(extractDirectory, '');
       const installed = await installPluginDirectory(sourceDirectory, {
+        expectedPluginId: options.expectedPluginId,
         enableAfterInstall: Boolean(options.enableAfterInstall),
       });
       return {
@@ -3039,6 +3079,49 @@ export const readPluginFileBytes = (
     return {
       ok: false,
       error: error instanceof Error ? error.message : '文件读取失败',
+    };
+  }
+};
+
+export const readPluginAudioMetadata = async (
+  pluginId: string,
+  filePath: string,
+): Promise<PluginReadAudioMetadataResult> => {
+  const access = hasPluginLocalFilesAccess(pluginId);
+  if (!access.ok) return { ok: false, error: access.error };
+
+  try {
+    const file = getLocalFileStats(filePath);
+    const entry = toPluginFileEntry(file.path, file.path, file.stats);
+    if (entry.kind !== 'audio') return { ok: false, error: '文件不是音频文件' };
+
+    let metadata: PluginAudioMetadata | undefined;
+    let metadataError: string | undefined;
+    try {
+      metadata = await readAudioMetadata(file.path);
+    } catch (error) {
+      metadataError = error instanceof Error ? error.message : '音频标签解析失败';
+    }
+
+    const { title, artist } = resolveAudioTitleAndArtist(entry.name, metadata);
+    return {
+      ok: true,
+      ...entry,
+      title,
+      artist,
+      album: metadata?.album,
+      duration: metadata?.duration,
+      year: metadata?.year,
+      track: metadata?.track,
+      disk: metadata?.disk,
+      genre: metadata?.genre,
+      metadataParsed: !metadataError,
+      ...(metadataError ? { metadataError } : {}),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : '音频标签读取失败',
     };
   }
 };

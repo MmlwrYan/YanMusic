@@ -1,1 +1,0 @@
-import{U as e,ft as t,j as n}from"./preload-helper-BFM87vNv.js";var r=Symbol(`page-scroll-container`);function i(t){e(r,t)}function a(){return n(r,t(null))}export{a as n,i as t};

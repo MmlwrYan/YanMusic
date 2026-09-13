@@ -1,1 +1,0 @@
-import{v as e}from"./preload-helper-BFM87vNv.js";import{t}from"./useEmitAsProps-CB7IHa3W.js";import{t as n}from"./useForwardProps-Dnhf1s5o.js";function r(r,i){let a=n(r),o=i?t(i):{};return e(()=>({...a.value,...o}))}export{r as t};

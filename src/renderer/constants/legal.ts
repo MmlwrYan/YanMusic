@@ -44,7 +44,7 @@ export const DISCLAIMER_SECTIONS: LegalSection[] = [
   {
     title: '致谢',
     content:
-      '本软件基于 GitHub 上著名项目 EchoMusic 开发（作者：hoowhoami），在此向 hoowhoami 及所有参与 EchoMusic 开发的开发者致以诚挚敬意。本项目在 EchoMusic 的基础上进行了部分优化，在最新版本中恢复了直接领取 VIP 的功能并修复了若干 bug。EchoMusic 项目基于 GNU General Public License v3.0 协议开源，该协议允许对软件进行修改、研究和重新发布。感谢 EchoMusic 团队为社区做出的杰出贡献！',
+      '本软件基于 GitHub 上著名项目 EchoMusic（本项目参考的上游版本：2.3.1-beta.24；作者：hoowhoami）二次开发，在此向 hoowhoami 及所有参与 EchoMusic 开发的开发者致以诚挚敬意。原始版权归 EchoMusic 项目及其开发者所有，本项目中沿用自上游的代码与资源的版权仍归原作者，本项目依据 GNU General Public License v3.0 的条款使用与再发布。本项目在上游版本基础上进行的修改包括：适配 libmpv 播放引擎与一体化打包、调整界面文案与品牌标识（YanMusic）、修复若干 bug（含恢复直接领取 VIP 的功能）；本项目修改部分与上游原始内容的差异说明见仓库内的 PORTING_REPORT.md。EchoMusic 项目基于 GNU General Public License v3.0 协议开源，该协议允许对软件进行修改、研究和重新发布。感谢 EchoMusic 团队为社区做出的杰出贡献！',
   },
   {
     title: '项目定位',
@@ -73,7 +73,7 @@ export const DISCLAIMER_SECTIONS: LegalSection[] = [
   {
     title: '开源协议',
     content:
-      'EchoMusic 项目基于 GNU General Public License v3.0（GPL-3.0）协议开源，该协议允许对软件进行修改、研究和重新发布。本项目的修改版本亦遵循此精神，开源共享。',
+      '本项目遵循 GNU General Public License v3.0（GPL-3.0）协议开源发布，该协议允许对软件进行修改、研究和重新发布；完整许可证文本见随安装包分发的 LICENSE 文件，或本仓库根目录的 LICENSE。本项目的修改版本亦遵循此精神，开源共享。',
   },
   {
     title: '争议解决',

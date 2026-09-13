@@ -1,4 +1,4 @@
-﻿import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron';
 import log from 'electron-log/renderer';
 import type { ApiServerStatus } from '../shared/api-server';
 import type { AppInfoResult, UpdateDownloadResult, UpdateState } from '../shared/app';
@@ -23,9 +23,11 @@ import type {
   MiniPlayerSnapshotPatch,
 } from '../shared/mini-player';
 import type {
+  DownloadCommunityAudioEffectRequest,
+  DownloadCommunityAudioEffectResult,
   ImportImpulseResponseResult,
-  ImpulseResponseFile,
   ImpulseResponsePlaybackOptions,
+  SpatialAudioEffectEntry,
 } from '../shared/audio';
 import type {
   AudioSpectrumFrame,
@@ -37,6 +39,20 @@ import type { LogSettings } from '../shared/logging';
 import type { NetworkSettings } from '../shared/network';
 import type { ResolvePlaylistRequest, ResolvePlaylistResponse } from '../shared/external';
 import type { ShareCaptureRect, ShareTarget } from '../shared/share';
+import type {
+  SettingsBackupExportRequest,
+  SettingsBackupExportResult,
+  SettingsBackupImportRequest,
+  SettingsBackupImportResult,
+  SettingsBackupInspectResult,
+} from '../shared/settingsBackup';
+import type {
+  DiagnosticsAppProcessMetric,
+  DiagnosticsMemorySnapshot,
+  DiagnosticsNodeMemory,
+  DiagnosticsResourceUsage,
+  DiagnosticsResourceUsageEntry,
+} from '../shared/diagnostics';
 import type {
   PluginAssetSourceResult,
   PluginAppIconRefreshResult,
@@ -59,10 +75,14 @@ import type {
   PluginMarketplaceSourceListResult,
   PluginMarketplaceSourceMutationResult,
   PluginMarketplaceSourcePatch,
+  PluginNetworkRequestBody,
+  PluginNetworkRequestOptions,
+  PluginNetworkResponse,
   PluginOpenDialogOptions,
   PluginProcessLaunchOptions,
   PluginProcessLaunchResult,
   PluginProcessTerminateResult,
+  PluginReadAudioMetadataResult,
   PluginReadFileBytesOptions,
   PluginReadFileBytesResult,
   PluginReadTextFileOptions,
@@ -136,6 +156,89 @@ const getWrappedListener = (channel: string, func: (...args: any[]) => void) => 
   const wrapped = (_event: Electron.IpcRendererEvent, ...args: any[]) => func(...args);
   channelMap.set(func, wrapped);
   return wrapped;
+};
+
+const toMbFromKb = (kb: unknown) =>
+  typeof kb === 'number' && Number.isFinite(kb) ? Math.round((kb / 1024) * 10) / 10 : null;
+
+const toMbFromBytes = (bytes: unknown) =>
+  typeof bytes === 'number' && Number.isFinite(bytes)
+    ? Math.round((bytes / 1024 / 1024) * 10) / 10
+    : null;
+
+const getRendererProcessMemory = async () => {
+  try {
+    const info = (await process.getProcessMemoryInfo()) as unknown as Record<
+      string,
+      number | undefined
+    >;
+    const privateMb = toMbFromKb(info.private ?? info.privateBytes);
+    const sharedMb = toMbFromKb(info.shared ?? info.sharedBytes);
+    return {
+      workingSetMb: toMbFromKb(info.workingSetSize),
+      peakWorkingSetMb: toMbFromKb(info.peakWorkingSetSize),
+      privateMb,
+      sharedMb,
+      residentSetMb: toMbFromKb(info.residentSet),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const getPerformanceMemory = () => {
+  const memory = (
+    performance as Performance & {
+      memory?: {
+        usedJSHeapSize?: number;
+        totalJSHeapSize?: number;
+        jsHeapSizeLimit?: number;
+      };
+    }
+  ).memory;
+  if (!memory) return null;
+  return {
+    usedJsHeapMb: toMbFromBytes(memory.usedJSHeapSize),
+    totalJsHeapMb: toMbFromBytes(memory.totalJSHeapSize),
+    jsHeapLimitMb: toMbFromBytes(memory.jsHeapSizeLimit),
+  };
+};
+
+const getRendererNodeMemory = (): DiagnosticsNodeMemory | null => {
+  try {
+    if (typeof process.memoryUsage !== 'function') return null;
+    const usage = process.memoryUsage();
+    return {
+      rssMb: toMbFromBytes(usage.rss),
+      heapTotalMb: toMbFromBytes(usage.heapTotal),
+      heapUsedMb: toMbFromBytes(usage.heapUsed),
+      externalMb: toMbFromBytes(usage.external),
+      arrayBuffersMb: toMbFromBytes(usage.arrayBuffers),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const normalizeResourceUsageEntry = (value: unknown): DiagnosticsResourceUsageEntry => {
+  const record =
+    value && typeof value === 'object' ? (value as Record<string, unknown>) : Object.create(null);
+  return {
+    count: typeof record.count === 'number' ? record.count : null,
+    sizeMb: toMbFromBytes(record.size),
+    liveSizeMb: toMbFromBytes(record.liveSize),
+  };
+};
+
+const getResourceUsage = (): DiagnosticsResourceUsage | null => {
+  try {
+    const usage = webFrame.getResourceUsage() as unknown as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(usage).map(([key, value]) => [key, normalizeResourceUsageEntry(value)]),
+    );
+  } catch {
+    return null;
+  }
 };
 
 const toPlainIpcPayload = <T>(value: T): T => {
@@ -224,13 +327,19 @@ contextBridge.exposeInMainWorld('electron', {
   audioEffects: {
     importImpulseResponse: () =>
       ipcRenderer.invoke('audio:import-impulse-response') as Promise<ImportImpulseResponseResult>,
-    deleteImpulseResponse: (filePath: string) =>
-      ipcRenderer.invoke('audio:delete-impulse-response', filePath) as Promise<boolean>,
-    reconcileImpulseResponses: (files: ImpulseResponseFile[]) =>
-      invokeWithPlainPayload<ImpulseResponseFile[]>('audio:reconcile-impulse-responses', files),
+    downloadCommunityAudioEffect: (payload: DownloadCommunityAudioEffectRequest) =>
+      invokeWithPlainPayload<DownloadCommunityAudioEffectResult>(
+        'audio:download-community-audio-effect',
+        payload,
+      ),
+    deleteAudioEffect: (filePath: string) =>
+      ipcRenderer.invoke('audio:delete-audio-effect', filePath) as Promise<boolean>,
+    reconcileAudioEffects: (files: SpatialAudioEffectEntry[]) =>
+      invokeWithPlainPayload<SpatialAudioEffectEntry[]>('audio:reconcile-audio-effects', files),
   },
   updater: {
     download: () => ipcRenderer.send('update:download'),
+    cancelDownload: () => ipcRenderer.send('update:cancel-download'),
     install: (silent?: boolean) => ipcRenderer.send('update:install', { silent: !!silent }),
     getState: () => ipcRenderer.invoke('update:get-state') as Promise<UpdateState>,
     onDownloadStatus: (func: (result: UpdateDownloadResult) => void) => {
@@ -243,6 +352,20 @@ contextBridge.exposeInMainWorld('electron', {
   apiServer: {
     start: () => ipcRenderer.invoke('api-server:start'),
     status: () => ipcRenderer.invoke('api-server:status') as Promise<ApiServerStatus>,
+  },
+  diagnostics: {
+    getMemory: async (label?: string): Promise<DiagnosticsMemorySnapshot> => ({
+      capturedAt: Date.now(),
+      label,
+      rendererPid: process.pid,
+      renderer: await getRendererProcessMemory(),
+      rendererNode: getRendererNodeMemory(),
+      performance: getPerformanceMemory(),
+      resources: getResourceUsage(),
+      appProcesses: (await ipcRenderer.invoke(
+        'diagnostics:get-app-memory',
+      )) as DiagnosticsAppProcessMetric[],
+    }),
   },
   api: {
     request: (config: {
@@ -405,6 +528,14 @@ contextBridge.exposeInMainWorld('electron', {
   network: {
     update: (settings: Partial<NetworkSettings>) =>
       invokeWithPlainPayload<NetworkSettings>('network:update-settings', settings),
+  },
+  settingsBackup: {
+    export: (request: SettingsBackupExportRequest) =>
+      invokeWithPlainPayload<SettingsBackupExportResult>('settings-backup:export', request),
+    inspect: () =>
+      ipcRenderer.invoke('settings-backup:inspect') as Promise<SettingsBackupInspectResult>,
+    import: (request: SettingsBackupImportRequest) =>
+      invokeWithPlainPayload<SettingsBackupImportResult>('settings-backup:import', request),
   },
   mpv: {
     load: (url: string) => ipcRenderer.invoke('mpv:load', url),
@@ -661,6 +792,37 @@ contextBridge.exposeInMainWorld('electron', {
           windowId,
           bounds,
         ),
+      startDrag: (pluginId: string, windowId: string, sessionId: string) =>
+        ipcRenderer.invoke(
+          'plugins:window:start-drag',
+          pluginId,
+          windowId,
+          sessionId,
+        ) as Promise<boolean>,
+      dragMove: (pluginId: string, windowId: string, sessionId: string, x: number, y: number) =>
+        ipcRenderer.send('plugins:window:drag-move', pluginId, windowId, sessionId, x, y),
+      endDrag: (pluginId: string, windowId: string, sessionId: string) =>
+        ipcRenderer.invoke('plugins:window:end-drag', pluginId, windowId, sessionId),
+      cancelDrag: (pluginId: string, windowId: string, sessionId: string) =>
+        ipcRenderer.invoke('plugins:window:cancel-drag', pluginId, windowId, sessionId),
+      startResize: (pluginId: string, windowId: string, sessionId: string) =>
+        ipcRenderer.invoke(
+          'plugins:window:start-resize',
+          pluginId,
+          windowId,
+          sessionId,
+        ) as Promise<boolean>,
+      resize: (pluginId: string, windowId: string, sessionId: string, bounds: PluginWindowBounds) =>
+        sendWithPlainPayload('plugins:window:resize', pluginId, windowId, sessionId, bounds),
+      endResize: (pluginId: string, windowId: string, sessionId: string) =>
+        ipcRenderer.invoke('plugins:window:end-resize', pluginId, windowId, sessionId),
+      cancelResize: (pluginId: string, windowId: string, sessionId: string) =>
+        ipcRenderer.invoke('plugins:window:cancel-resize', pluginId, windowId, sessionId),
+      onCancelInteraction: (listener: (bounds?: PluginWindowBounds) => void) => {
+        const wrapped = (_event: unknown, bounds?: PluginWindowBounds) => listener(bounds);
+        ipcRenderer.on('plugins:window:cancel-interaction', wrapped);
+        return () => ipcRenderer.removeListener('plugins:window:cancel-interaction', wrapped);
+      },
       getBounds: (pluginId: string, windowId: string) =>
         ipcRenderer.invoke(
           'plugins:window:get-bounds',
@@ -739,6 +901,12 @@ contextBridge.exposeInMainWorld('electron', {
           filePath,
           options,
         ),
+      readAudioMetadata: (pluginId: string, filePath: string) =>
+        invokeWithPlainPayload<PluginReadAudioMetadataResult>(
+          'plugins:fs:read-audio-metadata',
+          pluginId,
+          filePath,
+        ),
       writeFile: (
         pluginId: string,
         filePath: string,
@@ -772,6 +940,22 @@ contextBridge.exposeInMainWorld('electron', {
           pluginId,
           pid,
         ) as Promise<PluginProcessTerminateResult>,
+    },
+    net: {
+      request: (pluginId: string, requestId: string, options: PluginNetworkRequestOptions) => {
+        const { body, ...requestOptions } = options;
+        const requestBody =
+          body instanceof ArrayBuffer || ArrayBuffer.isView(body) ? body : toPlainIpcPayload(body);
+        return ipcRenderer.invoke(
+          'plugins:net:request',
+          pluginId,
+          requestId,
+          toPlainIpcPayload(requestOptions),
+          requestBody,
+        ) as Promise<PluginNetworkResponse>;
+      },
+      cancel: (pluginId: string, requestId: string) =>
+        ipcRenderer.invoke('plugins:net:cancel', pluginId, requestId) as Promise<boolean>,
     },
     webServer: {
       listen: (pluginId: string, options?: PluginWebServerListenOptions) =>
