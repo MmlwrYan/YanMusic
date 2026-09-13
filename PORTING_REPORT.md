@@ -591,20 +591,43 @@ To https://github.com/MmlwrYan/YanMusic.git
 
 ### 14.5 CI 触发与产物下载
 - 触发方式：推送 tag `v1.1.0`（工作流 `on: push: tags: ['v*']`）
-- 运行记录：**run `34743992671` / 工作流「Build YanMusic Desktop」/ event=push / head=v1.1.0 / status=in_progress**
+- 运行记录：**run `34743992671` / 工作流「Build YanMusic Desktop」/ event=push / head=v1.1.0 / status=completed / conclusion=failure**
 - 运行页：https://github.com/MmlwrYan/YanMusic/actions/runs/34743992671
 - 任务矩阵（6 个构建任务 + 1 个 release 任务）：`macOS-arm64`、`macOS-x64`、`Linux-x64`、`Linux-arm64`、`Windows-x64`、`Windows-arm64`
+- **任务结果（6 个中 5 个成功）**：
+
+| 任务 | 结论 | 耗时 |
+|---|---|---|
+| Build YanMusic-Windows-x64 | ✅ success | 7.8 分钟 |
+| Build YanMusic-macOS-arm64 | ✅ success | 9.6 分钟 |
+| Build YanMusic-Windows-arm64 | ✅ success | 12.0 分钟 |
+| Build YanMusic-Linux-arm64 | ✅ success | 13.7 分钟 |
+| Build YanMusic-Linux-x64 | ✅ success | 14.5 分钟 |
+| **Build YanMusic-macOS-x64** | ❌ **failure**（步骤 15 `Download libmpv library`，详见 §14.10） | 2 秒 |
+| Publish Release Assets | ⏭ skipped（依赖失败） | — |
+| Send Telegram / QQ Notification | ⏭ skipped | — |
+
+- **实际产出的 5 个 artifact（可直接下载，保留至 2026-09-20）**：
+
+| artifact | 大小 |
+|---|---|
+| `YanMusic-Linux-x64` | 667.2 MB |
+| `YanMusic-Linux-arm64` | 640.8 MB |
+| `YanMusic-macOS-arm64` | 306.6 MB |
+| `YanMusic-Windows-x64` | 142.1 MB |
+| `YanMusic-Windows-arm64` | 136 MB |
+
 - **产物下载位置**：
-  1. 该 run 页面底部 **Artifacts** 区域（保留 7 天）：`YanMusic-macOS-arm64`、`YanMusic-macOS-x64`、`YanMusic-Linux-x64`、`YanMusic-Linux-arm64`、`YanMusic-Windows-x64`、`YanMusic-Windows-arm64`
-  2. 因由 tag 触发，release job 会把全部产物作为 Release 附件发布到 https://github.com/MmlwrYan/YanMusic/releases （tag `v1.1.0`）
-- 具体文件：macOS 取 `YanMusic-1.1.0-macOS-*.dmg`（附带 `latest-mac.yml`）；Linux 取 `YanMusic-1.1.0-Linux-*.AppImage`（免安装）或 `*.deb`；Windows 为 `YanMusic-1.1.0-Windows-Setup-*.exe`
+  1. 该 run 页面底部 **Artifacts** 区域：https://github.com/MmlwrYan/YanMusic/actions/runs/34743992671
+  2. **本版本未生成 GitHub Release**（release job 因 `macOS-x64` 失败被 skip，`/releases` 目前只有 `v1.0.0`）；如需 Release，见 §14.10 的选项
+- 具体文件：macOS 取 `YanMusic-1.1.0-macOS-arm64.dmg`；Linux 取 `YanMusic-1.1.0-Linux-*.AppImage`（免安装）或 `*.deb`；Windows 为 `YanMusic-1.1.0-Windows-Setup-*.exe`
 
 ### 14.6 v1.1.0 交付物（本机已验证部分）
 | # | 交付物 | 状态 | 证据 |
 |---|---|---|---|
 | 1 | 绿色版 `release\win-unpacked\` | ✅ | 1,697 文件；`YanMusic.exe` 215 MB，**FileVersion=1.1.0 / ProductVersion=1.1.0.0 / ProductName=YanMusic**；包内 `package.json` 版本 1.1.0；图标/`LICENSE`/`LICENSES` 与源文件 SHA256 全部一致 |
 | 2 | Windows installer `release\YanMusic-1.1.0-Windows-Setup-x64.exe` | ✅ | 140.22 MB；`release/latest.yml` 为 `version: 1.1.0` 且 sha512 与安装包匹配 |
-| 3 | macOS / Linux installer | ⏳ CI 运行中 | §14.5（本机不构建，按既定策略由 CI 产出） |
+| 3 | macOS / Linux installer | ⚠️ 部分产出 | Linux x64/arm64 ✅、macOS arm64 ✅、**macOS x64 ❌**（CI 失败，§14.10）；产物见 §14.5 |
 | 4 | 远端仓库更新 | ✅ | §14.4（main 前进 + tag v1.1.0 + LICENSE=GPL-3.0） |
 | 5 | 类型检查 | ✅ | `vue-tsc --noEmit` 输出为空，`exit=0` |
 | 6 | 本报告 | ✅ | 本节 |
@@ -623,10 +646,52 @@ To https://github.com/MmlwrYan/YanMusic.git
 - 因此本轮不改动，交由后续在真实 runner 上验证后再实施
 
 ### 14.9 验收标准对照（v1.1.0）
+
 | 验收标准 | 结果 | 证据 |
 |---|---|---|
 | 1. 除致谢段外界面无 `EchoMusic`/`hoowhoami`/`echomusic` 字样 | ✅ | §14.2 打包产物审计；`EchoMusic 官方插件源` 已消除 |
 | 2. 功能全量完整、不以「绕过/TODO/挂起」收尾 | ✅ | 缺失功能均已移植实现；剩余 3 处上游取值保留项均为**功能必需**且已逐条说明（§13.2） |
 | 3. 版本号独立：应用 1.1.0、应用内显示 1.1.0、致谢注明上游参考版本 | ✅ | §14.1 / §14.3（`app.getVersion()` 链路 + 致谢段 2.3.1-beta.24） |
-| 4. 远端历史保留：main 原链保留、v1.0.0 保留、体现 v1.0.0→v1.1.0 前进 | ✅ | §14.4（3 条提交、祖先校验通过、+30,749/−1,412） |
+| 4. 远端历史保留：main 原链保留、v1.0.0 保留、体现 v1.0.0→v1.1.0 前进 | ✅ | §14.4（4 条提交、祖先校验通过、+30,749/−1,412） |
+| 5. macOS + Linux installer（CI 产出） | ⚠️ **部分达成**：Linux x64/arm64 ✅、macOS arm64 ✅、**macOS x64 ❌** | §14.5 / §14.10（CI 失败，触发硬停条件 #3） |
+
+### 14.10 CI 失败记录：`Build YanMusic-macOS-x64`（硬停条件 #3）
+
+**失败步骤（GitHub API 原始数据）**：`Build YanMusic-macOS-x64`（job_id `103688383237`）
+```
+steps[15] "Download libmpv library"  conclusion=failure
+  started=2026-09-13T06:59:48Z  completed=2026-09-13T06:59:50Z   （2 秒，即一开始就退出）
+后续步骤 16~20（Build desktop app / Verify… / Upload build artifacts）全部 skipped
+```
+
+**失败原因（check-run 注解原始数据）**：作业日志接口需仓库管理员权限（`GET /actions/jobs/{id}/logs` → `403 "Must have admin rights to Repository."`），改用 check-run 注解取得 GitHub 侧结论：
+```json
+{"path":".github","start_line":276,"end_line":276,
+ "annotation_level":"failure","message":"Process completed with exit code 127."}
+```
+即 **`.github/workflows/build.yml:276` 退出码 127（command not found）**。该行位于 macOS x64 分支的 x86_64 Homebrew 引导块内（L273–L286）：
+```bash
+271  x86_64-apple-darwin:*)
+273    arch -x86_64 /bin/bash -c '
+275      if [ ! -f /usr/local/bin/brew ]; then
+276        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL .../Homebrew/install/HEAD/install.sh)"
+278      /usr/local/bin/brew install mpv || true
+281    # 验证 mpv 确实已安装
+282    X86_MPV_PREFIX=$(/usr/local/bin/brew --prefix mpv)   # ← brew 不存在时此处即 127
+284      echo "ERROR: mpv x86_64 installation failed, lib dir not found"
+```
+**诊断**：`macos-14` 是 arm64 runner，该步骤靠 `arch -x86_64` + 现场安装 x86_64 Homebrew 取得 x64 版 `libmpv.dylib`。`brew install mpv || true` 把安装失败静默吞掉，因此当 `/usr/local/bin/brew` 根本不存在（或 `arch -x86_64` 无法执行）时，脚本会在 L282 的命令替换处以 127 直接终止——既不会打印 L284 的自定义错误，也解释了「2 秒即失败」。**该步骤与本轮改动无关**（本轮只改了产物文件名大小写与子模块索引，未触碰此步骤），属既有工作流在 arm64 runner 上的跨架构引导缺陷；同一 run 的 `macOS-arm64` 任务（走原生 brew 分支）成功即为旁证。
+
+**后果**：`Publish Release Assets` 因依赖失败被 skip → **v1.1.0 未生成 GitHub Release**；Windows/Linux/macOS-arm64 五个 artifact 可用（§14.5）。
+
+**候选修复（需你裁定，本轮按硬停条件停止执行）**：
+| 方案 | 内容 | 代价 |
+|---|---|---|
+| A（推荐）| 在 macOS x64 的 `Download libmpv library` 之前插入 `softwareupdate --install-rosetta --agree-to-license` 与 `arch -x86_64 /usr/bin/true` 校验；去掉 `|| true`，改为显式判断 `/usr/local/bin/brew` 是否存在并输出诊断日志后 `exit 1` | 改动 10 行左右，需真实 runner 验证 |
+| B | 放弃 x86_64 Homebrew：直接取 x64 版 libmpv（例如按架构下载预编译 dylib）| 需选定可信下载源，改动较大 |
+| C | 仅发布 macOS arm64（放弃 Intel Mac 支持）| 最小改动，但交付平台减少一个 |
+| D | 先修工作流，再推 **v1.1.1** 让 CI 重跑（修复后必须新 tag；`Re-run failed jobs` 仍会用旧 tag 的旧工作流，无法生效）| 需要一个新版本号 |
+| E | 让 release job 具备 `if: always()` 语义（缺架构也发布 Release）| 改动交付语义，需你确认是否接受「不完整 Release」 |
+
+**当前状态：按硬停条件 #3「CI 构建失败，需要我介入」停止，等待你的选择。** 其余已全部完成（§14.1–§14.6）。
 
