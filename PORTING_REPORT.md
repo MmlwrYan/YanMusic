@@ -1,4 +1,4 @@
-# YanMusic 向 EchoMusic 2.3.1 移植 — 总报告
+﻿# YanMusic 向 EchoMusic 2.3.1 移植 — 总报告
 
 生成时间：2026-09-13（通宵连续作业）
 目标库：`C:\coding\YanMusic\YanMusic-main`（YanMusic 2.2.8 fork）
@@ -575,7 +575,7 @@ To https://github.com/MmlwrYan/YanMusic.git
 **推送后远端校验**：
 | 校验项 | 结果 |
 |---|---|
-| 远端 main 历史 | 原有 2 条（`539afe2 Clean start…` → `94b3f1a Update LICENSE`，即 `v1.0.0`）**原样保留**；其上新增发布提交 `5ced746 YanMusic 1.1.0`（仅增加 1 个提交，父提交即 `94b3f1a`）；随后再追加 1 个文档提交（本报告 §14，位于 main 顶端）→ 远端 main 共 **4 条**，**前进而非覆盖** |
+| 远端 main 历史 | 原有 2 条（`539afe2 Clean start…` → `94b3f1a Update LICENSE`，即 `v1.0.0`）**原样保留**；其上依次新增：发布提交 `5ced746 YanMusic 1.1.0`（父提交即 `94b3f1a`，仅 +1 个提交）、`529f2d9`（§14 发布记录）、`8e0c4db`（CI 结果与 macOS-x64 失败记录，当前 HEAD）→ 远端 main 共 **5 条**，**前进而非覆盖** |
 | `v1.0.0` 是否为 origin/main 祖先 | **是**（`git merge-base --is-ancestor` 通过） |
 | 远端 tag | `v1.0.0`（94b3f1a）**保留**、`v2.2.8`（64a23f86）**保留**、新增 `v1.1.0` |
 | 远端 LICENSE | 674 行 / 35,149 B，首行 `GNU GENERAL PUBLIC LICENSE`，与本地对象**完全一致**；`LICENSES/LGPL-2.1.txt` 存在 |
@@ -652,7 +652,7 @@ To https://github.com/MmlwrYan/YanMusic.git
 | 1. 除致谢段外界面无 `EchoMusic`/`hoowhoami`/`echomusic` 字样 | ✅ | §14.2 打包产物审计；`EchoMusic 官方插件源` 已消除 |
 | 2. 功能全量完整、不以「绕过/TODO/挂起」收尾 | ✅ | 缺失功能均已移植实现；剩余 3 处上游取值保留项均为**功能必需**且已逐条说明（§13.2） |
 | 3. 版本号独立：应用 1.1.0、应用内显示 1.1.0、致谢注明上游参考版本 | ✅ | §14.1 / §14.3（`app.getVersion()` 链路 + 致谢段 2.3.1-beta.24） |
-| 4. 远端历史保留：main 原链保留、v1.0.0 保留、体现 v1.0.0→v1.1.0 前进 | ✅ | §14.4（4 条提交、祖先校验通过、+30,749/−1,412） |
+| 4. 远端历史保留：main 原链保留、v1.0.0 保留、体现 v1.0.0→v1.1.0 前进 | ✅ | §14.4（远端 main 共 5 条、`v1.0.0` 祖先校验通过、`v1.0.0→v1.1.0` 改动 +30,749/−1,412） |
 | 5. macOS + Linux installer（CI 产出） | ⚠️ **部分达成**：Linux x64/arm64 ✅、macOS arm64 ✅、**macOS x64 ❌** | §14.5 / §14.10（CI 失败，触发硬停条件 #3） |
 
 ### 14.10 CI 失败记录：`Build YanMusic-macOS-x64`（硬停条件 #3）
