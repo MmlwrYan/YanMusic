@@ -29,7 +29,7 @@ jobs:
               release/YanMusic-*.zip
               release/YanMusic-*.dmg
               release/latest-mac.yml
-          - os: macos-14
+          - os: macos-15-intel
             rust_target: x86_64-apple-darwin
             electron_builder_args: '--mac --x64'
             artifact_name: YanMusic-macOS-x64
@@ -167,17 +167,22 @@ jobs:
         run: find module -name '*.test.js' -delete
 
       - name: Prepare Rosetta 2 (macOS x64)
-        if: matrix.os == 'macos-14' && matrix.rust_target == 'x86_64-apple-darwin'
+        if: matrix.rust_target == 'x86_64-apple-darwin'
         shell: bash
         run: |
           set -e
           echo "runner arch: $(uname -m)"
-          if ! /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null; then
-            echo "Rosetta 2 不可用，开始安装..."
-            sudo softwareupdate --install-rosetta --agree-to-license
+          if [ "$(uname -m)" = "arm64" ]; then
+            # arm64 runner 上需要 Rosetta 2 才能运行 x86_64 工具链
+            if ! /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null; then
+              echo "Rosetta 2 不可用，开始安装..."
+              sudo softwareupdate --install-rosetta --agree-to-license
+            fi
+            /usr/bin/arch -x86_64 /usr/bin/true
+            echo "Rosetta 2 OK，x86_64 环境: $(/usr/bin/arch -x86_64 /usr/bin/uname -m)"
+          else
+            echo "原生 x86_64 runner（macOS x64 任务在 macos-15-intel 上原生构建），无需 Rosetta 2"
           fi
-          /usr/bin/arch -x86_64 /usr/bin/true
-          echo "Rosetta 2 OK，x86_64 环境: $(/usr/bin/arch -x86_64 /usr/bin/uname -m)"
 
       - name: Download libmpv library
         shell: bash
@@ -282,26 +287,27 @@ jobs:
               ls -la build/mpv/ | head -30
               ;;
             x86_64-apple-darwin:*)
-              # macOS x64: 在 arm64 runner 上通过 x86_64 homebrew 安装 x64 版本的 mpv
-              # 前置校验：Rosetta 2 与 x86_64 shell 可用（上一步 "Prepare Rosetta 2" 已安装）
+              # macOS x64 任务运行在原生 Intel runner（macos-15-intel）上：Homebrew
+              # 装在 /usr/local，`brew install mpv` 直接得到 x86_64 版 libmpv。
+              # 重要：Homebrew 官方安装器已拒绝在 Apple Silicon 上安装 x86_64 版本
+              # （"Homebrew on macOS is only supported on Apple Silicon processors!"），
+              # 因此不再尝试在 arm64 runner 上现场安装 x86_64 Homebrew。
+              echo "macOS x64 构建主机架构: $(uname -m)"
               if ! /usr/bin/arch -x86_64 /usr/bin/true; then
-                echo "ERROR: 无法执行 x86_64 程序（Rosetta 2 不可用）"
+                echo "ERROR: 无法执行 x86_64 程序（Rosetta 2 不可用或 runner 架构异常）"
                 echo "=== 诊断 ==="
                 echo "uname -m      : $(uname -m)"
                 echo "arch -x86_64  : $(/usr/bin/arch -x86_64 /usr/bin/true 2>&1 || true)"
                 echo "Rosetta 进程  : $(/usr/bin/pgrep -x oahd >/dev/null 2>&1 && echo 'oahd running' || echo 'oahd not running')"
                 exit 1
               fi
-              # 安装 x86_64 homebrew（如果不存在）；失败时显式报错，不再静默吞错
               if [ ! -x /usr/local/bin/brew ]; then
-                echo "x86_64 Homebrew 不存在，开始安装（首次约需数分钟）..."
-                arch -x86_64 /bin/bash -c 'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
-              fi
-              if [ ! -x /usr/local/bin/brew ]; then
-                echo "ERROR: x86_64 Homebrew 安装失败，/usr/local/bin/brew 不存在"
+                echo "ERROR: 未找到 x86_64 Homebrew（/usr/local/bin/brew）"
+                echo "       官方安装器已不支持在 Apple Silicon 上安装 x86_64 Homebrew，"
+                echo "       请确认 macOS x64 任务运行在 macos-15-intel（原生 Intel）runner 上。"
                 echo "=== 诊断 ==="
                 echo "uname -m          : $(uname -m)"
-                echo "arch -x86_64 true : $(/usr/bin/arch -x86_64 /usr/bin/true 2>&1 || true)"
+                echo "/opt/homebrew/bin/brew（arm64）: $(ls -l /opt/homebrew/bin/brew 2>&1 || true)"
                 echo "/usr/local        :"; ls -la /usr/local 2>&1 | head -20 || true
                 echo "/usr/local/bin    :"; ls -la /usr/local/bin 2>&1 | head -20 || true
                 exit 1

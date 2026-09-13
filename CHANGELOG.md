@@ -2,6 +2,14 @@
 >
 > 🤡 如果你是付费获取的，说明你被骗了。
 
+## [1.1.2] - 2026-09-13
+
+### 修复
+
+- CI（macOS x64 / Intel）：该任务改用原生 Intel runner（`macos-15-intel`）构建。原方案依赖在 arm64 runner 上现场安装 x86_64 Homebrew，而 Homebrew 官方安装器已拒绝在 Apple Silicon 上安装 x86_64 版本（“Homebrew on macOS is only supported on Apple Silicon processors!”），该任务因此必然失败；现在直接在原生 x86_64 环境（`/usr/local` 下的 Homebrew）安装 x64 版 mpv，并保留 Rosetta 2 预检与显式失败诊断
+- 免责声明「致谢」段中对已移出交付树的过程文档（PORTING_REPORT.md）的悬空引用，改为指向仓库内的 CHANGELOG.md 与各版本发行说明
+- .gitignore 中指向不存在文件的注释改为自包含说明
+
 ## [1.1.1] - 2026-09-13
 
 ### 变更

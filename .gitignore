@@ -13,7 +13,7 @@ native/*/Cargo.lock
 node_modules/
 server/node_modules/
 
-# Large binary that must be downloaded separately (see CLAUDE.md)
+# 需单独下载的大体积二进制（libmpv，随构建放入 build/mpv/）
 libmpv-2.dll
 
 # OS files
