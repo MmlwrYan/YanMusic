@@ -208,12 +208,6 @@ pnpm build
 xattr -cr /Applications/yanmusic.app && codesign --force --deep --sign - /Applications/yanmusic.app
 ```
 
-## 交流群
-
-- [Telegram](https://telegram.me/+H9vpkAJrDlViZjU1)
-- QQ1群: 1036693403（已满，加了会被直接拒绝）
-- QQ2群：[491694809](https://qun.qq.com/universal-share/share?ac=1&authKey=XOL9fQGcJA%2FrPnEMB3ye5uizEGZd%2Bd0%2BqXVcoNcsRsE44r%2FTuZxTMpbOEb09sD1c&busi_data=eyJncm91cENvZGUiOiI0OTE2OTQ4MDkiLCJ0b2tlbiI6IlROYm1OblFUc1o2NzBMQVNMWTlmY1QwOVZxU1RuelIvcVB1bzlPVXd0dVB3ZHNBWm0vMEVNZkQzVXFOQ3I0YUoiLCJ1aW4iOiIzNTM4OTA0MDc4In0%3D&data=Wg3hFwudAwgWfojZNMpcyK5KoGydAM9hijUfwcvg-MqqjTepIcVdA0zr5Pnms_fAAgvm_7U3yK8Br9ocKbuQDg&svctype=4&tempid=h5_group_info)
-
 ##  灵感来源
 
 本项目受到以下优秀开源项目的启发：
@@ -233,7 +227,6 @@ xattr -cr /Applications/yanmusic.app && codesign --force --deep --sign - /Applic
 - **责任声明**：因使用本项目产生的任何法律纠纷或损失，均由使用者自行承担
 - **争议处理**：如版权方认为本项目侵犯其权益，请通过 Issues 联系，我们将积极配合处理
 
-**本项目不接受任何商业合作、广告或捐赠。**
 
 ##  开源协议
 
