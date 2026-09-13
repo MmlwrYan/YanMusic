@@ -1,11 +1,11 @@
-# yanmusic
+# YanMusic
 
 <p align="center">
   <img src="build/icons/icon.png" width="128" height="128" alt="yanmusic Logo">
 </p>
 
 <p align="center">
-  <strong>yanmusic</strong> —— 一个专为桌面端打造的简约、精致、功能强大的第三方音乐播放器。
+  <strong>YanMusic</strong> —— 一个专为桌面端打造的简约、精致、功能强大的第三方音乐播放器。
 </p>
 
 <p align="center">
