@@ -2,6 +2,18 @@
 >
 > 🤡 如果你是付费获取的，说明你被骗了。
 
+## [1.1.1] - 2026-09-13
+
+### 变更
+
+- 仓库交付树清理：main 根目录只保留最新版交付/源码必需文件，过程文档移入独立目录 dev-notes/（本地保留，不入库、不入 Release、不打进安装包）
+- 版本隔离：每个版本独立 tag 与 GitHub Release（v1.0.0 / v1.1.0 / v1.1.1 各自只挂本版本产物）
+
+### 修复
+
+- CI：macOS x64（Intel）构建失败 —— 「Download libmpv library」步骤在 arm64 runner 上缺少 Rosetta 2 且 x86_64 Homebrew 安装失败被 `|| true` 静默吞掉。现改为：显式安装并校验 Rosetta 2、去除 `|| true` 静默吞错、对 /usr/local/bin/brew 缺失与 mpv 安装结果输出完整诊断后失败
+- 移除 .eslintrc.json 遗留旧配置（ESLint 10 使用 eslint.config.js flat config）
+
 ## [1.1.0] - 2026-09-13
 
 > 版本号策略调整：YanMusic 自本版本起使用独立版本号，不再与上游项目版本号对齐。
@@ -26,7 +38,7 @@
 
 - CI 产物命名与实际产物不一致导致的构建产物上传失败
 - `server` 子模块未纳入版本索引导致的内置 API 模块缺失
-- macOS 双架构构建产物元数据（latest-mac.yml）合并覆盖问题（见 PORTING_REPORT.md 已知限制）
+- macOS 自动更新元数据（latest-mac.yml）由 arm64 任务产出、仅覆盖 arm64（x64 任务不产出该文件，避免同名覆盖；dmg 本身不受影响，属已知限制）
 
 ## [2.2.8] - 2026-07-17
 

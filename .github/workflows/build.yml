@@ -1,4 +1,4 @@
-﻿name: Build YanMusic Desktop
+name: Build YanMusic Desktop
 
 on:
   push:
@@ -166,6 +166,19 @@ jobs:
         shell: bash
         run: find module -name '*.test.js' -delete
 
+      - name: Prepare Rosetta 2 (macOS x64)
+        if: matrix.os == 'macos-14' && matrix.rust_target == 'x86_64-apple-darwin'
+        shell: bash
+        run: |
+          set -e
+          echo "runner arch: $(uname -m)"
+          if ! /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null; then
+            echo "Rosetta 2 不可用，开始安装..."
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
+          /usr/bin/arch -x86_64 /usr/bin/true
+          echo "Rosetta 2 OK，x86_64 环境: $(/usr/bin/arch -x86_64 /usr/bin/uname -m)"
+
       - name: Download libmpv library
         shell: bash
         run: |
@@ -270,18 +283,47 @@ jobs:
               ;;
             x86_64-apple-darwin:*)
               # macOS x64: 在 arm64 runner 上通过 x86_64 homebrew 安装 x64 版本的 mpv
-              arch -x86_64 /bin/bash -c '
-                # 安装 x86_64 homebrew（如果不存在）
-                if [ ! -f /usr/local/bin/brew ]; then
-                  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-                fi
-                # brew install 可能因依赖 link 冲突返回非零，但 mpv 本身已安装成功
-                /usr/local/bin/brew install mpv || true
-              '
-              # 验证 mpv 确实已安装
-              X86_MPV_PREFIX=$(/usr/local/bin/brew --prefix mpv)
-              if [ ! -d "$X86_MPV_PREFIX/lib" ]; then
-                echo "ERROR: mpv x86_64 installation failed, lib dir not found"
+              # 前置校验：Rosetta 2 与 x86_64 shell 可用（上一步 "Prepare Rosetta 2" 已安装）
+              if ! /usr/bin/arch -x86_64 /usr/bin/true; then
+                echo "ERROR: 无法执行 x86_64 程序（Rosetta 2 不可用）"
+                echo "=== 诊断 ==="
+                echo "uname -m      : $(uname -m)"
+                echo "arch -x86_64  : $(/usr/bin/arch -x86_64 /usr/bin/true 2>&1 || true)"
+                echo "Rosetta 进程  : $(/usr/bin/pgrep -x oahd >/dev/null 2>&1 && echo 'oahd running' || echo 'oahd not running')"
+                exit 1
+              fi
+              # 安装 x86_64 homebrew（如果不存在）；失败时显式报错，不再静默吞错
+              if [ ! -x /usr/local/bin/brew ]; then
+                echo "x86_64 Homebrew 不存在，开始安装（首次约需数分钟）..."
+                arch -x86_64 /bin/bash -c 'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+              fi
+              if [ ! -x /usr/local/bin/brew ]; then
+                echo "ERROR: x86_64 Homebrew 安装失败，/usr/local/bin/brew 不存在"
+                echo "=== 诊断 ==="
+                echo "uname -m          : $(uname -m)"
+                echo "arch -x86_64 true : $(/usr/bin/arch -x86_64 /usr/bin/true 2>&1 || true)"
+                echo "/usr/local        :"; ls -la /usr/local 2>&1 | head -20 || true
+                echo "/usr/local/bin    :"; ls -la /usr/local/bin 2>&1 | head -20 || true
+                exit 1
+              fi
+              # 安装 mpv（不再用 `|| true` 静默吞错）：显式记录退出码，
+              # 随后以实际产物（brew --prefix 与 lib 目录）为准校验，校验不过才失败
+              set +e
+              /usr/local/bin/brew install mpv
+              BREW_MPV_CODE=$?
+              set -e
+              echo "brew install mpv 退出码: $BREW_MPV_CODE"
+              if [ "$BREW_MPV_CODE" -ne 0 ]; then
+                echo "WARNING: brew install mpv 非零退出（已显式记录，不再静默忽略）；继续按实际产物校验"
+              fi
+              X86_MPV_PREFIX="$(/usr/local/bin/brew --prefix mpv 2>/dev/null || true)"
+              if [ -z "$X86_MPV_PREFIX" ] || [ ! -d "$X86_MPV_PREFIX/lib" ]; then
+                echo "ERROR: mpv x86_64 安装失败，未找到 mpv 前缀或 lib 目录"
+                echo "=== 诊断 ==="
+                echo "brew --prefix mpv    : ${X86_MPV_PREFIX:-<空>}"
+                echo "brew --version       : $(/usr/local/bin/brew --version 2>&1 | head -1 || true)"
+                echo "brew list --versions : $(/usr/local/bin/brew list --versions mpv 2>&1 | head -3 || true)"
+                echo "brew config          : $(/usr/local/bin/brew config 2>&1 | grep -E 'HOMEBREW_PREFIX|HOMEBREW_PROCESSOR' | head -5 || true)"
                 exit 1
               fi
               cp "$X86_MPV_PREFIX"/lib/libmpv*.dylib build/mpv/ 2>/dev/null || true
@@ -289,6 +331,11 @@ jobs:
                 [ -f "$lib" ] || continue
                 copy_dylibs_recursive "$lib" "build/mpv"
               done
+              if ! ls build/mpv/libmpv*.dylib >/dev/null 2>&1; then
+                echo "ERROR: 未从 x86_64 mpv 复制到任何 libmpv dylib"
+                echo "=== build/mpv ==="; ls -la build/mpv/ 2>&1 | head -20 || true
+                exit 1
+              fi
               fix_macos_rpaths "build/mpv"
               sign_macos_macho_dir "build/mpv"
               verify_macos_macho_dir "build/mpv"
