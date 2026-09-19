@@ -1,4 +1,4 @@
-﻿export type PluginWindowType = 'floating';
+export type PluginWindowType = 'floating';
 export type PluginWindowPosition = 'center' | 'top-center';
 
 export interface PluginWindowManifest {
@@ -679,6 +679,22 @@ export interface EchoPluginDescriptor {
   compatibility: EchoPluginCompatibility;
   manifest: EchoPluginManifest;
 }
+
+/*
+ * 插件 API 类型别名。
+ *
+ * 历史背景：本项目由上游 EchoMusic 二次开发而来，插件契约类型沿用了上游的 `Echo*` 命名。
+ * 这些类型是**已对外暴露的公共契约**（第三方插件与插件开发文档会引用），因此：
+ *   - 旧名 `Echo*` 一律保留，不改任何调用点，避免破坏既有插件与文档；
+ *   - 新增 `Yan*` 作为当前推荐名，二者为同一类型，可互换使用。
+ * 同理，插件清单中的 `requires.echoMusicVersion` 兼容键继续保留。
+ */
+/** @deprecated 使用 `YanPluginManifest`。保留仅为兼容既有插件与文档。 */
+export type YanPluginManifest = EchoPluginManifest;
+/** @deprecated 使用 `YanPluginCompatibility`。保留仅为兼容既有插件与文档。 */
+export type YanPluginCompatibility = EchoPluginCompatibility;
+/** @deprecated 使用 `YanPluginDescriptor`。保留仅为兼容既有插件与文档。 */
+export type YanPluginDescriptor = EchoPluginDescriptor;
 
 export interface PluginMarketplaceSource {
   id: string;

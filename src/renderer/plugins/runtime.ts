@@ -1,4 +1,4 @@
-﻿import * as Vue from 'vue';
+import * as Vue from 'vue';
 import { computed, reactive, watch, type App as VueApp } from 'vue';
 import type { Pinia } from 'pinia';
 import type { Router } from 'vue-router';
@@ -338,6 +338,14 @@ export interface EchoPluginContext {
   electron: Window['electron'];
   dispose: (dispose: () => void) => () => void;
 }
+
+/**
+ * 插件上下文类型。
+ *
+ * `EchoPluginContext` 为上游历史名（保留兼容），`YanPluginContext` 为当前推荐名，
+ * 二者为同一类型，可互换使用。插件清单中的 `requires.echoMusicVersion` 兼容键同样保留。
+ */
+export type YanPluginContext = EchoPluginContext;
 
 export interface PluginRuntimeHost {
   app: VueApp;
@@ -1805,6 +1813,7 @@ const createMountedComponentDisposer = (
   mountedApp.use(host.router);
   mountedApp.component('Icon', Icon);
   mountedApp.config.globalProperties.$echo = host.app.config.globalProperties.$echo;
+  mountedApp.config.globalProperties.$yanmusic = host.app.config.globalProperties.$yanmusic;
   mountedApp.config.errorHandler = (error, _instance, info) => {
     logger.error('PluginRuntime', 'Plugin mounted component failed', {
       pluginId,
@@ -1866,7 +1875,7 @@ const createScrollApi = (pluginId: string, addDisposable: (dispose: () => void) 
       document.querySelectorAll<HTMLElement>(SCROLL_CONTAINER_SELECTOR),
     );
     return containers.filter((element) => {
-      if (options.role && element.dataset.echoScrollRole !== options.role) return false;
+      if (options.role && element.dataset.yanScrollRole !== options.role) return false;
       if (options.visible !== false && !isVisibleScrollContainer(element)) return false;
       return true;
     });
@@ -2877,13 +2886,16 @@ export const installPluginRuntime = (host: PluginRuntimeHost) => {
     }
     previousErrorHandler?.(error, instance, info);
   };
-  host.app.config.globalProperties.$echo = {
+  // `$echo` 为上游历史名（保留兼容），`$yanmusic` 为当前推荐名，二者指向同一对象。
+  const globalRuntime = {
     app: host.app,
     router: host.router,
     pinia: host.pinia,
     plugins: pluginRuntimeState,
     executeCommand: executePluginCommand,
   };
+  host.app.config.globalProperties.$echo = globalRuntime;
+  host.app.config.globalProperties.$yanmusic = globalRuntime;
   pluginRuntimeState.initialized = true;
 };
 
