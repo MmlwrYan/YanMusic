@@ -483,53 +483,53 @@ body.accent-scoped .main-layout .player-bar-container {
   pointer-events: none;
 }
 
-body.echo-surface-translucent .main-layout,
-body.echo-surface-translucent .bg-bg-main,
-body.echo-surface-translucent .bg-bg-sidebar,
-body.echo-surface-translucent .bg-bg-card,
-body.echo-surface-translucent .explore-header,
-body.echo-surface-translucent .rank-toolbar,
-body.echo-surface-translucent .new-song-toolbar,
-body.echo-surface-translucent .search-song-toolbar,
-body.echo-surface-translucent .song-list-sticky,
-body.echo-surface-translucent .comment-main-tabs,
-body.echo-surface-translucent .search-pinned-tabs,
-body.echo-surface-translucent .sliver-header-root,
-body.echo-surface-translucent .dialog-content,
-body.echo-surface-translucent .drawer-panel,
-body.echo-surface-translucent .echo-popover-content,
-body.echo-surface-translucent .app-tooltip-content,
-body.echo-surface-translucent .song-context-menu,
-body.echo-surface-translucent .add-to-item,
-body.echo-surface-translucent .toast-card,
-body.echo-surface-translucent .card-container,
-body.echo-surface-translucent .plugin-card,
-body.echo-surface-translucent .plugin-safe-mode-control,
-body.echo-surface-translucent .plugin-settings-section,
-body.echo-surface-translucent .settings-card,
-body.echo-surface-translucent .home-feature-card,
-body.echo-surface-translucent .cloud-info-card,
-body.echo-surface-translucent .route-error-card,
-body.echo-surface-translucent .error-shell,
-body.echo-surface-translucent .login-panel-card,
-body.echo-surface-translucent .tb-suggestions,
-body.echo-surface-translucent .search-suggestions-panel,
-body.echo-surface-translucent .profile-archive-card,
-body.echo-surface-translucent .rec-playlist-item {
+body.yan-surface-translucent .main-layout,
+body.yan-surface-translucent .bg-bg-main,
+body.yan-surface-translucent .bg-bg-sidebar,
+body.yan-surface-translucent .bg-bg-card,
+body.yan-surface-translucent .explore-header,
+body.yan-surface-translucent .rank-toolbar,
+body.yan-surface-translucent .new-song-toolbar,
+body.yan-surface-translucent .search-song-toolbar,
+body.yan-surface-translucent .song-list-sticky,
+body.yan-surface-translucent .comment-main-tabs,
+body.yan-surface-translucent .search-pinned-tabs,
+body.yan-surface-translucent .sliver-header-root,
+body.yan-surface-translucent .dialog-content,
+body.yan-surface-translucent .drawer-panel,
+body.yan-surface-translucent .yan-popover-content,
+body.yan-surface-translucent .app-tooltip-content,
+body.yan-surface-translucent .song-context-menu,
+body.yan-surface-translucent .add-to-item,
+body.yan-surface-translucent .toast-card,
+body.yan-surface-translucent .card-container,
+body.yan-surface-translucent .plugin-card,
+body.yan-surface-translucent .plugin-safe-mode-control,
+body.yan-surface-translucent .plugin-settings-section,
+body.yan-surface-translucent .settings-card,
+body.yan-surface-translucent .home-feature-card,
+body.yan-surface-translucent .cloud-info-card,
+body.yan-surface-translucent .route-error-card,
+body.yan-surface-translucent .error-shell,
+body.yan-surface-translucent .login-panel-card,
+body.yan-surface-translucent .tb-suggestions,
+body.yan-surface-translucent .search-suggestions-panel,
+body.yan-surface-translucent .profile-archive-card,
+body.yan-surface-translucent .rec-playlist-item {
   -webkit-backdrop-filter: var(--surface-backdrop-filter);
   backdrop-filter: var(--surface-backdrop-filter);
 }
 
-body.echo-surface-translucent .explore-header,
-body.echo-surface-translucent .rank-toolbar,
-body.echo-surface-translucent .new-song-toolbar,
-body.echo-surface-translucent .search-song-toolbar,
-body.echo-surface-translucent .song-list-sticky,
-body.echo-surface-translucent .comment-main-tabs {
+body.yan-surface-translucent .explore-header,
+body.yan-surface-translucent .rank-toolbar,
+body.yan-surface-translucent .new-song-toolbar,
+body.yan-surface-translucent .search-song-toolbar,
+body.yan-surface-translucent .song-list-sticky,
+body.yan-surface-translucent .comment-main-tabs {
   background: transparent !important;
 }
 
-body.echo-surface-translucent .sliver-header-background {
+body.yan-surface-translucent .sliver-header-background {
   background: var(--surface-main-base) !important;
 }
 
@@ -538,7 +538,7 @@ body .dialog-content {
 }
 
 body .drawer-panel,
-body .echo-popover-content,
+body .yan-popover-content,
 body .app-tooltip-content,
 body .song-context-menu,
 body .add-to-item,
@@ -558,7 +558,7 @@ body .rec-playlist-item {
   background: var(--color-bg-elevated);
 }
 
-body .echo-popover-arrow,
+body .yan-popover-arrow,
 body .app-tooltip-arrow {
   fill: var(--color-bg-elevated);
 }
@@ -567,7 +567,7 @@ body .player-bar {
   background-color: var(--color-bg-player);
 }
 
-body.echo-surface-translucent .player-bar {
+body.yan-surface-translucent .player-bar {
   -webkit-backdrop-filter: var(--surface-player-backdrop-filter);
   backdrop-filter: var(--surface-player-backdrop-filter);
 }
@@ -720,6 +720,6 @@ body.echo-surface-translucent .player-bar {
   );
 }
 
-body.echo-surface-translucent .layout-accent-gradient {
+body.yan-surface-translucent .layout-accent-gradient {
   opacity: 0;
 }
