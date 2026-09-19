@@ -1,0 +1,16 @@
+=== verify 1.1.2 20:05:46 ===
+vue-tsc exit=0
+
+=== pnpm test 20:10:23 ===
+pnpm test exit=0
+? tests 19
+? pass 19
+? fail 0
+? skipped 0
+vite build exit=0
+transforming...? 11 modules transformed.
+rendering chunks...
+computing gzip size...
+dist-electron/preload/index.js  27.70 kB ©¦ gzip: 7.73 kB
+
+? built in 82ms

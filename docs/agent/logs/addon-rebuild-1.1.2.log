@@ -1,0 +1,31 @@
+=== yan-mpv-player rebuild 19:15:13 ===
+exit=0
+npm warn Unknown env config "side-effects-cache". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+npm notice run yan-mpv-player@0.1.0 build
+npm notice run napi build --release --no-const-enum
+warning: virtual workspace defaulting to `resolver = "1"` despite one or more workspace members being on edition 2021 which implies `resolver = "2"`
+  |
+  = note: to keep the current resolver, specify `workspace.resolver = "1"` in the workspace root's manifest
+  = note: to use the edition 2021 resolver, specify `workspace.resolver = "2"` in the workspace root's manifest
+  = note: for more details see https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions
+   Compiling yan-mpv-player v0.1.0 (C:\coding\YanMusic\native\yan-mpv-player)
+warning: associated items `new` and `set_property` are never used
+   --> native\yan-mpv-player\src\player.rs:127:19
+    |
+125 | impl MpvPlayer {
+    | -------------- associated items in this implementation
+126 |     /// 创建并初始化 libmpv 播放器
+127 |     pub unsafe fn new(lib: Arc<MpvLib>) -> Result<Self, String> {
+    |                   ^^^
+...
+938 |     pub fn set_property(&self, name: &str, value: &str) -> Result<(), String> {
+    |            ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+System.Management.Automation.RemoteException
+warning: linker stdout: 正在创建库 C:\coding\YanMusic\target\x86_64-pc-windows-msvc\release\deps\yan_mpv_player.dll.lib 和对象 C:\coding\YanMusic\target\x86_64-pc-windows-msvc\release\deps\yan_mpv_player.dll.exp
+  |
+  = note: `#[warn(linker_messages)]` on by default
+System.Management.Automation.RemoteException
+warning: `yan-mpv-player` (lib) generated 2 warnings
+    Finished `release` profile [optimized] target(s) in 34.17s

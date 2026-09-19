@@ -1,0 +1,224 @@
+=== node --test tests/*.test.ts  (v24.9.0)  19:57:30 ===
+exit=0
+(node:22148) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/coding/YanMusic/tests/eq-headroom.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+? 全零增益无需补偿 (9.7196ms)
+? 只做衰减时无需补偿 (21.0278ms)
+? 单段提升的前级补偿约等于该段增益 (8.1518ms)
+? 多段同时提升的补偿大于单段最大值（频带叠加） (34.5592ms)
+? 补偿后的级联峰值不超过 0 dB（对数网格上） (143.2447ms)
+? 对数网格估计与高密度参考网格的偏差 < 0.1 dB (1470.4563ms)
+? DC 与 Nyquist 处 peaking 响应为 0 dB (0.4447ms)
+? 闭式幅度响应与脉冲响应 DFT 一致 (18.4963ms)
+(node:10484) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/coding/YanMusic/tests/native-audio-options.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+? 默认值与接线前硬编码到 mpv 的值逐项一致 (5.7649ms)
+? 持久化对象为空时全部回落默认值 (1.1253ms)
+? 回归：从 pinia:setting 形状的持久化对象中读到用户设置 (0.5957ms)
+? 数值越界被夹取到合法区间 (0.7868ms)
+? 非法取值回落到默认值（不把任意字符串注入 mpv 选项） (3.3946ms)
+? audioSamplerate 的 auto / 数值映射 (0.6651ms)
+? cachePause 只接受布尔值 (0.5398ms)
+? NaN / Infinity 不会污染结果（非有限值一律回落默认值） (0.4483ms)
+? tests 16
+? suites 0
+? pass 16
+? fail 0
+? cancelled 0
+? skipped 0
+? todo 0
+? duration_ms 2838.4948
+
+=== node --test tests/*.test.ts (incl. native engine) 19:59:08 ===
+exit=1
+(node:27924) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/coding/YanMusic/tests/eq-headroom.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+? 全零增益无需补偿 (4.3124ms)
+? 只做衰减时无需补偿 (27.3253ms)
+? 单段提升的前级补偿约等于该段增益 (7.0399ms)
+? 多段同时提升的补偿大于单段最大值（频带叠加） (37.1751ms)
+? 补偿后的级联峰值不超过 0 dB（对数网格上） (183.0021ms)
+? 对数网格估计与高密度参考网格的偏差 < 0.1 dB (2542.6505ms)
+? DC 与 Nyquist 处 peaking 响应为 0 dB (1.5585ms)
+? 闭式幅度响应与脉冲响应 DFT 一致 (34.0771ms)
+(node:17796) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/coding/YanMusic/tests/native-audio-options.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+? 默认值与接线前硬编码到 mpv 的值逐项一致 (11.1318ms)
+? 持久化对象为空时全部回落默认值 (1.0468ms)
+? 回归：从 pinia:setting 形状的持久化对象中读到用户设置 (0.6556ms)
+? 数值越界被夹取到合法区间 (0.7417ms)
+? 非法取值回落到默认值（不把任意字符串注入 mpv 选项） (1.1554ms)
+? audioSamplerate 的 auto / 数值映射 (0.7397ms)
+? cachePause 只接受布尔值 (0.6173ms)
+? NaN / Infinity 不会污染结果（非有限值一律回落默认值） (0.5241ms)
+(node:11184) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/coding/YanMusic/tests/native-engine-options.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+? 自定义音频/缓存选项真实到达 libmpv (1239.9512ms)
+? 非法取值被归一化，不会注入到 mpv (158.586ms)
+? tests 18
+? suites 0
+? pass 16
+? fail 2
+? cancelled 0
+? skipped 0
+? todo 0
+? duration_ms 4011.3704
+
+? failing tests:
+
+test at tests\native-engine-options.test.ts:50:1
+? 自定义音频/缓存选项真实到达 libmpv (1239.9512ms)
+  AssertionError [ERR_ASSERTION]: mpv 属性 demuxer-readahead-secs 期望 7，实际 7.000000（说明配置未真正下发）
+  
+  '7.000000' !== '7'
+  
+      at TestContext.<anonymous> (file:///C:/coding/YanMusic/tests/native-engine-options.test.ts:86:14)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at Test.start (node:internal/test_runner/test:1003:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:358:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: '7.000000',
+    expected: '7',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests\native-engine-options.test.ts:101:1
+? 非法取值被归一化，不会注入到 mpv (158.586ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  'no' !== 'auto'
+  
+      at TestContext.<anonymous> (file:///C:/coding/YanMusic/tests/native-engine-options.test.ts:119:12)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:788:18)
+      at Test.postRun (node:internal/test_runner/test:1235:19)
+      at Test.run (node:internal/test_runner/test:1163:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'no',
+    expected: 'auto',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+=== node --test tests/*.test.ts (assertion fixed) 20:01:35 ===
+exit=1
+(node:17524) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/coding/YanMusic/tests/eq-headroom.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+? 全零增益无需补偿 (14.1895ms)
+? 只做衰减时无需补偿 (34.5757ms)
+? 单段提升的前级补偿约等于该段增益 (9.6215ms)
+? 多段同时提升的补偿大于单段最大值（频带叠加） (31.6734ms)
+? 补偿后的级联峰值不超过 0 dB（对数网格上） (204.557ms)
+? 对数网格估计与高密度参考网格的偏差 < 0.1 dB (1943.4642ms)
+? DC 与 Nyquist 处 peaking 响应为 0 dB (0.3794ms)
+? 闭式幅度响应与脉冲响应 DFT 一致 (14.6268ms)
+(node:30904) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/coding/YanMusic/tests/native-audio-options.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+? 默认值与接线前硬编码到 mpv 的值逐项一致 (6.2075ms)
+? 持久化对象为空时全部回落默认值 (1.0427ms)
+? 回归：从 pinia:setting 形状的持久化对象中读到用户设置 (4.9218ms)
+? 数值越界被夹取到合法区间 (3.1872ms)
+? 非法取值回落到默认值（不把任意字符串注入 mpv 选项） (0.5499ms)
+? audioSamplerate 的 auto / 数值映射 (0.624ms)
+? cachePause 只接受布尔值 (0.6846ms)
+? NaN / Infinity 不会污染结果（非有限值一律回落默认值） (0.4904ms)
+(node:21056) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/coding/YanMusic/tests/native-engine-options.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+? 自定义音频/缓存选项真实到达 libmpv (202.2165ms)
+? 非法取值被归一化，不会注入到 mpv (171.1995ms)
+? tests 18
+? suites 0
+? pass 17
+? fail 1
+? cancelled 0
+? skipped 0
+? todo 0
+? duration_ms 2837.2769
+
+? failing tests:
+
+test at tests\native-engine-options.test.ts:121:1
+? 非法取值被归一化，不会注入到 mpv (171.1995ms)
+  AssertionError [ERR_ASSERTION]: mpv 属性 audio-format 期望 auto，实际 no（说明配置未真正下发）
+  
+  'no' !== 'auto'
+  
+      at assertOptionEquals (file:///C:/coding/YanMusic/tests/native-engine-options.test.ts:69:10)
+      at TestContext.<anonymous> (file:///C:/coding/YanMusic/tests/native-engine-options.test.ts:139:5)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1106:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:788:18)
+      at Test.postRun (node:internal/test_runner/test:1235:19)
+      at Test.run (node:internal/test_runner/test:1163:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'no',
+    expected: 'auto',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+=== node --test tests/*.test.ts (final) 20:03:51 ===
+exit=0
+(node:9056) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/coding/YanMusic/tests/eq-headroom.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+? 全零增益无需补偿 (11.1404ms)
+? 只做衰减时无需补偿 (23.501ms)
+? 单段提升的前级补偿约等于该段增益 (6.7767ms)
+? 多段同时提升的补偿大于单段最大值（频带叠加） (41.5067ms)
+? 补偿后的级联峰值不超过 0 dB（对数网格上） (121.0019ms)
+? 对数网格估计与高密度参考网格的偏差 < 0.1 dB (1140.8794ms)
+? DC 与 Nyquist 处 peaking 响应为 0 dB (0.3752ms)
+? 闭式幅度响应与脉冲响应 DFT 一致 (8.7473ms)
+(node:34712) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/coding/YanMusic/tests/native-audio-options.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+? 默认值与接线前硬编码到 mpv 的值逐项一致 (11.7265ms)
+? 持久化对象为空时全部回落默认值 (1.0709ms)
+? 回归：从 pinia:setting 形状的持久化对象中读到用户设置 (0.6575ms)
+? 数值越界被夹取到合法区间 (0.6395ms)
+? 非法取值回落到默认值（不把任意字符串注入 mpv 选项） (0.5884ms)
+? audioSamplerate 的 auto / 数值映射 (0.6307ms)
+? cachePause 只接受布尔值 (0.5762ms)
+? NaN / Infinity 不会污染结果（非有限值一律回落默认值） (0.4895ms)
+(node:21804) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/coding/YanMusic/tests/native-engine-options.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+? 自定义音频/缓存选项真实到达 libmpv (153.057ms)
+? 选项默认值与接线前的硬编码行为一致（真实引擎回读） (117.8956ms)
+? 非法取值被归一化，不会注入到 mpv (111.5865ms)
+? tests 19
+? suites 0
+? pass 19
+? fail 0
+? cancelled 0
+? skipped 0
+? todo 0
+? duration_ms 1790.3364
