@@ -37,6 +37,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# 例外：过程留痕目录下的原始日志随文档一并入库（见 docs/agent/run-log.md）
+!docs/agent/logs/*.log
+
 # pnpm
 .pnpm-store/
 

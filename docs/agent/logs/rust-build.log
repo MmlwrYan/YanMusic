@@ -1,0 +1,310 @@
+=== Rust addon build started 12:15:52 ===
+
+===== yan-mpv-player : npm install =====
+exit(npm install)=0
+npm warn Unknown env config "side-effects-cache". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+
+added 62 packages in 16s
+
+===== yan-mpv-player : npm run build =====
+exit(npm run build)=0
+npm warn Unknown env config "side-effects-cache". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+npm notice run yan-mpv-player@0.1.0 build
+npm notice run napi build --release --no-const-enum
+warning: virtual workspace defaulting to `resolver = "1"` despite one or more workspace members being on edition 2021 which implies `resolver = "2"`
+  |
+  = note: to keep the current resolver, specify `workspace.resolver = "1"` in the workspace root's manifest
+  = note: to use the edition 2021 resolver, specify `workspace.resolver = "2"` in the workspace root's manifest
+  = note: for more details see https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling futures-core v0.3.33
+   Compiling napi-build v2.4.0
+   Compiling futures-sink v0.3.33
+   Compiling futures-channel v0.3.33
+   Compiling futures-io v0.3.33
+   Compiling pin-project-lite v0.2.17
+   Compiling memchr v2.8.3
+   Compiling windows-link v0.2.1
+   Compiling futures-task v0.3.33
+   Compiling slab v0.4.12
+   Compiling unicode-segmentation v1.13.3
+   Compiling libloading v0.9.0
+   Compiling convert_case v0.11.0
+   Compiling syn v2.0.119
+   Compiling napi v3.12.0
+   Compiling winapi v0.3.9
+   Compiling semver v1.0.28
+   Compiling napi-sys v3.3.0
+   Compiling yan-mpv-player v0.1.0 (C:\coding\yanmusic-agent\native\yan-mpv-player)
+   Compiling ctor v1.0.12
+   Compiling rustc-hash v2.1.3
+   Compiling nohash-hasher v0.2.0
+   Compiling bitflags v2.13.1
+   Compiling libloading v0.8.9
+   Compiling napi-derive-backend v6.1.1
+   Compiling futures-macro v0.3.33
+   Compiling futures-util v0.3.33
+   Compiling napi-derive v3.6.2
+   Compiling futures-executor v0.3.33
+   Compiling futures v0.3.33
+warning: associated items `new` and `set_property` are never used
+   --> native\yan-mpv-player\src\player.rs:68:19
+    |
+ 66 | impl MpvPlayer {
+    | -------------- associated items in this implementation
+ 67 |     /// 创建并初始化 libmpv 播放器
+ 68 |     pub unsafe fn new(lib: Arc<MpvLib>) -> Result<Self, String> {
+    |                   ^^^
+...
+850 |     pub fn set_property(&self, name: &str, value: &str) -> Result<(), String> {
+    |            ^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+System.Management.Automation.RemoteException
+warning: linker stdout: 正在创建库 C:\coding\yanmusic-agent\target\x86_64-pc-windows-msvc\release\deps\yan_mpv_player.dll.lib 和对象 C:\coding\yanmusic-agent\target\x86_64-pc-windows-msvc\release\deps\yan_mpv_player.dll.exp
+  |
+  = note: `#[warn(linker_messages)]` on by default
+System.Management.Automation.RemoteException
+warning: `yan-mpv-player` (lib) generated 2 warnings
+    Finished `release` profile [optimized] target(s) in 1m 25s
+
+===== yan-storage : npm install =====
+exit(npm install)=0
+npm warn Unknown env config "side-effects-cache". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+
+changed 4 packages in 14s
+
+===== yan-storage : npm run build =====
+exit(npm run build)=0
+npm warn Unknown env config "side-effects-cache". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+npm notice run yan-storage@0.1.0 build
+npm notice run napi build --release --no-const-enum
+warning: virtual workspace defaulting to `resolver = "1"` despite one or more workspace members being on edition 2021 which implies `resolver = "2"`
+  |
+  = note: to keep the current resolver, specify `workspace.resolver = "1"` in the workspace root's manifest
+  = note: to use the edition 2021 resolver, specify `workspace.resolver = "2"` in the workspace root's manifest
+  = note: for more details see https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions
+   Compiling zerocopy v0.8.55
+   Compiling version_check v0.9.5
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.9
+   Compiling pkg-config v0.3.33
+   Compiling ahash v0.8.12
+   Compiling cc v1.4.0
+   Compiling cfg-if v1.0.4
+   Compiling vcpkg v0.2.15
+   Compiling once_cell v1.21.4
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling serde_json v1.0.151
+   Compiling libsqlite3-sys v0.30.1
+   Compiling yan-storage v0.1.0 (C:\coding\yanmusic-agent\native\yan-storage)
+   Compiling fallible-iterator v0.3.0
+   Compiling smallvec v1.15.2
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling itoa v1.0.18
+   Compiling hashbrown v0.14.5
+   Compiling hashlink v0.9.1
+   Compiling rusqlite v0.32.1
+warning: linker stdout: 正在创建库 C:\coding\yanmusic-agent\target\x86_64-pc-windows-msvc\release\deps\yan_storage.dll.lib 和对象 C:\coding\yanmusic-agent\target\x86_64-pc-windows-msvc\release\deps\yan_storage.dll.exp
+  |
+  = note: `#[warn(linker_messages)]` on by default
+System.Management.Automation.RemoteException
+warning: `yan-storage` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 3m 32s
+
+===== yan-media-controls : npm install =====
+exit(npm install)=0
+npm warn Unknown env config "side-effects-cache". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+
+added 62 packages in 26s
+
+===== yan-media-controls : npm run build =====
+exit(npm run build)=0
+npm warn Unknown env config "side-effects-cache". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+npm notice run yan-media-controls@0.1.0 build
+npm notice run napi build --release --no-const-enum
+warning: virtual workspace defaulting to `resolver = "1"` despite one or more workspace members being on edition 2021 which implies `resolver = "2"`
+  |
+  = note: to keep the current resolver, specify `workspace.resolver = "1"` in the workspace root's manifest
+  = note: to use the edition 2021 resolver, specify `workspace.resolver = "2"` in the workspace root's manifest
+  = note: for more details see https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions
+   Compiling autocfg v1.5.1
+   Compiling crossbeam-utils v0.8.22
+   Compiling syn v2.0.119
+   Compiling wasm-bindgen-shared v0.2.126
+   Compiling crossbeam-epoch v0.9.20
+   Compiling num-traits v0.2.19
+   Compiling crossbeam-deque v0.8.7
+   Compiling syn v3.0.3
+   Compiling rayon-core v1.13.0
+   Compiling simd-adler32 v0.3.10
+   Compiling rustversion v1.0.23
+   Compiling num-integer v0.1.46
+   Compiling paste v1.0.15
+   Compiling either v1.17.0
+   Compiling anyhow v1.0.104
+   Compiling num-bigint v0.4.8
+   Compiling equator-macro v0.4.2
+   Compiling arrayvec v0.7.8
+   Compiling equator v0.4.2
+   Compiling stable_deref_trait v1.2.1
+   Compiling adler2 v2.0.1
+   Compiling zerocopy v0.8.55
+   Compiling bitflags v2.13.1
+   Compiling aligned-vec v0.6.4
+   Compiling bumpalo v3.20.3
+   Compiling thiserror v2.0.19
+   Compiling crc32fast v1.5.0
+   Compiling wasm-bindgen-macro-support v0.2.126
+   Compiling v_frame v0.3.9
+   Compiling num-rational v0.4.2
+   Compiling miniz_oxide v0.8.9
+   Compiling as-slice v0.2.1
+   Compiling wasm-bindgen v0.2.126
+   Compiling thiserror-impl v2.0.19
+   Compiling windows-interface v0.59.3
+   Compiling windows-implement v0.60.2
+   Compiling zerocopy-derive v0.8.55
+   Compiling rayon v1.12.0
+   Compiling windows-strings v0.5.1
+   Compiling windows-result v0.4.1
+   Compiling av-scenechange v0.14.1
+   Compiling bytemuck v1.25.2
+   Compiling log v0.4.33
+   Compiling parking_lot_core v0.9.12
+   Compiling libc v0.2.189
+   Compiling futures-core v0.3.33
+   Compiling built v0.8.1
+   Compiling libm v0.2.16
+   Compiling unicode-ident v1.0.24
+   Compiling futures-channel v0.3.33
+   Compiling rav1e v0.8.1
+   Compiling pulp v0.22.3
+   Compiling windows-core v0.62.2
+   Compiling wasm-bindgen-macro v0.2.126
+   Compiling aligned v0.4.3
+   Compiling arg_enum_proc_macro v0.3.4
+   Compiling profiling-procmacros v1.0.18
+   Compiling futures-macro v0.3.33
+   Compiling no_std_io2 v0.9.4
+   Compiling nom v8.0.0
+   Compiling windows-sys v0.61.2
+   Compiling futures-io v0.3.33
+   Compiling pastey v0.1.1
+   Compiling quick-error v2.0.1
+   Compiling slab v0.4.12
+   Compiling scopeguard v1.2.0
+   Compiling y4m v0.8.0
+   Compiling half v2.7.1
+   Compiling av1-grain v0.2.5
+   Compiling lock_api v0.4.14
+   Compiling futures-util v0.3.33
+   Compiling bitstream-io v4.10.0
+   Compiling profiling v1.0.18
+   Compiling flate2 v1.1.9
+   Compiling maybe-rayon v0.1.1
+   Compiling num-complex v0.4.6
+   Compiling raw-cpuid v11.6.0
+   Compiling num-derive v0.4.2
+   Compiling itertools v0.14.0
+   Compiling simd_helpers v0.1.0
+   Compiling pulp-wasm-simd-flag v0.1.1
+   Compiling noop_proc_macro v0.3.0
+   Compiling new_debug_unreachable v1.0.6
+   Compiling reborrow v0.5.5
+   Compiling imgref v1.12.2
+   Compiling zune-core v0.5.1
+   Compiling weezl v0.1.12
+   Compiling zune-jpeg v0.5.15
+   Compiling loop9 v0.1.5
+   Compiling futures-executor v0.3.33
+   Compiling parking_lot v0.12.5
+   Compiling mio v1.2.2
+   Compiling socket2 v0.6.5
+   Compiling napi v3.12.0
+   Compiling avif-serialize v0.8.9
+   Compiling tokio-macros v2.7.2
+   Compiling fdeflate v0.3.7
+   Compiling zune-inflate v0.2.54
+   Compiling windows-threading v0.2.1
+   Compiling bytes v1.12.1
+   Compiling fax v0.2.7
+   Compiling byteorder-lite v0.1.0
+   Compiling rgb v0.8.53
+   Compiling lebe v0.5.3
+   Compiling bit_field v0.10.3
+   Compiling color_quant v1.1.0
+   Compiling pxfm v0.1.30
+   Compiling tokio v1.53.1
+   Compiling napi-derive-backend v6.1.1
+   Compiling ravif v0.13.0
+   Compiling moxcms v0.8.1
+   Compiling gif v0.14.2
+   Compiling exr v1.74.2
+   Compiling image-webp v0.2.4
+   Compiling tiff v0.11.3
+   Compiling windows-future v0.3.2
+   Compiling png v0.18.1
+   Compiling futures v0.3.33
+   Compiling windows-collections v0.3.2
+   Compiling windows-numerics v0.3.1
+   Compiling qoi v0.4.1
+   Compiling yan-media-controls v0.1.0 (C:\coding\yanmusic-agent\native\yan-media-controls)
+   Compiling tracing-core v0.1.36
+   Compiling tracing-attributes v0.1.31
+   Compiling napi-derive v3.6.2
+   Compiling tracing v0.1.44
+   Compiling image v0.25.10
+   Compiling windows v0.62.2
+warning: linker stdout: 正在创建库 C:\coding\yanmusic-agent\target\x86_64-pc-windows-msvc\release\deps\yan_media_controls.dll.lib 和对象 C:\coding\yanmusic-agent\target\x86_64-pc-windows-msvc\release\deps\yan_media_controls.dll.exp
+  |
+  = note: `#[warn(linker_messages)]` on by default
+System.Management.Automation.RemoteException
+warning: `yan-media-controls` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 26m 11s
+
+===== yan-spectrum-capture : npm install =====
+exit(npm install)=0
+npm warn Unknown env config "side-effects-cache". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+
+added 62 packages in 25s
+
+===== yan-spectrum-capture : npm run build =====
+exit(npm run build)=0
+npm warn Unknown env config "side-effects-cache". This will error in a future major version of npm. See `npm help npmrc` for supported config options.
+npm notice run yan-spectrum-capture@0.1.0 build
+npm notice run napi build --release --no-const-enum
+warning: virtual workspace defaulting to `resolver = "1"` despite one or more workspace members being on edition 2021 which implies `resolver = "2"`
+  |
+  = note: to keep the current resolver, specify `workspace.resolver = "1"` in the workspace root's manifest
+  = note: to use the edition 2021 resolver, specify `workspace.resolver = "2"` in the workspace root's manifest
+  = note: for more details see https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling num-integer v0.1.46
+   Compiling futures-util v0.3.33
+   Compiling cpal v0.15.3
+   Compiling strength_reduce v0.2.4
+   Compiling windows-targets v0.52.6
+   Compiling windows-result v0.1.2
+   Compiling transpose v0.2.3
+   Compiling windows-core v0.54.0
+   Compiling primal-check v0.3.4
+   Compiling num-complex v0.4.6
+   Compiling yan-spectrum-capture v0.1.0 (C:\coding\yanmusic-agent\native\yan-spectrum-capture)
+   Compiling dasp_sample v0.11.0
+   Compiling rustfft v6.4.1
+   Compiling windows v0.54.0
+   Compiling futures-executor v0.3.33
+   Compiling futures v0.3.33
+   Compiling napi v3.12.0
+warning: linker stdout: 正在创建库 C:\coding\yanmusic-agent\target\x86_64-pc-windows-msvc\release\deps\yan_spectrum_capture.dll.lib 和对象 C:\coding\yanmusic-agent\target\x86_64-pc-windows-msvc\release\deps\yan_spectrum_capture.dll.exp
+  |
+  = note: `#[warn(linker_messages)]` on by default
+System.Management.Automation.RemoteException
+warning: `yan-spectrum-capture` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 5m 50s
+
+=== done 12:55:41 ===

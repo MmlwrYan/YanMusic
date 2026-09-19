@@ -1,7 +1,0 @@
-chore(release): 版本号 1.1.1 与 CHANGELOG
-
-- package.json 版本 1.1.0 → 1.1.1（与即将推送的 v1.1.1 tag 对齐，保证
-  electron-builder 产物命名与 CI 的 CHANGELOG 抽取一致）
-- CHANGELOG 新增 [1.1.1] 段：内部标识符品牌化清理、插件 API 新增 Yan* 别名、
-  三处半途改名导致的失效修复、文档与实现对齐、音频引擎调研结论，
-  并记录按既有裁定继续保留的上游外部契约与 GPL 致谢。

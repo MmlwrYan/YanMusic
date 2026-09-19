@@ -131,7 +131,7 @@ const storageKey = `pinia:${store.$id}`;   // setting store → "pinia:setting"
 | D3 | EQ 段数 | 18 段（L37、L53） | 10 段（见 §4） | 文档失实 |
 | D4 | Linux wrapper 脚本 | L91-92 引用 `build/linux-libmpv-env.sh`、`build/linux-system-electron-wrapper.sh` | **两文件在仓库中均不存在**（`build/` 仅 `icons/`、`mpv/README.md`、`tools/gen-icons.mjs`、`afterPack.js`、`installer.nsh`） | 死引用 |
 | D5 | 原生 addon 清单 | L70-72 只列 3 个（`yan-mpv-player` / `yan-media-controls` / `yan-storage`） | 实际 **4 个**，漏 `yan-spectrum-capture`（WASAPI/ALSA/ScreenCaptureKit 频谱捕获） | 文档不全 |
-| D6 | 提交文件编码 | — | `.gitignore`、`build/afterPack.js`、`native/{yan-mpv-player,yan-media-controls,yan-storage}/.cargo/config.toml` 中的中文注释为**乱码**（`闇€鍗曠嫭...`）。这些文件本身是**合法 UTF-8**，即乱码已固化进提交内容 | 内容缺陷（外观级） |
+| D6 | ~~提交文件编码乱码~~ | — | **经复核为误判，已撤回**：早期观察到的「乱码」（`.gitignore`、`build/afterPack.js`、`native/*/.cargo/config.toml` 的中文注释）实为 **PowerShell 控制台以 GBK 渲染 UTF-8 文本**造成的显示假象。用 UTF-8 感知方式读取后，这些文件的中文注释**完全正常**（例：`.gitignore:16` = `# 需单独下载的大体积二进制（libmpv，随构建放入 build/mpv/）`；`build/afterPack.js:4` = `职责：保证原生模块（napi .node）与 libmpv 运行时在打包产物中可用，`）。**不是仓库缺陷。** | **误判（已撤回）** |
 | D7 | 插件公共类型命名 | — | 仍为 `EchoPluginManifest` / `EchoPluginDescriptor` / `EchoPluginContext` 等（阶段 2 B 档处理） | 阶段 2 范围 |
 
 > 说明：D4 的 `build/` 目录**部分受版本控制**（22 个文件被 track，尽管 `.gitignore` 含 `build/`），因此 `icons/`、`afterPack.js`、`installer.nsh` 在仓库内可用；缺失的只有 README 声称的两个 Linux wrapper 脚本。
