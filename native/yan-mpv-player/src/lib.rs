@@ -199,6 +199,30 @@ fn initialize_player(lib_path: String, config: Option<PlayerConfigOptions>) -> n
         if let Some(v) = cfg.http_proxy {
             player_config.http_proxy = v;
         }
+        if let Some(v) = cfg.demuxer_readahead_secs {
+            player_config.demuxer_readahead_secs = v;
+        }
+        if let Some(v) = cfg.cache {
+            player_config.cache_mode = v;
+        }
+        if let Some(v) = cfg.cache_pause {
+            player_config.cache_pause = v;
+        }
+        if let Some(v) = cfg.cache_pause_wait_secs {
+            player_config.cache_pause_wait_secs = v;
+        }
+        if let Some(v) = cfg.audio_samplerate {
+            player_config.audio_samplerate = v;
+        }
+        if let Some(v) = cfg.audio_channels {
+            player_config.audio_channels = v;
+        }
+        if let Some(v) = cfg.audio_format {
+            player_config.audio_format = v;
+        }
+        if let Some(v) = cfg.gapless_audio {
+            player_config.gapless_audio = v;
+        }
     }
 
     let player = unsafe { MpvPlayer::new_with_config(lib, player_config) }
@@ -237,6 +261,9 @@ fn get_callback_arc() -> Option<Arc<Mutex<ThreadsafeFunction<PlayerEvent>>>> {
 }
 
 /// 播放器配置选项（可选参数）
+///
+/// 未提供的字段使用 `MpvPlayerConfig::default()`，其值与接线前的硬编码值一致，
+/// 因此新增字段不会改变既有默认行为。
 #[napi(object)]
 pub struct PlayerConfigOptions {
     pub cache_secs: Option<u32>,
@@ -245,6 +272,21 @@ pub struct PlayerConfigOptions {
     pub audio_buffer_secs: Option<f64>,
     pub network_timeout_secs: Option<f64>,
     pub http_proxy: Option<String>,
+    /// demuxer-readahead-secs（秒）
+    pub demuxer_readahead_secs: Option<f64>,
+    /// cache：auto | yes | no
+    pub cache: Option<String>,
+    pub cache_pause: Option<bool>,
+    /// cache-pause-wait（秒）
+    pub cache_pause_wait_secs: Option<f64>,
+    /// audio-samplerate：auto | 44100 | 48000 | 96000 | 192000
+    pub audio_samplerate: Option<String>,
+    /// audio-channels：auto-safe | auto | stereo | mono
+    pub audio_channels: Option<String>,
+    /// audio-format：auto | float | s16 | s32
+    pub audio_format: Option<String>,
+    /// gapless-audio：weak | yes | no
+    pub gapless_audio: Option<String>,
 }
 
 /// 初始化 libmpv 播放器

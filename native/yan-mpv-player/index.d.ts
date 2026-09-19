@@ -54,7 +54,12 @@ export declare function pauseWithFade(savedVolume: number, durationMs: number): 
 /** 播放，返回 Promise<void>。新文件起播的滤镜链构建在工作线程完成，不阻塞主线程。 */
 export declare function play(): Promise<unknown>
 
-/** 播放器配置选项（可选参数） */
+/**
+ * 播放器配置选项（可选参数）
+ *
+ * 未提供的字段使用 `MpvPlayerConfig::default()`，其值与接线前的硬编码值一致，
+ * 因此新增字段不会改变既有默认行为。
+ */
 export interface PlayerConfigOptions {
   cacheSecs?: number
   demuxerMaxMb?: number
@@ -62,6 +67,21 @@ export interface PlayerConfigOptions {
   audioBufferSecs?: number
   networkTimeoutSecs?: number
   httpProxy?: string
+  /** demuxer-readahead-secs（秒） */
+  demuxerReadaheadSecs?: number
+  /** cache：auto | yes | no */
+  cache?: string
+  cachePause?: boolean
+  /** cache-pause-wait（秒） */
+  cachePauseWaitSecs?: number
+  /** audio-samplerate：auto | 44100 | 48000 | 96000 | 192000 */
+  audioSamplerate?: string
+  /** audio-channels：auto-safe | auto | stereo | mono */
+  audioChannels?: string
+  /** audio-format：auto | float | s16 | s32 */
+  audioFormat?: string
+  /** gapless-audio：weak | yes | no */
+  gaplessAudio?: string
 }
 
 /** 播放器事件 */

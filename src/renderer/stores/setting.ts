@@ -174,15 +174,20 @@ export const useSettingStore = defineStore('setting', {
     audioDemuxerMaxMB: 48,
     audioDemuxerBackMB: 12,
     audioBufferSecs: 0.5,
-    // mpv 解复用 / 输出调优（对应 mpv 原生属性，见 player 调优接线）
-    demuxerReadaheadSecs: 1,
-    cache: 'auto' as 'auto' | 'yes' | 'no',
-    cachePause: true,
-    cachePauseWaitSecs: 1,
-    audioSamplerate: 'auto',
-    audioChannels: 'auto-safe',
-    audioFormat: 'auto',
-    gaplessAudio: 'weak',
+    // mpv 解复用 / 输出调优：以下字段会经 src/main/mpv/audioOptions.ts 归一化后，
+    // 在播放引擎启动时下发给 mpv 原生属性（修改后需重启应用生效）。
+    //
+    // 默认值必须与 native/yan-mpv-player/src/player.rs 的 MpvPlayerConfig::default()
+    // 逐项一致 —— 这些默认值就是「接线前代码硬编码到 mpv 的值」，因此保持它们
+    // 等于保持既有听感与缓冲行为不变。
+    demuxerReadaheadSecs: 30, // mpv demuxer-readahead-secs（接线前由 cache-secs 驱动）
+    cache: 'yes' as 'auto' | 'yes' | 'no', // mpv cache（接线前硬编码 yes）
+    cachePause: true, // mpv cache-pause
+    cachePauseWaitSecs: 5, // mpv cache-pause-wait（接线前硬编码 5）
+    audioSamplerate: 'auto', // mpv audio-samplerate
+    audioChannels: 'stereo', // mpv audio-channels（接线前硬编码 stereo）
+    audioFormat: 'auto', // mpv audio-format
+    gaplessAudio: 'weak', // mpv gapless-audio
     kugouApiProxyUrl: DEFAULT_NETWORK_SETTINGS.kugouApiProxyUrl,
     kugouApiTimeoutSecs: DEFAULT_NETWORK_SETTINGS.kugouApiTimeoutSecs,
     mpvHttpProxyUrl: DEFAULT_NETWORK_SETTINGS.mpvHttpProxyUrl,

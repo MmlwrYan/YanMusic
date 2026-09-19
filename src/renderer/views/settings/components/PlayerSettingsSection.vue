@@ -50,7 +50,7 @@ const clampNumber = (value: string | number, fallback: number, min: number, max:
 };
 
 const updateDemuxerReadaheadSecs = (value: string | number) => {
-  settingStore.demuxerReadaheadSecs = clampNumber(value, 1, 0, MAX_CACHE_SECS);
+  settingStore.demuxerReadaheadSecs = clampNumber(value, 30, 0, MAX_CACHE_SECS);
 };
 
 const updateCache = (value: string | number | Array<string | number>) => {
@@ -63,7 +63,7 @@ const updateCacheSecs = (value: string | number) => {
 };
 
 const updateCachePauseWaitSecs = (value: string | number) => {
-  settingStore.cachePauseWaitSecs = clampNumber(value, 1, 0, MAX_CACHE_SECS);
+  settingStore.cachePauseWaitSecs = clampNumber(value, 5, 0, MAX_CACHE_SECS);
 };
 
 const updateDemuxerMaxBytes = (value: string | number) => {
@@ -141,11 +141,11 @@ const updatePlaybackStallMaxAttempts = (value: string | number) => {
       </div>
       <InputNumber
         class="w-45"
-        :model-value="String(settingStore.demuxerReadaheadSecs ?? 1)"
+        :model-value="String(settingStore.demuxerReadaheadSecs ?? 30)"
         :min="0"
         :max="MAX_CACHE_SECS"
         :step="1"
-        placeholder="1"
+        placeholder="30"
         suffix="秒"
         @update:model-value="updateDemuxerReadaheadSecs"
       />
@@ -198,11 +198,11 @@ const updatePlaybackStallMaxAttempts = (value: string | number) => {
       </div>
       <InputNumber
         class="w-45"
-        :model-value="String(settingStore.cachePauseWaitSecs ?? 1)"
+        :model-value="String(settingStore.cachePauseWaitSecs ?? 5)"
         :min="0"
         :max="MAX_CACHE_SECS"
         :step="0.1"
-        placeholder="1"
+        placeholder="5"
         suffix="秒"
         @update:model-value="updateCachePauseWaitSecs"
       />

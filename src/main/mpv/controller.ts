@@ -7,6 +7,13 @@ import type { MpvAudioDevice, MpvState, MpvTrackInfo } from './types';
 import type { ImpulseResponsePlaybackOptions } from '../../shared/audio';
 import log from '../logger';
 import { refreshNetworkSettingsFromStorage } from '../networkSettings';
+import { readNativeAudioOptions } from './audioOptions';
+import {
+  EQ_BAND_FREQUENCIES,
+  EQ_REFERENCE_SAMPLE_RATE,
+  EQ_WIDTH_Q,
+  computeEqHeadroomGainDb,
+} from './eqHeadroom';
 import type { NetworkSettings } from '../../shared/network';
 
 // native addon 类型（与自动生成的 index.d.ts 对齐）
@@ -20,6 +27,14 @@ interface MpvAddon {
       audioBufferSecs?: number;
       networkTimeoutSecs?: number;
       httpProxy?: string;
+      demuxerReadaheadSecs?: number;
+      cache?: string;
+      cachePause?: boolean;
+      cachePauseWaitSecs?: number;
+      audioSamplerate?: string;
+      audioChannels?: string;
+      audioFormat?: string;
+      gaplessAudio?: string;
     },
   ): void;
   destroy(): void;
@@ -255,20 +270,27 @@ export class MpvController extends EventEmitter {
 
     // 初始化 libmpv
     try {
-      // 读取音频缓冲区配置
-      const { getKvStorage } = await import('../storage/kv');
-      const storage = getKvStorage();
-      const cacheSecs = (await storage.get('audioCacheSecs')) ?? 30;
-      const demuxerMaxMb = (await storage.get('audioDemuxerMaxMB')) ?? 48;
-      const demuxerBackMb = (await storage.get('audioDemuxerBackMB')) ?? 12;
-      const audioBufferSecs = (await storage.get('audioBufferSecs')) ?? 0.5;
+      // 音频/缓存选项统一从渲染层持久化设置（KV 键 pinia:setting）读取。
+      // 此前这里以「裸 KV 键」直读，而渲染层实际把设置持久化在 pinia:setting
+      // 整对象里，导致读取恒为 null、用户在设置页的改动永不生效。
+      const audioOptions = readNativeAudioOptions();
       const networkSettings = refreshNetworkSettingsFromStorage();
 
+      log.info('[MpvController] Native audio options applied', audioOptions);
+
       this.addon.initialize(this.libmpvPath, {
-        cacheSecs: Number(cacheSecs),
-        demuxerMaxMb: Number(demuxerMaxMb),
-        demuxerBackMb: Number(demuxerBackMb),
-        audioBufferSecs: Number(audioBufferSecs),
+        cacheSecs: audioOptions.cacheSecs,
+        demuxerMaxMb: audioOptions.demuxerMaxMb,
+        demuxerBackMb: audioOptions.demuxerBackMb,
+        audioBufferSecs: audioOptions.audioBufferSecs,
+        demuxerReadaheadSecs: audioOptions.demuxerReadaheadSecs,
+        cache: audioOptions.cache,
+        cachePause: audioOptions.cachePause,
+        cachePauseWaitSecs: audioOptions.cachePauseWaitSecs,
+        audioSamplerate: audioOptions.audioSamplerate,
+        audioChannels: audioOptions.audioChannels,
+        audioFormat: audioOptions.audioFormat,
+        gaplessAudio: audioOptions.gaplessAudio,
         networkTimeoutSecs: networkSettings.mpvNetworkTimeoutSecs,
         httpProxy: networkSettings.mpvHttpProxyUrl,
       });
@@ -843,15 +865,29 @@ export class MpvController extends EventEmitter {
     }
 
     if (hasEq) {
-      const freqs = [60, 170, 310, 600, 1000, 3000, 6000, 12000, 14000, 16000];
       const eqParts = this.equalizerGains
         .map((gain, i) => {
           if (gain === 0) return '';
-          return `equalizer=f=${freqs[i]}:g=${gain}:w=1`;
+          const frequency = EQ_BAND_FREQUENCIES[i];
+          if (frequency === undefined) return '';
+          return `equalizer=f=${frequency}:g=${gain}:w=${EQ_WIDTH_Q}`;
         })
         .filter(Boolean);
 
       if (eqParts.length > 0) {
+        // EQ 前级补偿：多段同时提升时相邻频带会叠加，总增益可能超过单段设定值而在
+        // 滤镜链内部削顶（日志中的 `filter: Channel N clipping ...` 即为此）。
+        // 按级联频响的峰值反相做一次前级衰减，使总响应不超过 0 dB。
+        const headroomDb = computeEqHeadroomGainDb(
+          this.equalizerGains,
+          EQ_REFERENCE_SAMPLE_RATE,
+          EQ_WIDTH_Q,
+        );
+        if (headroomDb < 0) {
+          const headroomFilter = `volume=${headroomDb.toFixed(2)}dB`;
+          filters.push(headroomFilter);
+          structuralParts.push(headroomFilter);
+        }
         filters.push(...eqParts);
         structuralParts.push(...eqParts);
       }

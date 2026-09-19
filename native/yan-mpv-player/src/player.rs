@@ -11,6 +11,10 @@ use std::time::Duration;
 const SEEK_MUTE_HOLD_MS: u64 = 80;
 
 /// 播放器配置
+///
+/// 这里的默认值同时是「渲染层设置项的默认值」的基准：`Default` 必须与
+/// 接线前代码硬编码到 `set_option` 的值逐项一致，保证接线本身不改变既有行为。
+/// 渲染层 `src/renderer/stores/setting.ts` 中对应字段的默认值应与本结构体保持一致。
 #[derive(Clone)]
 pub struct MpvPlayerConfig {
     pub cache_secs: u32,
@@ -19,6 +23,22 @@ pub struct MpvPlayerConfig {
     pub audio_buffer_secs: f64,
     pub network_timeout_secs: f64,
     pub http_proxy: String,
+    /// demuxer-readahead-secs：解复用预读时长（秒）
+    pub demuxer_readahead_secs: f64,
+    /// cache：auto | yes | no
+    pub cache_mode: String,
+    /// cache-pause：缓冲时暂停
+    pub cache_pause: bool,
+    /// cache-pause-wait：缓冲恢复前等待时长（秒）
+    pub cache_pause_wait_secs: f64,
+    /// audio-samplerate：auto | 44100 | 48000 | 96000 | 192000
+    pub audio_samplerate: String,
+    /// audio-channels：auto-safe | auto | stereo | mono
+    pub audio_channels: String,
+    /// audio-format：auto | float | s16 | s32
+    pub audio_format: String,
+    /// gapless-audio：weak | yes | no
+    pub gapless_audio: String,
 }
 
 impl Default for MpvPlayerConfig {
@@ -30,7 +50,46 @@ impl Default for MpvPlayerConfig {
             audio_buffer_secs: 0.5,
             network_timeout_secs: 60.0,
             http_proxy: String::new(),
+            demuxer_readahead_secs: 30.0,
+            cache_mode: "yes".to_string(),
+            cache_pause: true,
+            cache_pause_wait_secs: 5.0,
+            audio_samplerate: "auto".to_string(),
+            audio_channels: "stereo".to_string(),
+            audio_format: "auto".to_string(),
+            gapless_audio: "weak".to_string(),
         }
+    }
+}
+
+/// 归一化枚举型选项：只接受白名单内的取值，其余一律回落到 fallback。
+/// 目的：避免把渲染层传来的任意字符串直接注入 mpv 选项解析器。
+fn normalize_choice(value: &str, allowed: &[&str], fallback: &str) -> String {
+    let trimmed = value.trim().to_ascii_lowercase();
+    if allowed.iter().any(|item| *item == trimmed) {
+        trimmed
+    } else {
+        fallback.to_string()
+    }
+}
+
+/// 归一化 audio-samplerate：mpv 使用整数，0 表示 auto。
+fn normalize_audio_samplerate(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("auto") {
+        return "0".to_string();
+    }
+    match trimmed.parse::<u32>() {
+        Ok(rate) if (8_000..=768_000).contains(&rate) => rate.to_string(),
+        _ => "0".to_string(),
+    }
+}
+
+fn normalize_secs(value: f64, fallback: f64, min: f64, max: f64) -> f64 {
+    if value.is_finite() {
+        value.clamp(min, max)
+    } else {
+        fallback
     }
 }
 
@@ -108,11 +167,22 @@ impl MpvPlayer {
             "demuxer-max-back-bytes",
             &format!("{}MiB", config.demuxer_back_mb),
         );
-        player.set_option("demuxer-readahead-secs", &config.cache_secs.to_string());
-        player.set_option("cache", "yes");
+        // 以下缓存/预读/音频输出选项均来自渲染层「播放器设置」分区（经主进程
+        // src/main/mpv/audioOptions.ts 读取并归一化）。默认值与接线前的硬编码值一致。
+        player.set_option(
+            "demuxer-readahead-secs",
+            &normalize_secs(config.demuxer_readahead_secs, 30.0, 0.0, 3_600_000.0).to_string(),
+        );
+        player.set_option(
+            "cache",
+            &normalize_choice(&config.cache_mode, &["auto", "yes", "no"], "yes"),
+        );
         player.set_option("cache-secs", &config.cache_secs.to_string());
-        player.set_option("cache-pause", "yes");
-        player.set_option("cache-pause-wait", "5");
+        player.set_option("cache-pause", if config.cache_pause { "yes" } else { "no" });
+        player.set_option(
+            "cache-pause-wait",
+            &normalize_secs(config.cache_pause_wait_secs, 5.0, 0.0, 3_600_000.0).to_string(),
+        );
         player.set_option("cache-pause-initial", "yes");
         player.set_option("cache-seek-min", &(config.cache_secs / 2).to_string());
         player.set_option("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
@@ -124,8 +194,26 @@ impl MpvPlayer {
         }
         player.set_option("input-media-keys", "no");
         player.set_option("audio-client-name", "YanMusic");
-        player.set_option("audio-samplerate", "0");
-        player.set_option("audio-channels", "stereo");
+        player.set_option(
+            "audio-samplerate",
+            &normalize_audio_samplerate(&config.audio_samplerate),
+        );
+        player.set_option(
+            "audio-channels",
+            &normalize_choice(
+                &config.audio_channels,
+                &["auto-safe", "auto", "stereo", "mono"],
+                "stereo",
+            ),
+        );
+        player.set_option(
+            "audio-format",
+            &normalize_choice(&config.audio_format, &["auto", "float", "s16", "s32"], "auto"),
+        );
+        player.set_option(
+            "gapless-audio",
+            &normalize_choice(&config.gapless_audio, &["weak", "yes", "no"], "weak"),
+        );
         player.set_option("audio-buffer", &config.audio_buffer_secs.to_string());
         player.set_option("audio-fallback-to-null", "yes");
 
