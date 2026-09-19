@@ -86,7 +86,8 @@ const SUPPORTED_IMPULSE_RESPONSE_EXTENSIONS = new Set([
 const MAX_COMMUNITY_IMPULSE_RESPONSE_BYTES = 32 * 1024 * 1024;
 const MAX_COMMUNITY_VPF_BYTES = 1024 * 1024;
 const VPF_MAGIC = Buffer.from('ViPER4WindowsX', 'ascii');
-// Keep in sync with SECTION_SIZES in native/echo-ffmpeg-player/src/vpf.rs.
+// VPF（ViPER4Windows）容器头：魔数 + 4 个 section 长度字段（各 4 字节）。
+// 段长常量与上游格式保持一致，用于在下载前做快速合法性校验。
 const VPF_SECTION_SIZES = [0x170, 0x2e4, 0x2e8, 0x31c] as const;
 const MAX_COMMUNITY_AUDIO_PENDING_WRITE_BYTES = 4 * 1024 * 1024;
 const COMMUNITY_AUDIO_DOWNLOAD_TIMEOUT_MS = 30_000;
@@ -118,13 +119,13 @@ type LinuxDistribution = {
 
 type LinuxPackageType = 'deb' | 'rpm' | 'pacman';
 const UPDATE_INSTALL_EXIT_TIMEOUT_MS = 15000;
-let echoUpdaterSilent = false;
+let yanUpdaterSilent = false;
 
-const setEchoSilent = (silent: boolean) => {
-  echoUpdaterSilent = silent;
+const setYanUpdaterSilent = (silent: boolean) => {
+  yanUpdaterSilent = silent;
 };
 
-const getEchoSilent = () => echoUpdaterSilent;
+const getYanUpdaterSilent = () => yanUpdaterSilent;
 
 const normalizeOpenExternalUrl = (value: unknown): string | null => {
   if (typeof value !== 'string') return null;
@@ -894,7 +895,7 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
   // --- autoUpdater 事件 ---
   autoUpdater.on('update-available', (info) => {
     const { version: currentVersion } = getAppInfo();
-    const silent = getEchoSilent();
+    const silent = getYanUpdaterSilent();
 
     // releaseNotes 可能是 string 或 Array<{ version: string; note: string | null }>
     // 只展示最新版本的更新内容
@@ -920,7 +921,7 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
 
   autoUpdater.on('update-not-available', (info) => {
     const { version: currentVersion } = getAppInfo();
-    const silent = getEchoSilent();
+    const silent = getYanUpdaterSilent();
     const result: UpdateCheckResult = {
       status: 'latest',
       currentVersion,
@@ -957,7 +958,7 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
         status: 'error',
         currentVersion: getAppInfo().version,
         message: formatUpdateCheckError(error),
-        silent: getEchoSilent(),
+        silent: getYanUpdaterSilent(),
       } satisfies UpdateCheckResult);
     }
   });
@@ -1289,7 +1290,7 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
     'check-for-updates',
     (_event, payload?: { prerelease?: boolean; silent?: boolean; githubProxyUrl?: string }) => {
       const silent = Boolean(payload?.silent);
-      setEchoSilent(silent);
+      setYanUpdaterSilent(silent);
       const prerelease = Boolean(payload?.prerelease);
       const githubProxyUrl = payload?.githubProxyUrl?.trim() || '';
 

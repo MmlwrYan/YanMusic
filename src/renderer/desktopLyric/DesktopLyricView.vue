@@ -491,10 +491,10 @@ const notifyLyricEffectHost = () => {
   if (root) {
     root.style.setProperty('--yan-lyric-current-index', String(currentIndex.value));
     root.style.setProperty('--yan-lyric-scroll-index', String(currentIndex.value));
-    root.dataset.echoLyricPlaying = isPlaying.value ? 'true' : 'false';
-    root.dataset.echoLyricCollapsed = 'false';
-    root.dataset.echoLyricReducedMotion = reducedMotion.value ? 'true' : 'false';
-    root.dataset.echoLyricLayout = lyricLayout.value;
+    root.dataset.yanLyricPlaying = isPlaying.value ? 'true' : 'false';
+    root.dataset.yanLyricCollapsed = 'false';
+    root.dataset.yanLyricReducedMotion = reducedMotion.value ? 'true' : 'false';
+    root.dataset.yanLyricLayout = lyricLayout.value;
   }
   lyricEffectHostRegistration?.notify();
 };

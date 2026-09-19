@@ -15,7 +15,7 @@ import {
   getManagedNetworkSession,
 } from './networkPolicy';
 
-const CAPTURE_REQUEST_HEADER = 'x-echo-transport-request-id';
+const CAPTURE_REQUEST_HEADER = 'x-yanmusic-transport-request-id';
 const DEFAULT_MAX_REDIRECTS = 21;
 const BODYLESS_STATUS_CODES = new Set([101, 204, 205, 304]);
 const RESTRICTED_REQUEST_HEADERS = new Set([

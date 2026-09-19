@@ -88,13 +88,13 @@ const replayPageRouteAnimation = () => {
 onMounted(() => {
   checkScreenWidth();
   window.addEventListener('resize', checkScreenWidth);
-  window.addEventListener('echo:toggle-sidebar', handleShortcutToggleSidebar);
+  window.addEventListener('yanmusic:toggle-sidebar', handleShortcutToggleSidebar);
   if (pageTransitionAppear.value) replayPageRouteAnimation();
 });
 
 onUnmounted(() => {
   window.removeEventListener('resize', checkScreenWidth);
-  window.removeEventListener('echo:toggle-sidebar', handleShortcutToggleSidebar);
+  window.removeEventListener('yanmusic:toggle-sidebar', handleShortcutToggleSidebar);
   stopPageRouteAnimation();
 });
 

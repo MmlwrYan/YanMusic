@@ -8,6 +8,15 @@ export const PLUGIN_MARKETPLACE_SOURCES_KEY = 'plugins:marketplace:sources';
 export const PLUGIN_MARKETPLACE_CACHE_KEY = 'plugins:marketplace:cache';
 export const PLUGIN_PROCESS_CONSENTS_KEY = 'plugins:process-consents';
 export const PLUGIN_MANIFEST_FILE = 'manifest.json';
+/**
+ * 在线插件源索引文件名。
+ *
+ * 该名称是**外部契约**：它由第三方插件源仓库（含上游官方源
+ * `hoowhoami/EchoMusicPlugins`）在仓库根目录提供的文件名决定，客户端按此名拉取
+ * `https://raw.githubusercontent.com/<repo>/HEAD/<该文件>`。改名会使所有既有插件源
+ * 立刻无法浏览，属于破坏兼容的改动，因此**有意保留**上游名称不改。
+ * 详见 `docs/agent/02-echo-cleanup.md` 的「有意保留项」。
+ */
 export const PLUGIN_MARKETPLACE_INDEX_FILE = 'echo-plugins.json';
 export const PLUGIN_MARKETPLACE_CACHE_VERSION = 5;
 export const DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL =

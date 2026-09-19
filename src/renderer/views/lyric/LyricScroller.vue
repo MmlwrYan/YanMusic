@@ -254,17 +254,17 @@ const syncLyricEffectRootState = () => {
   const playing = playerStore.isPlaying ? 'true' : 'false';
   if (lastEffectRootState.playing !== playing) {
     lastEffectRootState.playing = playing;
-    root.dataset.echoLyricPlaying = playing;
+    root.dataset.yanLyricPlaying = playing;
   }
   const collapsed = props.collapsed ? 'true' : 'false';
   if (lastEffectRootState.collapsed !== collapsed) {
     lastEffectRootState.collapsed = collapsed;
-    root.dataset.echoLyricCollapsed = collapsed;
+    root.dataset.yanLyricCollapsed = collapsed;
   }
   const reduced = reducedMotion.value ? 'true' : 'false';
   if (lastEffectRootState.reducedMotion !== reduced) {
     lastEffectRootState.reducedMotion = reduced;
-    root.dataset.echoLyricReducedMotion = reduced;
+    root.dataset.yanLyricReducedMotion = reduced;
   }
 };
 

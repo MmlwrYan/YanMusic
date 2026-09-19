@@ -513,7 +513,7 @@ export const executeShortcutCommand = (command: ShortcutCommand) => {
   } else if (command === 'toggleSidebar') {
     if (settingStore.sidebarCollapseEnabled) {
       const handledByLayout = !window.dispatchEvent(
-        new CustomEvent('echo:toggle-sidebar', { cancelable: true }),
+        new CustomEvent('yanmusic:toggle-sidebar', { cancelable: true }),
       );
       if (handledByLayout) return;
 

@@ -456,7 +456,7 @@ fn output_class() -> &'static AnyClass {
     CLASS.get_or_init(|| {
         let superclass = NSObject::class();
         let mut builder =
-            ClassBuilder::new(c"EchoSpectrumSckOutput", superclass).expect("class registered once");
+            ClassBuilder::new(c"YanSpectrumSckOutput", superclass).expect("class registered once");
         if let Some(proto) = AnyProtocol::get(c"SCStreamOutput") {
             builder.add_protocol(proto);
         }

@@ -7,9 +7,13 @@ import {
   type NetworkSettings,
 } from '../shared/network';
 
-export const APP_NETWORK_SESSION_PARTITION = 'echo-app-network';
-export const KUGOU_API_SESSION_PARTITION = 'echo-kugou-api';
-export const COMMUNITY_AUDIO_SESSION_PARTITION = 'echo-community-audio';
+// 分区名使用 YanMusic 自有前缀。这三个分区均未加 `persist:` 前缀（纯内存会话），
+// 改名不涉及任何落盘状态；登录令牌与设备指纹（dfid/mid）由 Pinia + SQLite
+// （`pinia:device` / `pinia:user`）持久化，不依赖 session cookie jar，
+// 因此改名不会导致老用户需要重新登录。
+export const APP_NETWORK_SESSION_PARTITION = 'yanmusic-app-network';
+export const KUGOU_API_SESSION_PARTITION = 'yanmusic-kugou-api';
+export const COMMUNITY_AUDIO_SESSION_PARTITION = 'yanmusic-community-audio';
 export const DESKTOP_LYRIC_SESSION_PARTITION = 'persist:desktop-lyric';
 export const UPDATER_SESSION_PARTITION = 'electron-updater';
 

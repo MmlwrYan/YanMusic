@@ -1,4 +1,4 @@
-﻿import * as Vue from 'vue';
+import * as Vue from 'vue';
 import './style.css';
 import type {
   EchoPluginDescriptor,
@@ -31,21 +31,21 @@ import { createPluginNetworkApi } from '../renderer/plugins/network';
 
 type PluginWindowModule =
   | {
-      activateWindow?: (ctx: EchoPluginWindowContext) => unknown;
-      activate?: (ctx: EchoPluginWindowContext) => unknown;
+      activateWindow?: (ctx: YanPluginWindowContext) => unknown;
+      activate?: (ctx: YanPluginWindowContext) => unknown;
       default?: PluginWindowModuleDefault;
     }
   | PluginWindowModuleDefault;
 
 type PluginWindowModuleDefault =
-  | ((ctx: EchoPluginWindowContext) => unknown)
+  | ((ctx: YanPluginWindowContext) => unknown)
   | {
-      activateWindow?: (ctx: EchoPluginWindowContext) => unknown;
-      activate?: (ctx: EchoPluginWindowContext) => unknown;
-      deactivate?: (ctx: EchoPluginWindowContext) => unknown;
+      activateWindow?: (ctx: YanPluginWindowContext) => unknown;
+      activate?: (ctx: YanPluginWindowContext) => unknown;
+      deactivate?: (ctx: YanPluginWindowContext) => unknown;
     };
 
-interface EchoPluginWindowContext {
+interface YanPluginWindowContext {
   id: string;
   pluginId: string;
   windowId: string;
@@ -192,11 +192,11 @@ const resolveActivator = (module: PluginWindowModule) => {
     const defaultExport = Reflect.get(module, 'default') as PluginWindowModuleDefault | undefined;
     if (typeof Reflect.get(module, 'activateWindow') === 'function') {
       return (
-        Reflect.get(module, 'activateWindow') as (ctx: EchoPluginWindowContext) => unknown
+        Reflect.get(module, 'activateWindow') as (ctx: YanPluginWindowContext) => unknown
       ).bind(module);
     }
     if (typeof Reflect.get(module, 'activate') === 'function') {
-      return (Reflect.get(module, 'activate') as (ctx: EchoPluginWindowContext) => unknown).bind(
+      return (Reflect.get(module, 'activate') as (ctx: YanPluginWindowContext) => unknown).bind(
         module,
       );
     }
@@ -506,7 +506,7 @@ const buildContext = (
   descriptor: EchoPluginDescriptor,
   windowDescriptor: PluginWindowDescriptor,
   container: HTMLElement,
-): EchoPluginWindowContext => ({
+): YanPluginWindowContext => ({
   id: descriptor.id,
   pluginId: descriptor.id,
   windowId: windowDescriptor.id,
