@@ -34,7 +34,7 @@
 - **分享功能**: 支持将你喜欢的歌曲、歌单、专辑、歌手、插件一键分享给好友或社交平台。
 - **歌曲评论**：支持查看歌曲评论与评论楼层跳转。
 - **歌词显示**：支持 LRC/YRC 逐字歌词解析、歌词选择、歌词翻译、正则过滤、滚动同步、全屏歌词、写真模式、桌面歌词。
-- **音频增强**：支持 18 段参数化 EQ 均衡器（带自动增益补偿）、音量均衡（基于 LUFS 响度标准化）、优化的空间音效（高效 IR 卷积、Dry/Wet 混合控制、内置混响预设）与多种音效模式。
+- **音频增强**：支持 10 段参数化 EQ 均衡器、音量均衡（基于 LUFS 响度标准化）、空间音效（IR 卷积、Dry/Wet 混合控制）与多种音效模式。
 - **实时频谱分析**：直接从播放引擎提取音频数据，使用 FFT 进行实时频谱分析，为插件 `ctx.audio.spectrum` 提供低延迟、高精度的频谱帧。
 - **系统媒体控制**：原生集成 macOS MPNowPlayingInfoCenter、Windows SMTC、Linux MPRIS，支持系统媒体按键和进度同步。
 - **系统集成**：支持窗口控制、系统托盘、托盘快捷控制、全局快捷键、开机自启动、启动时最小化和 mini 模式。
@@ -50,16 +50,16 @@
 - **音质**：DSD臻品音质、Hi-Res、SQ(flac)、HQ(320)、标准(128)
 - **音效**：人声、伴奏、钢琴、骨笛、尤克里里、唢呐、DJ、蝰蛇母带、蝰蛇全景声、蝰蛇超清
 - **高级音频处理**：
-  - **18 段参数化 EQ**：50Hz - 20kHz 精细控制，自动增益补偿，支持预设（流行、摇滚、古典、电子等）
+  - **10 段参数化 EQ**：60 Hz - 16 kHz 精细控制（60 / 170 / 310 / 600 / 1k / 3k / 6k / 12k / 14k / 16k），支持预设（流行、摇滚、古典、电子等）
   - **优化的空间音效**：高效 FFT-based 卷积混响、IR 预处理和归一化、Dry/Wet 混合级别控制、内置精选混响空间（音乐厅、教堂、录音室、剧院）
   - **统一滤镜链管理**：智能管理 EQ、混响、音量均衡等多重音频效果，避免冲突，确保最佳音质
 
 ##  技术栈
 
-- **Desktop Shell**: [Electron](https://www.electronjs.org/) 42.3
+- **Desktop Shell**: [Electron](https://www.electronjs.org/) 43.1.1
 - **Frontend**: [Vue 3.5](https://vuejs.org/) + [TypeScript 5.9](https://www.typescriptlang.org/)
 - **Build Tool**: [Vite](https://vitejs.dev/) 8
-- **State Management**: [Pinia](https://pinia.vuejs.org/) + [pinia-plugin-persistedstate](https://prazdevs.github.io/pinia-plugin-persistedstate/)
+- **State Management**: [Pinia](https://pinia.vuejs.org/) + 自研 SQLite 持久化插件（`src/renderer/stores/sqlitePersist.ts`，经 `yan-storage` 原生模块落盘）
 - **UI Primitives**: [Reka UI](https://reka-ui.com/)
 - **CSS**: [Tailwind CSS](https://tailwindcss.com/) v4.3
 - **Routing**: [Vue Router](https://router.vuejs.org/)
@@ -67,9 +67,10 @@
 - **Backend Service**: [Node.js](https://nodejs.org/)（内置本地服务，进程内直接调用）
 - **Audio Engine**: [libmpv](https://mpv.io/)（通过 Rust NAPI addon 进程内嵌入，零延迟直接函数调用）
 - **Native Addons**: [napi-rs](https://napi.rs/)（Rust 编写的原生扩展）
-  - `yan-mpv-player`：libmpv 播放引擎封装，支持淡入淡出、高级 EQ、音量均衡、优化的空间音效、实时频谱分析
+  - `yan-mpv-player`：libmpv 播放引擎封装，支持淡入淡出、EQ、音量均衡、空间音效（IR 卷积）、播放卡死看门狗
   - `yan-media-controls`：系统媒体控制集成（macOS/Windows/Linux 原生 API）
   - `yan-storage`：SQLite 本地持久化存储，负责设置、播放队列与状态快照
+  - `yan-spectrum-capture`：系统音频捕获与实时频谱分析（Windows WASAPI loopback / Linux ALSA monitor / macOS ScreenCaptureKit）
 
 
 ##  快速开始
@@ -86,12 +87,12 @@
 
 如果发行版包使用系统 Electron 启动 yanmusic（例如 Arch/Manjaro 的 `electron42 /usr/lib/yan-music/app.asar`），入口脚本必须在启动 Electron 前预加载系统 FFmpeg/libav 库，否则 Electron 内置裁剪版 `libffmpeg.so` 可能与系统 `libmpv` 发生符号冲突，导致 HTTP 音频流无法播放。
 
-可直接安装并使用：
+该兼容处理由程序自身完成，无需额外安装脚本：
 
-- `build/linux-libmpv-env.sh`：共享的 libmpv 环境修复脚本
-- `build/linux-system-electron-wrapper.sh`：系统 Electron 启动入口模板
+- 运行时兜底：`src/main/mpv/linuxEnv.ts` 在应用启动最早期检测系统 libmpv，并通过 `ldd` 解析其实际依赖的 `libav*` 库，以 `LD_PRELOAD` + `app.relaunch()` 重新拉起进程（用环境变量防无限重启，并兼容 AppImage 的 relaunch 缺陷）。
+- 打包阶段：`electron-builder` 的 `afterPack` 钩子（`build/afterPack.js`）会校验产物中的原生模块与 libmpv 动态库是否就位。
 
-`electron-builder` 产物会在 `afterPack` 阶段自动安装同一套 wrapper。
+> 说明：早期文档曾引用 `build/linux-libmpv-env.sh` 与 `build/linux-system-electron-wrapper.sh` 两个脚本，这两个文件并不在本仓库中，相关说明已按实际实现更正。
 
 ### 本地开发
 
@@ -233,3 +234,7 @@ xattr -cr /Applications/yanmusic.app && codesign --force --deep --sign - /Applic
 基于 [GPL-3.0 License](LICENSE) 协议发布。
 
 本项目使用 [mpv](https://mpv.io/) 作为音频播放引擎（LGPL-2.1+ / GPL-2.0+），通过动态链接方式加载。
+
+### 上游项目与修改声明
+
+本项目是基于 [EchoMusic](https://github.com/hoowhoami/EchoMusic)（参考版本 `2.3.1-beta.24`，作者 [hoowhoami](https://github.com/hoowhoami)）二次开发的修改版本，同样以 GPL-3.0 发布。原始版权归 EchoMusic 项目及其开发者所有，沿用自上游的代码与资源版权仍归原作者。本项目相对上游的修改包括：适配 libmpv 播放引擎与一体化打包、调整界面文案与品牌标识（YanMusic）、修复若干缺陷，以及内部标识符的品牌化清理。差异说明见 [CHANGELOG.md](CHANGELOG.md) 与各版本发行说明；应用内「关于 → 致谢」亦载有完整声明。
