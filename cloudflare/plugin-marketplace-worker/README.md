@@ -35,8 +35,11 @@ pnpm dlx wrangler@latest deploy
 部署完成后，把客户端常量 `DEFAULT_PLUGIN_MARKETPLACE_STATS_API_URL` 改为你的 Worker 域名，或在构建主进程时设置：
 
 ```bash
-ECHOMUSIC_PLUGIN_STATS_API_URL=https://your-worker.example.com pnpm run build
+yanmusic_PLUGIN_STATS_API_URL=https://your-worker.example.com pnpm run build
 ```
+
+> 环境变量名与主进程实现一致（`src/main/plugins.ts` 读取 `process.env.yanmusic_PLUGIN_STATS_API_URL`）。
+> 旧文档中的 `ECHOMUSIC_PLUGIN_STATS_API_URL` 从未被代码读取，已更正。
 
 可以用下面的请求快速验证线上 D1 是否可用：
 

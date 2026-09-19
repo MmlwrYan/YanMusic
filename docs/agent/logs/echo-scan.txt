@@ -1,0 +1,281 @@
+﻿CHANGELOG.md:23: - 免责声明「致谢」段补充上游参考版本（EchoMusic 2.3.1-beta.24）、原始版权归属与修改差异说明
+README.md:187: **[插件开发文档](https://github.com/hoowhoami/EchoMusicPlugins)**
+README.md:218: - [EchoMusic](https://github.com/hoowhoami/EchoMusic) - 一个简约的第三方酷狗概念版音乐播放器
+.github\workflows\build.yml:174: echo "runner arch: $(uname -m)"
+.github\workflows\build.yml:178: echo "Rosetta 2 不可用，开始安装..."
+.github\workflows\build.yml:182: echo "Rosetta 2 OK，x86_64 环境: $(/usr/bin/arch -x86_64 /usr/bin/uname -m)"
+.github\workflows\build.yml:184: echo "原生 x86_64 runner（macOS x64 任务在 macos-15-intel 上原生构建），无需 Rosetta 2"
+.github\workflows\build.yml:233: echo "rpath fixup complete"
+.github\workflows\build.yml:253: echo "signed $signed_count macOS Mach-O files in $lib_dir"
+.github\workflows\build.yml:269: echo "verified $verified_count macOS Mach-O signatures in $lib_dir"
+.github\workflows\build.yml:285: echo "libmpv macOS arm64 prepared"
+.github\workflows\build.yml:286: echo "=== build/mpv directory ==="
+.github\workflows\build.yml:295: echo "macOS x64 构建主机架构: $(uname -m)"
+.github\workflows\build.yml:297: echo "ERROR: 无法执行 x86_64 程序（Rosetta 2 不可用或 runner 架构异常）"
+.github\workflows\build.yml:298: echo "=== 诊断 ==="
+.github\workflows\build.yml:299: echo "uname -m      : $(uname -m)"
+.github\workflows\build.yml:300: echo "arch -x86_64  : $(/usr/bin/arch -x86_64 /usr/bin/true 2>&1 || true)"
+.github\workflows\build.yml:301: echo "Rosetta 进程  : $(/usr/bin/pgrep -x oahd >/dev/null 2>&1 && echo 'oahd running' || echo 'oahd not running')"
+.github\workflows\build.yml:305: echo "ERROR: 未找到 x86_64 Homebrew（/usr/local/bin/brew）"
+.github\workflows\build.yml:306: echo "       官方安装器已不支持在 Apple Silicon 上安装 x86_64 Homebrew，"
+.github\workflows\build.yml:307: echo "       请确认 macOS x64 任务运行在 macos-15-intel（原生 Intel）runner 上。"
+.github\workflows\build.yml:308: echo "=== 诊断 ==="
+.github\workflows\build.yml:309: echo "uname -m          : $(uname -m)"
+.github\workflows\build.yml:310: echo "/opt/homebrew/bin/brew（arm64）: $(ls -l /opt/homebrew/bin/brew 2>&1 || true)"
+.github\workflows\build.yml:311: echo "/usr/local        :"; ls -la /usr/local 2>&1 | head -20 || true
+.github\workflows\build.yml:312: echo "/usr/local/bin    :"; ls -la /usr/local/bin 2>&1 | head -20 || true
+.github\workflows\build.yml:321: echo "brew install mpv 退出码: $BREW_MPV_CODE"
+.github\workflows\build.yml:323: echo "WARNING: brew install mpv 非零退出（已显式记录，不再静默忽略）；继续按实际产物校验"
+.github\workflows\build.yml:327: echo "ERROR: mpv x86_64 安装失败，未找到 mpv 前缀或 lib 目录"
+.github\workflows\build.yml:328: echo "=== 诊断 ==="
+.github\workflows\build.yml:329: echo "brew --prefix mpv    : ${X86_MPV_PREFIX:-<空>}"
+.github\workflows\build.yml:330: echo "brew --version       : $(/usr/local/bin/brew --version 2>&1 | head -1 || true)"
+.github\workflows\build.yml:331: echo "brew list --versions : $(/usr/local/bin/brew list --versions mpv 2>&1 | head -3 || true)"
+.github\workflows\build.yml:332: echo "brew config          : $(/usr/local/bin/brew config 2>&1 | grep -E 'HOMEBREW_PREFIX|HOMEBREW_PROCESSOR' | head -5 || true)"
+.github\workflows\build.yml:341: echo "ERROR: 未从 x86_64 mpv 复制到任何 libmpv dylib"
+.github\workflows\build.yml:342: echo "=== build/mpv ==="; ls -la build/mpv/ 2>&1 | head -20 || true
+.github\workflows\build.yml:348: echo "libmpv macOS x64 prepared"
+.github\workflows\build.yml:349: echo "=== build/mpv directory ==="
+.github\workflows\build.yml:374: echo "libmpv Linux prepared (system deps not bundled)"
+.github\workflows\build.yml:469: echo "Downloading mpv ${MPV_ARCH_FILTER} package from: $DOWNLOAD_URL"
+.github\workflows\build.yml:475: echo "ERROR: libmpv DLL not found after extracting mpv Windows package"
+.github\workflows\build.yml:476: echo "=== extracted DLLs ==="
+.github\workflows\build.yml:482: echo "libmpv Windows ${MPV_ARCH_FILTER} prepared (${dll_count} DLLs)"
+.github\workflows\build.yml:486: echo "=== mpv build directory ==="
+.github\workflows\build.yml:522: echo "ERROR: bundled app executable not found: $app_exe"
+.github\workflows\build.yml:523: echo "=== release directories ==="
+.github\workflows\build.yml:525: echo "=== executable files ==="
+.github\workflows\build.yml:533: echo "ERROR: bundled libmpv DLL not found in $mpv_dir"
+.github\workflows\build.yml:534: echo "=== bundled resources ==="
+.github\workflows\build.yml:539: echo "bundled libmpv DLL found in $mpv_dir"
+.github\workflows\build.yml:549: echo "ERROR: YanMusic.app not found in release output"
+.github\workflows\build.yml:556: echo "ERROR: bundled mpv directory not found: $mpv_dir"
+.github\workflows\build.yml:568: echo "verified $verified_count bundled mpv Mach-O signatures in $mpv_dir"
+.github\workflows\build.yml:627: echo "BODY<<EOF"
+.github\workflows\build.yml:628: echo "$BODY"
+.github\workflows\build.yml:629: echo "EOF"
+.github\workflows\build.yml:681: echo "CHANGELOG<<EOF"
+.github\workflows\build.yml:682: echo "$CHANGELOG"
+.github\workflows\build.yml:683: echo "EOF"
+.github\workflows\build.yml:697: echo "ARTIFACT_LINKS=无" >> "$GITHUB_ENV"
+.github\workflows\build.yml:713: echo "ARTIFACT_LINKS<<EOF"
+.github\workflows\build.yml:715: echo "EOF"
+.github\workflows\build.yml:727: echo "Telegram secrets are missing, skip notification."
+.github\workflows\build.yml:749: PAYLOAD=$(echo "$PAYLOAD" | jq --arg topic_id "$TELEGRAM_TOPIC_ID" '. + {message_thread_id: ($topic_id | tonumber)}')
+.github\workflows\build.yml:792: echo "CHANGELOG<<EOF"
+.github\workflows\build.yml:793: echo "$CHANGELOG"
+.github\workflows\build.yml:794: echo "EOF"
+.github\workflows\build.yml:808: echo "QQ_ARTIFACT_LINKS=无" >> "$GITHUB_ENV"
+.github\workflows\build.yml:823: echo "QQ_ARTIFACT_LINKS<<EOF"
+.github\workflows\build.yml:825: echo "EOF"
+.github\workflows\build.yml:837: echo "QQ Bot secrets are missing, skip QQ notification."
+.github\workflows\issue-ai-labeler.yml:61: echo "AI 返回原始内容：$RESPONSE"
+.github\workflows\issue-ai-labeler.yml:64: RESULT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' | xargs 2>/dev/null)
+.github\workflows\issue-ai-labeler.yml:65: echo "AI 判定结果：$RESULT"
+.github\workflows\issue-ai-labeler.yml:66: echo "response=$RESULT" >> $GITHUB_OUTPUT
+cloudflare\plugin-marketplace-worker\README.md:19: pnpm dlx wrangler@latest d1 create echomusic-plugin-stats
+cloudflare\plugin-marketplace-worker\README.md:25: pnpm dlx wrangler@latest d1 execute echomusic-plugin-stats --remote --file schema.sql
+cloudflare\plugin-marketplace-worker\README.md:38: ECHOMUSIC_PLUGIN_STATS_API_URL=https://your-worker.example.com pnpm run build
+cloudflare\plugin-marketplace-worker\README.md:47: --data '{"plugins":[{"sourceId":"github:hoowhoami/echomusicplugins","pluginId":"test"}]}'
+cloudflare\plugin-marketplace-worker\wrangler.toml:1: name = "echomusic-plugin-marketplace"
+cloudflare\plugin-marketplace-worker\wrangler.toml:7: database_name = "echomusic-plugin-stats"
+native\yan-spectrum-capture\src\backend\macos_sck.rs:459: ClassBuilder::new(c"EchoSpectrumSckOutput", superclass).expect("class registered once");
+src\main\electronAxiosAdapter.ts:18: const CAPTURE_REQUEST_HEADER = 'x-echo-transport-request-id';
+src\main\networkPolicy.ts:10: export const APP_NETWORK_SESSION_PARTITION = 'echo-app-network';
+src\main\networkPolicy.ts:11: export const KUGOU_API_SESSION_PARTITION = 'echo-kugou-api';
+src\main\networkPolicy.ts:12: export const COMMUNITY_AUDIO_SESSION_PARTITION = 'echo-community-audio';
+src\main\plugins.ts:26: EchoPluginDescriptor,
+src\main\plugins.ts:27: EchoPluginManifest,
+src\main\plugins.ts:236: left: EchoPluginDescriptor,
+src\main\plugins.ts:237: right: EchoPluginDescriptor,
+src\main\plugins.ts:543: const plugins: EchoPluginDescriptor[] = [];
+src\main\plugins.ts:583: const getPluginCompatibilityError = (plugin: EchoPluginDescriptor) =>
+src\main\plugins.ts:614: const getPluginWebServerAccessError = (plugin: EchoPluginDescriptor) => {
+src\main\plugins.ts:625: const getPluginSqliteAccessError = (plugin: EchoPluginDescriptor) => {
+src\main\plugins.ts:639: callback: (plugin: EchoPluginDescriptor) => T,
+src\main\plugins.ts:1272: manifest: EchoPluginManifest,
+src\main\plugins.ts:1311: return JSON.parse(raw) as EchoPluginManifest;
+src\main\plugins.ts:2214: plugin: EchoPluginDescriptor,
+src\main\plugins.ts:2259: plugin: EchoPluginDescriptor,
+src\main\plugins.ts:2284: const resolvePluginProcessLaunch = (plugin: EchoPluginDescriptor, options: unknown) => {
+src\main\plugins.ts:2360: plugin: EchoPluginDescriptor,
+src\main\plugins.ts:2374: plugin: EchoPluginDescriptor,
+src\main\plugins.ts:2404: plugin: EchoPluginDescriptor,
+src\main\plugins.ts:3167: plugin: EchoPluginDescriptor,
+src\main\pluginSqlite.ts:5: EchoPluginDescriptor,
+src\main\pluginSqlite.ts:192: plugin: EchoPluginDescriptor,
+src\main\pluginWebServer.ts:4: EchoPluginDescriptor,
+src\main\pluginWebServer.ts:331: plugin: EchoPluginDescriptor,
+src\main\ipc\settings.ts:89: // Keep in sync with SECTION_SIZES in native/echo-ffmpeg-player/src/vpf.rs.
+src\main\ipc\settings.ts:121: let echoUpdaterSilent = false;
+src\main\ipc\settings.ts:123: const setEchoSilent = (silent: boolean) => {
+src\main\ipc\settings.ts:124: echoUpdaterSilent = silent;
+src\main\ipc\settings.ts:127: const getEchoSilent = () => echoUpdaterSilent;
+src\main\ipc\settings.ts:897: const silent = getEchoSilent();
+src\main\ipc\settings.ts:923: const silent = getEchoSilent();
+src\main\ipc\settings.ts:960: silent: getEchoSilent(),
+src\main\ipc\settings.ts:1292: setEchoSilent(silent);
+src\main\plugins\common.ts:11: export const PLUGIN_MARKETPLACE_INDEX_FILE = 'echo-plugins.json';
+src\main\plugins\common.ts:14: 'https://github.com/hoowhoami/EchoMusicPlugins';
+src\main\plugins\common.ts:15: export const DEFAULT_PLUGIN_MARKETPLACE_SOURCE_ID = 'github:hoowhoami/echomusicplugins';
+src\main\plugins\common.ts:17: 'https://echomusic-plugin-marketplace.hoowhoami.dpdns.org';
+src\main\plugins\common.ts:20: * 一律使用本地名称，不采用远端索引（echo-plugins.json 的 name 字段）返回的名称，
+src\main\plugins\descriptor.ts:12: EchoPluginCompatibility,
+src\main\plugins\descriptor.ts:13: EchoPluginDescriptor,
+src\main\plugins\descriptor.ts:14: EchoPluginManifest,
+src\main\plugins\descriptor.ts:51: export const getManifestIconSource = (manifest: EchoPluginManifest) => {
+src\main\plugins\descriptor.ts:66: manifest: EchoPluginManifest,
+src\main\plugins\descriptor.ts:161: ): { manifest: EchoPluginManifest; error: string } => {
+src\main\plugins\descriptor.ts:164: const parsed = JSON.parse(raw) as EchoPluginManifest;
+src\main\plugins\descriptor.ts:183: * echoMusicVersion（上游插件清单沿用旧键），保证旧插件仍按原语义做版本门槛判断。
+src\main\plugins\descriptor.ts:186: const getVersionRequirement = (manifest: EchoPluginManifest): unknown => {
+src\main\plugins\descriptor.ts:191: return requires.echoMusicVersion;
+src\main\plugins\descriptor.ts:210: const validateyanmusicVersionRequirement = (manifest: EchoPluginManifest) => {
+src\main\plugins\descriptor.ts:217: const validateManifestCapabilities = (manifest: EchoPluginManifest) => {
+src\main\plugins\descriptor.ts:266: manifest: EchoPluginManifest,
+src\main\plugins\descriptor.ts:267: ): EchoPluginCompatibility => {
+src\main\plugins\descriptor.ts:301: export const validateManifest = (manifest: EchoPluginManifest, manifestError: string) => {
+src\main\plugins\descriptor.ts:317: ): EchoPluginDescriptor => {
+src\main\storage\kv.ts:24: * 此处以循环等价实现 EchoMusic 的 applyBatch 语义；非原子）。
+src\plugin-window\main.ts:4: EchoPluginDescriptor,
+src\plugin-window\main.ts:34: activateWindow?: (ctx: EchoPluginWindowContext) => unknown;
+src\plugin-window\main.ts:35: activate?: (ctx: EchoPluginWindowContext) => unknown;
+src\plugin-window\main.ts:41: | ((ctx: EchoPluginWindowContext) => unknown)
+src\plugin-window\main.ts:43: activateWindow?: (ctx: EchoPluginWindowContext) => unknown;
+src\plugin-window\main.ts:44: activate?: (ctx: EchoPluginWindowContext) => unknown;
+src\plugin-window\main.ts:45: deactivate?: (ctx: EchoPluginWindowContext) => unknown;
+src\plugin-window\main.ts:48: interface EchoPluginWindowContext {
+src\plugin-window\main.ts:52: manifest: EchoPluginDescriptor['manifest'];
+src\plugin-window\main.ts:53: descriptor: EchoPluginDescriptor;
+src\plugin-window\main.ts:195: Reflect.get(module, 'activateWindow') as (ctx: EchoPluginWindowContext) => unknown
+src\plugin-window\main.ts:199: return (Reflect.get(module, 'activate') as (ctx: EchoPluginWindowContext) => unknown).bind(
+src\plugin-window\main.ts:238: const importWindowModule = async (descriptor: EchoPluginDescriptor, source: string) => {
+src\plugin-window\main.ts:248: const requireAudioSpectrumCapability = (descriptor: EchoPluginDescriptor) => {
+src\plugin-window\main.ts:326: const createPluginWebServerApi = (descriptor: EchoPluginDescriptor) => {
+src\plugin-window\main.ts:407: const createPluginSqliteApi = (descriptor: EchoPluginDescriptor) => {
+src\plugin-window\main.ts:506: descriptor: EchoPluginDescriptor,
+src\plugin-window\main.ts:509: ): EchoPluginWindowContext => ({
+src\renderer\style.css:486: body.echo-surface-translucent .main-layout,
+src\renderer\style.css:487: body.echo-surface-translucent .bg-bg-main,
+src\renderer\style.css:488: body.echo-surface-translucent .bg-bg-sidebar,
+src\renderer\style.css:489: body.echo-surface-translucent .bg-bg-card,
+src\renderer\style.css:490: body.echo-surface-translucent .explore-header,
+src\renderer\style.css:491: body.echo-surface-translucent .rank-toolbar,
+src\renderer\style.css:492: body.echo-surface-translucent .new-song-toolbar,
+src\renderer\style.css:493: body.echo-surface-translucent .search-song-toolbar,
+src\renderer\style.css:494: body.echo-surface-translucent .song-list-sticky,
+src\renderer\style.css:495: body.echo-surface-translucent .comment-main-tabs,
+src\renderer\style.css:496: body.echo-surface-translucent .search-pinned-tabs,
+src\renderer\style.css:497: body.echo-surface-translucent .sliver-header-root,
+src\renderer\style.css:498: body.echo-surface-translucent .dialog-content,
+src\renderer\style.css:499: body.echo-surface-translucent .drawer-panel,
+src\renderer\style.css:500: body.echo-surface-translucent .echo-popover-content,
+src\renderer\style.css:501: body.echo-surface-translucent .app-tooltip-content,
+src\renderer\style.css:502: body.echo-surface-translucent .song-context-menu,
+src\renderer\style.css:503: body.echo-surface-translucent .add-to-item,
+src\renderer\style.css:504: body.echo-surface-translucent .toast-card,
+src\renderer\style.css:505: body.echo-surface-translucent .card-container,
+src\renderer\style.css:506: body.echo-surface-translucent .plugin-card,
+src\renderer\style.css:507: body.echo-surface-translucent .plugin-safe-mode-control,
+src\renderer\style.css:508: body.echo-surface-translucent .plugin-settings-section,
+src\renderer\style.css:509: body.echo-surface-translucent .settings-card,
+src\renderer\style.css:510: body.echo-surface-translucent .home-feature-card,
+src\renderer\style.css:511: body.echo-surface-translucent .cloud-info-card,
+src\renderer\style.css:512: body.echo-surface-translucent .route-error-card,
+src\renderer\style.css:513: body.echo-surface-translucent .error-shell,
+src\renderer\style.css:514: body.echo-surface-translucent .login-panel-card,
+src\renderer\style.css:515: body.echo-surface-translucent .tb-suggestions,
+src\renderer\style.css:516: body.echo-surface-translucent .search-suggestions-panel,
+src\renderer\style.css:517: body.echo-surface-translucent .profile-archive-card,
+src\renderer\style.css:518: body.echo-surface-translucent .rec-playlist-item {
+src\renderer\style.css:523: body.echo-surface-translucent .explore-header,
+src\renderer\style.css:524: body.echo-surface-translucent .rank-toolbar,
+src\renderer\style.css:525: body.echo-surface-translucent .new-song-toolbar,
+src\renderer\style.css:526: body.echo-surface-translucent .search-song-toolbar,
+src\renderer\style.css:527: body.echo-surface-translucent .song-list-sticky,
+src\renderer\style.css:528: body.echo-surface-translucent .comment-main-tabs {
+src\renderer\style.css:532: body.echo-surface-translucent .sliver-header-background {
+src\renderer\style.css:541: body .echo-popover-content,
+src\renderer\style.css:561: body .echo-popover-arrow,
+src\renderer\style.css:570: body.echo-surface-translucent .player-bar {
+src\renderer\style.css:723: body.echo-surface-translucent .layout-accent-gradient {
+src\renderer\api\music.ts:62: * 与 Echo 实现逐字节一致；Yan 的 server/module/audio.js 同样按逗号分隔读取 params.hash。
+src\renderer\constants\legal.ts:47: '本软件基于 GitHub 上著名项目 EchoMusic（本项目参考的上游版本：2.3.1-beta.24；作者：hoowhoami）二次开发，在此向 hoowhoami 及所有参与 EchoMusic 开发的开发者致以诚挚敬意。原始版权归 EchoMusic 项目及其开发者所有，本项目中沿用自上游的代码与资源的版权仍归原作者，本项目依据 GNU General Public License v3.0 的条款使用与再发布。本项目在上游版本基础上进行的修改包括：适配 libmpv 播放引擎与一体化打包、调整界面文案与品牌标识（YanMusic）、修复若干 bug（含恢复直接领取 VIP 的功能）；本项目修改部分与上游原始内容的差异说明见仓库内的 CHANGELOG.md 与各版本发行说明。EchoMusic 项目基于 GNU General Public License v3.0 协议开源，该协议允许对软件进行修改、研究和重新发布。感谢 EchoMusic 团队为社区做出的杰出贡献！',
+src\renderer\desktopLyric\DesktopLyricView.vue:494: root.dataset.echoLyricPlaying = isPlaying.value ? 'true' : 'false';
+src\renderer\desktopLyric\DesktopLyricView.vue:495: root.dataset.echoLyricCollapsed = 'false';
+src\renderer\desktopLyric\DesktopLyricView.vue:496: root.dataset.echoLyricReducedMotion = reducedMotion.value ? 'true' : 'false';
+src\renderer\desktopLyric\DesktopLyricView.vue:497: root.dataset.echoLyricLayout = lyricLayout.value;
+src\renderer\desktopLyric\DesktopLyricView.vue:560: // EchoMusic 的 preload send 只接受 (channel, data)，多参数包装成数组
+src\renderer\layouts\MainLayout.vue:91: window.addEventListener('echo:toggle-sidebar', handleShortcutToggleSidebar);
+src\renderer\layouts\MainLayout.vue:97: window.removeEventListener('echo:toggle-sidebar', handleShortcutToggleSidebar);
+src\renderer\plugins\kugou.ts:1: import type { EchoPluginDescriptor } from '../../shared/plugins';
+src\renderer\plugins\kugou.ts:51: const requireKugouApiCapability = (descriptor: EchoPluginDescriptor) => {
+src\renderer\plugins\kugou.ts:57: const createApiNamespace = (descriptor: EchoPluginDescriptor, namespace: string) =>
+src\renderer\plugins\kugou.ts:80: export const createKugouApi = (descriptor: EchoPluginDescriptor): PluginKugouApi =>
+src\renderer\plugins\network.ts:2: EchoPluginDescriptor,
+src\renderer\plugins\network.ts:68: descriptor: EchoPluginDescriptor,
+src\renderer\plugins\runtime.ts:7: EchoPluginDescriptor,
+src\renderer\plugins\runtime.ts:8: EchoPluginManifest,
+src\renderer\plugins\runtime.ts:84: activate?: (ctx: EchoPluginContext) => unknown;
+src\renderer\plugins\runtime.ts:85: deactivate?: (ctx: EchoPluginContext) => unknown;
+src\renderer\plugins\runtime.ts:91: | ((ctx: EchoPluginContext) => unknown)
+src\renderer\plugins\runtime.ts:93: activate?: (ctx: EchoPluginContext) => unknown;
+src\renderer\plugins\runtime.ts:94: deactivate?: (ctx: EchoPluginContext) => unknown;
+src\renderer\plugins\runtime.ts:193: export interface EchoPluginContext {
+src\renderer\plugins\runtime.ts:195: manifest: EchoPluginManifest;
+src\renderer\plugins\runtime.ts:196: descriptor: EchoPluginDescriptor;
+src\renderer\plugins\runtime.ts:349: descriptor: EchoPluginDescriptor;
+src\renderer\plugins\runtime.ts:364: descriptor: EchoPluginDescriptor;
+src\renderer\plugins\runtime.ts:365: context: EchoPluginContext;
+src\renderer\plugins\runtime.ts:976: descriptor: EchoPluginDescriptor,
+src\renderer\plugins\runtime.ts:1063: descriptor: EchoPluginDescriptor,
+src\renderer\plugins\runtime.ts:1132: const createKugouVerificationApi = (descriptor: EchoPluginDescriptor) => {
+src\renderer\plugins\runtime.ts:1169: descriptor: EchoPluginDescriptor,
+src\renderer\plugins\runtime.ts:1199: descriptor: EchoPluginDescriptor,
+src\renderer\plugins\runtime.ts:1535: descriptor: EchoPluginDescriptor,
+src\renderer\plugins\runtime.ts:1624: descriptor: EchoPluginDescriptor,
+src\renderer\plugins\runtime.ts:1807: mountedApp.config.globalProperties.$echo = host.app.config.globalProperties.$echo;
+src\renderer\plugins\runtime.ts:1869: if (options.role && element.dataset.echoScrollRole !== options.role) return false;
+src\renderer\plugins\runtime.ts:2142: descriptor: EchoPluginDescriptor,
+src\renderer\plugins\runtime.ts:2382: descriptor: EchoPluginDescriptor,
+src\renderer\plugins\runtime.ts:2385: ): EchoPluginContext => {
+src\renderer\plugins\runtime.ts:2412: const context: EchoPluginContext = {
+src\renderer\plugins\runtime.ts:2559: return (Reflect.get(module, 'activate') as (ctx: EchoPluginContext) => unknown).bind(module);
+src\renderer\plugins\runtime.ts:2577: return (Reflect.get(module, 'deactivate') as (ctx: EchoPluginContext) => unknown).bind(
+src\renderer\plugins\runtime.ts:2585: const importPluginModule = async (descriptor: EchoPluginDescriptor, code: string) => {
+src\renderer\plugins\runtime.ts:2667: const activatePlugin = async (descriptor: EchoPluginDescriptor, host: PluginRuntimeHost) => {
+src\renderer\plugins\runtime.ts:2751: const isRuntimeEligible = (descriptor: EchoPluginDescriptor) => {
+src\renderer\plugins\runtime.ts:2880: host.app.config.globalProperties.$echo = {
+src\renderer\plugins\types.ts:6: export interface EchoGlobalRuntime {
+src\renderer\plugins\types.ts:16: $echo: EchoGlobalRuntime;
+src\renderer\stores\listenTogether.ts:1671: // 引擎差异（与 Echo 不同）：Echo 的 playerStore.seek 返回 Promise，可直接 .then；
+src\renderer\stores\player.ts:64: // 播放展示状态。Yan 没有 Echo 的 playbackIntent / enginePlayback 状态机，
+src\renderer\stores\player.ts:65: // 因此按 Yan 既有 state 派生（Echo 对应 getPlaybackDisplayState）。
+src\renderer\stores\player.ts:613: // Echo 此处还会 clearGaplessPreparedSource；Yan 无无缝预解析音源子系统，故不迁移。
+src\renderer\stores\player\playback.ts:299: // Echo 的插件音源转换阶段标记。Yan 无插件音源流水线，此字段仅作兼容占位，
+src\renderer\stores\player\types.ts:15: * 音源来源类型。对齐 Echo（一起听房间授权音源会带 sourceKind: 'catalog'）。
+src\renderer\stores\playlist\constants.ts:6: // 一起听房间播放队列 id。沿用 Yan 播放队列的 'queue:' 命名约定，取值与 Echo 一致。
+src\renderer\utils\shortcuts.ts:516: new CustomEvent('echo:toggle-sidebar', { cancelable: true }),
+src\renderer\views\PluginManagement.vue:39: import type { EchoPluginManifest } from '../../shared/plugins';
+src\renderer\views\PluginManagement.vue:279: const getPluginFeatureTags = (manifest: EchoPluginManifest) => {
+src\renderer\views\Recognize.vue:167: echoCancellation: false,
+src\renderer\views\lyric\LyricScroller.vue:257: root.dataset.echoLyricPlaying = playing;
+src\renderer\views\lyric\LyricScroller.vue:262: root.dataset.echoLyricCollapsed = collapsed;
+src\renderer\views\lyric\LyricScroller.vue:267: root.dataset.echoLyricReducedMotion = reduced;
+src\renderer\views\settings\components\DataSettingsSection.vue:64: const handleChooseImport = async () => {
+src\renderer\views\settings\components\DataSettingsSection.vue:167: @click="handleChooseImport"
+src\renderer\views\settings\components\PluginSettingsSection.vue:27: 'https://github.com/hoowhoami/EchoMusicPlugins',
+src\shared\network.ts:4: /** 全局网络代理模式（系统/直连/WPAD/PAC/手动代理，EchoMusic 网络策略体系） */
+src\shared\plugins.ts:106: plugin: EchoPluginDescriptor;
+src\shared\plugins.ts:616: export interface EchoPluginManifest {
+src\shared\plugins.ts:652: echoMusicVersion?: string;
+src\shared\plugins.ts:656: export interface EchoPluginCompatibility {
+src\shared\plugins.ts:663: export interface EchoPluginDescriptor {
+src\shared\plugins.ts:679: compatibility: EchoPluginCompatibility;
+src\shared\plugins.ts:680: manifest: EchoPluginManifest;
+src\shared\plugins.ts:753: compatibility: EchoPluginCompatibility;
+src\shared\plugins.ts:755: manifest: EchoPluginManifest;
+src\shared\plugins.ts:804: plugin: EchoPluginDescriptor;
+src\shared\plugins.ts:820: plugin: EchoPluginDescriptor;
+src\shared\plugins.ts:847: plugins: EchoPluginDescriptor[];
+src\shared\plugins.ts:856: plugin: EchoPluginDescriptor;
