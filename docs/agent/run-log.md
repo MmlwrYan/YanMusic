@@ -200,3 +200,59 @@ git config --local user.name/user.email      -> MmlwrYan / a18821657632@outlook.
 | harness pnpm 包装器看门狗 | 子进程 300 秒无输出即被 SIGKILL（`vue-tsc` 恰好静默） | 改用 `node node_modules/vue-tsc/bin/vue-tsc.js` 直调 |
 | pnpm 未自动下载 Electron 二进制 | `node_modules/electron` 无 `dist/`（`ignoredBuiltDependencies` 含 electron） | 从本机既有安装复制 `dist/` 与 `path.txt` |
 | `npm install` 污染已入库的 `native/yan-storage/node_modules` | `git status` 出现 2167 个 `M` | `git checkout -- native/yan-storage/node_modules` 还原（该目录被 `git add -f` 纳入版本控制，属仓库卫生问题，见 FINAL-REPORT） |
+
+## 阶段 4 — 发布结果（完成）
+
+```
+git push origin main                         -> 68b8410..5f0fa83  main -> main   exit 0（未 force）
+git tag -a v1.1.1 -m "YanMusic v1.1.1"
+git push origin v1.1.1                       -> * [new tag] v1.1.1 -> v1.1.1   exit 0
+git ls-remote origin refs/heads/main         -> 5f0fa83eaa8dfab2ffd70acf9612ed18e09cddc4
+git log --oneline origin/main..HEAD          -> 空
+git ls-remote --tags origin                  -> 04d5b574 refs/tags/v1.1.1
+                                                5f0fa83e refs/tags/v1.1.1^{}
+
+触发条件：.github/workflows/build.yml 为 on.push.tags=['v*'] + workflow_dispatch
+  => 推送到 main 不触发构建，仅 tag 触发
+
+GitHub Actions run #6 "Build YanMusic Desktop"
+  id        = 35436787605
+  url       = https://github.com/MmlwrYan/YanMusic/actions/runs/35436787605
+  head_sha  = 5f0fa83eaa8dfab2ffd70acf9612ed18e09cddc4
+  status    = completed / conclusion = success
+  耗时      = 2026-09-19T10:13:02Z -> 10:31:01Z（约 18 分钟）
+  6 个 job  = Windows-x64 / Windows-arm64 / Linux-x64 / Linux-arm64 / macOS-x64 / macOS-arm64
+
+GitHub Release v1.1.1
+  url      = https://github.com/MmlwrYan/YanMusic/releases/tag/v1.1.1
+  draft=false prerelease=false published_at=2026-09-19T10:30:47Z
+  assets   = 22 个（Windows x64/arm64 exe；macOS x64/arm64 dmg+zip；
+             Linux x64/arm64 AppImage/deb/rpm/pacman/pkg.tar.zst/tar.gz；latest*.yml ×4）
+```
+
+## 附：原目录替换（按用户指示执行）
+
+```
+# 1) 占用确认
+Get-Process YanMusic -> 6 个进程均为已安装版
+  C:\Users\admin\AppData\Local\Programs\YanMusic\YanMusic.exe（与 C:\coding\YanMusic 无关）
+Rename-Item C:\coding\YanMusic -> _old_YanMusic_v1.1.0   -> OK（未被占用）
+
+# 2) 移动修好的仓库到原路径
+Move-Item C:\coding\yanmusic-agent -> C:\coding\YanMusic
+
+# 3) 移动后链接全部失效（pnpm 使用绝对路径）
+stale junctions = 326（顶层）/ 1243（递归）
+pnpm install -> ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY（非 TTY 下拒绝清空 node_modules）
+  => 改用重写 junction 目标：fixed=1243 skipped=0 failed=0 -> stale=0
+  => 另修正 135 个 .bin 垫片的 NODE_PATH、.modules.yaml 的 virtualStoreDir（转义形式）
+  => .bin 残留 0、.modules.yaml 残留 0
+
+# 4) 新位置验证
+node node_modules/vue-tsc/bin/vue-tsc.js --noEmit  -> exit 0
+node node_modules/vite/bin/vite.js build           -> exit 0
+4 个 .node 产物 / server(217 模块) / build/mpv/libmpv-2.dll / electron.exe v43.1.1 全部就位
+
+# 5) 删除旧副本
+Remove-Item C:\coding\_old_YanMusic_v1.1.0 -Recurse -Force -> 释放 2.93 GB
+```
