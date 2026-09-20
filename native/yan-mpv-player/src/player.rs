@@ -206,10 +206,17 @@ impl MpvPlayer {
                 "stereo",
             ),
         );
-        player.set_option(
-            "audio-format",
-            &normalize_choice(&config.audio_format, &["auto", "float", "s16", "s32"], "auto"),
-        );
+        // audio-format 的 "auto" 是**引擎侧的默认行为**，不是 mpv 认识的字面量：
+        // mpv v0.41.0 `options/m_option.c` 的 parse_afmt() 只接受 af_fmt_to_str()
+        // 产出的具体采样格式名（u8/s16/s32/s64/float/double/…p），其余一律返回
+        // M_OPT_INVALID；而 print_afmt() 把「未设置」的内部值 0 打印成 "no"。
+        // 所以对 auto 直接不下发该选项（让 mpv 保持默认 = 不强制输出格式）：
+        // 语义与 UI 一致，且避免一次被 set_option 静默吞掉的非法写入。
+        let audio_format =
+            normalize_choice(&config.audio_format, &["auto", "float", "s16", "s32"], "auto");
+        if audio_format != "auto" {
+            player.set_option("audio-format", &audio_format);
+        }
         player.set_option(
             "gapless-audio",
             &normalize_choice(&config.gapless_audio, &["weak", "yes", "no"], "weak"),
