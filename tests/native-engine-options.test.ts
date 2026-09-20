@@ -242,3 +242,99 @@ test('P1：audio-format 的 auto 由 mpv 默认值表达，回读 no 且可自�
     }
   }
 });
+
+/**
+ * P2 — 属性下发路径判定：这 12 项音频/缓存选项是**启动期一次性下发**（重启生效），
+ * 运行期不存在改写通道。因此不需要补运行时 `set_property` 白名单。
+ *
+ * 依据：
+ *  1. Rust 侧全部走 `mpv_set_option_string`，且都发生在 `mpv_initialize` **之前**
+ *     （`player.rs`：「设置初始化选项（必须在 mpv_initialize 之前）」；`mpv_set_option_*`
+ *     在 initialize 之后即不可用，libmpv 要求改用 `mpv_set_property_*`）。
+ *  2. `lib.rs` 的 31 个 `#[napi]` 导出里没有任何能改写这 12 项的入口；通用逃生口
+ *     `MpvPlayer::set_property` 未导出（这正是 addon 重建日志里 `dead_code` 警告的来源）。
+ *  3. `MpvController.command('set_property', …)` 只路由 8 个固定属性
+ *     （force-media-title / audio-exclusive / audio-device / pause / volume / speed / aid / af），
+ *     不含这 12 项，所以运行期改设置不会到达 mpv。
+ *
+ * 本用例用真实引擎断言：初始化值生效 → 重建（等价于重启应用）后新值生效，
+ * 并断言 addon 导出面上不存在运行期改写入口。
+ */
+test('P2：音频/缓存选项为启动期一次性下发（重建后生效，运行期无改写入口）', { skip: skip ? skipReason : false }, () => {
+  const require = createRequire(import.meta.url);
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const addon = require(addonPath) as MpvAddon;
+
+  try {
+    // 1) 运行期改写入口不存在（导出面 31 项，逐一核对没有通用/专用写入入口）
+    const surface = Object.keys(addon);
+    for (const forbidden of ['setProperty', 'set_property', 'setOption', 'set_option']) {
+      assert.ok(!surface.includes(forbidden), `addon 不应导出运行期通用写入入口 ${forbidden}`);
+    }
+    for (const name of [
+      'setAudioFormat',
+      'setAudioChannels',
+      'setAudioSamplerate',
+      'setCache',
+      'setCacheSecs',
+      'setCachePause',
+      'setCachePauseWaitSecs',
+      'setDemuxerMaxMb',
+      'setDemuxerBackMb',
+      'setDemuxerReadaheadSecs',
+      'setAudioBufferSecs',
+      'setGaplessAudio',
+    ]) {
+      assert.ok(!surface.includes(name), `addon 不应导出运行期写入入口 ${name}`);
+    }
+
+    // 2) 初始化时的配置生效
+    addon.initialize(libmpvPath!, {
+      cacheSecs: 30,
+      demuxerMaxMb: 48,
+      demuxerBackMb: 12,
+      audioBufferSecs: 0.5,
+      demuxerReadaheadSecs: 30,
+      cache: 'yes',
+      cachePause: true,
+      cachePauseWaitSecs: 5,
+      audioSamplerate: 'auto',
+      audioChannels: 'stereo',
+      gaplessAudio: 'weak',
+    });
+    assertOptionEquals(addon, 'cache-secs', '30');
+    assertOptionEquals(addon, 'cache', 'yes');
+    assertOptionEquals(addon, 'audio-channels', 'stereo');
+    assertOptionEquals(addon, 'demuxer-readahead-secs', '30');
+
+    // 3) 重建（= 重启应用，主进程会重新调用 addon.initialize）后新值生效
+    addon.initialize(libmpvPath!, {
+      cacheSecs: 77,
+      demuxerMaxMb: 96,
+      demuxerBackMb: 24,
+      audioBufferSecs: 1.5,
+      demuxerReadaheadSecs: 11,
+      cache: 'no',
+      cachePause: false,
+      cachePauseWaitSecs: 2.5,
+      audioSamplerate: '48000',
+      audioChannels: 'mono',
+      gaplessAudio: 'no',
+    });
+    assertOptionEquals(addon, 'cache-secs', '77');
+    assertOptionEquals(addon, 'cache', 'no');
+    assertOptionEquals(addon, 'audio-channels', 'mono');
+    assertOptionEquals(addon, 'demuxer-readahead-secs', '11');
+    assertOptionEquals(addon, 'audio-buffer', '1.5');
+    assertOptionEquals(addon, 'cache-pause', 'no');
+    assertOptionEquals(addon, 'cache-pause-wait', '2.5');
+    assertOptionEquals(addon, 'audio-samplerate', '48000');
+    assertOptionEquals(addon, 'gapless-audio', 'no');
+  } finally {
+    try {
+      addon.destroy();
+    } catch {
+      // ignore
+    }
+  }
+});
