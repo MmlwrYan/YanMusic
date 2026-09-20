@@ -17,21 +17,28 @@
 
 - `yan-mpv-player` 的 `initialize` 配置新增 8 个字段；原生侧对所有枚举型取值做**白名单归一化**，非法值一律回落到默认值，不会把任意字符串注入 mpv 选项解析器。
 - 新增 `src/shared/native-audio-options.ts`（纯逻辑：默认值与归一化）、`src/main/mpv/audioOptions.ts`（读取持久化设置）、`src/main/mpv/eqHeadroom.ts`（EQ 前级补偿计算）。
-- 新增 `tests/`（`node --test`，19 个用例）与 `pnpm test` 脚本：
+- 新增 `tests/`（`node --test`，30 个用例）与 `pnpm test` 脚本：
   - **数学验证**：EQ 级联补偿量在对数网格与 20 万点高精度参考网格上的偏差 < 0.1 dB；闭式幅度响应与脉冲响应 DFT 一致（相对误差 < 1e-3）；补偿后级联峰值不超过 0 dB。
   - **回归测试**：断言「从 `pinia:setting` 形状的持久化对象中能读到用户设置」（即本次修复的键错配）、默认值与接线前硬编码值逐项一致、越界夹取与非法值回落。
-  - **真实引擎回读验证**：把选项下发给 libmpv 后读回 mpv 属性核对（9 个选项），并验证默认值与接线前的硬编码行为一致。缺少原生模块或 libmpv 时该组用例自动跳过。
+  - **真实引擎回读验证**：把选项下发给 libmpv 后读回 mpv 属性核对（12 个选项），并验证默认值与接线前的硬编码行为一致。缺少原生模块或 libmpv 时该组用例自动跳过。
+- 新增 `scripts/verify-r2-audio-options.cjs`（真实 `yan-storage.node` 读 `pinia:setting` → 归一化 → 真实 libmpv 回读 → 逐项 PASS/MISMATCH 判定）与 `scripts/verify-legacy-migration.cjs`（隔离 userData 的迁移端到端验证，支持 legacy / custom / fresh 三档）。
 
 ### 变更
 
-- 为**保持既有行为不变**，4 个设置项的默认值与接线前的实际硬编码值对齐：`demuxerReadaheadSecs` 1→30、`cache` `auto`→`yes`、`cachePauseWaitSecs` 1→5、`audioChannels` `auto-safe`→`stereo`。**未改过设置的用户，听感与缓冲行为与 1.1.1 完全一致**；改过设置的用户，其设置现在会真正生效。
+- 为**保持既有行为不变**，对四个字段做了一次性存量设置对齐：`demuxerReadaheadSecs` 1→30、`cache` `auto`→`yes`、`cachePauseWaitSecs` 1→5、`audioChannels` `auto-safe`→`stereo`（这四个值就是接线前代码硬编码到 mpv 的值）。
+  为什么需要迁移而不只是改默认值：渲染层会把整个 store 状态（含默认值）一起持久化，因此**存量用户的设置库里保存的就是这四个旧默认值**；只改默认值对他们无效，接线生效后他们的缓冲时长、缓存模式与输出声道会静默变化。迁移只改动「仍等于旧默认值」的字段，用户显式改过的值一律不动（已由单元测试覆盖）。
+  **结论：未改过这四项的用户，升级后听感与缓冲行为与 1.1.1 完全一致；改过的用户，其设置现在会真正生效。**
 - 这些选项在**播放引擎启动时**一次性下发（与上游 EchoMusic 的 `start()` 语义相同），修改后需重启应用生效。
+- 上述存量设置对齐**在主进程、播放引擎 `initialize()` 之前完成并落盘**（`src/main/mpv/audioOptions.ts` 的 `readNativeAudioOptions()`）。原因：`app.ts` 是 `await Promise.all([initApiServer(), initMpvPlayer()])` → `await createWindow()`，引擎在窗口存在之前就已初始化完毕，只靠渲染层迁移会让升级后的**第一次**启动仍用旧默认值。渲染层的 `ensureNativeAudioOptionDefaults()` 保留为幂等的安全网。
+- **`audio-format` 的 `auto` 不再作为字面量下发给 mpv**：`auto` 不是 mpv `--audio-format` 的合法取值（`options/m_option.c` 的 `parse_afmt()` 只接受 `af_fmt_to_str()` 产出的具体采样格式名，其余返回 `M_OPT_INVALID`），而 `print_afmt()` 把「未设置」的内部值 `0` 打印成 `no`。原先写入被 `set_option`（忽略返回值）静默吞掉；现在 `auto` 由「不下发该选项」表达，语义与 mpv 默认完全一致，用户可感知行为不变。
 - `tsconfig.json` 打开 `allowImportingTsExtensions` 并把 `tests/**/*.ts` 纳入类型检查（`node --test` 直接运行 `.ts` 依赖该扩展名导入）。
 
 ### 说明
 
-- 验证结果：`pnpm test` **19/19 通过**；`vue-tsc --noEmit` exit 0；`vite build` exit 0；`yan-mpv-player` 重新编译 exit 0。
-- 实测确认 mpv 会把 `audio-format` 的 `auto` 规范化为 `no`（二者同义：不强制输出格式），与接线前「未设置」等价。
+- 验证结果：`node --test tests/*.test.ts` **30/30 通过**（tests 30 / pass 30 / fail 0 / skipped 0）；`vue-tsc --noEmit` exit 0 且无输出；`vite build` exit 0；4 个原生 addon 全部重新编译 exit 0。
+- 端到端实测（读取应用真实设置库 → 归一化 → 下发给 libmpv → 回读 mpv 属性）：**12 项逐项一致，0 项 MISMATCH**。其中 `audio-format` 的期望值按下面的语义修正：`auto` 时 mpv 回读为 `no`，这是 `option-info/audio-format` 自报的 `default-value`，即「该选项未设置」的默认值，而不是 `auto` 的别名（详见 `docs/agent/05-fix-1.1.2.md` §3）。
+- 存量设置迁移端到端验证（隔离 userData）：预置旧默认值 → 启动应用 → 迁移落盘，`nativeAudioOptionsMigrationDone` 为 `true`，四项对齐到 `30 / yes / 5 / stereo`；用户显式改过的值保持不变；迁移后的引擎配置与新装用户**逐项相同**。
+- **R2（4 项音频缓冲/缓存读取路径）已按范式修复，待人工验证**：验证命令见 `docs/agent/05-fix-1.1.2.md` §1.3。
 
 ## [1.1.1]
 
