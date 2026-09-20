@@ -72,6 +72,91 @@ export const MAX_AUDIO_BUFFER_SECS = 10;
 export const MIN_SAMPLE_RATE = 8_000;
 export const MAX_SAMPLE_RATE = 768_000;
 
+/**
+ * 1.1.2 之前**渲染层设置项**的默认值。
+ *
+ * 这些字段当时从未下发给引擎（引擎侧是被硬编码的），因此「设置里的值」与
+ * 「引擎实际行为」在四个字段上不一致。由于渲染层会把整个 store 状态（含默认值）
+ * 一起持久化，存量用户的 `pinia:setting` 里保存的就是这四个旧默认值 ——
+ * 只改 `setting.ts` 的默认值无法影响他们，必须做一次性迁移。
+ */
+export const LEGACY_RENDERER_AUDIO_OPTION_DEFAULTS = {
+  demuxerReadaheadSecs: 1,
+  cache: 'auto',
+  cachePauseWaitSecs: 1,
+  audioChannels: 'auto-safe',
+} as const;
+
+export type MigratableAudioOptionKey =
+  | 'demuxerReadaheadSecs'
+  | 'cache'
+  | 'cachePauseWaitSecs'
+  | 'audioChannels';
+
+/**
+ * 计算「存量设置对齐」补丁：把**仍然等于旧默认值**的字段改成引擎接线前的实际行为，
+ * 从而让升级不产生静默的听感/缓冲变化。
+ *
+ * 已被用户显式改成其他值的字段一律不动。
+ * 注意：若用户恰好把某字段设成了与旧默认值相同的值，无法与「从未改过」区分，
+ * 会被一并迁移 —— 这是基于默认值迁移的固有限制（与 `impulseResponseSafetyMigrationDone`
+ * 的既有做法一致）。
+ */
+export const resolveLegacyAudioOptionDefaultPatch = (state: {
+  demuxerReadaheadSecs?: number | null;
+  cache?: string | null;
+  cachePauseWaitSecs?: number | null;
+  audioChannels?: string | null;
+}): Partial<Pick<NativeAudioOptions, MigratableAudioOptionKey>> => {
+  const patch: Partial<Pick<NativeAudioOptions, MigratableAudioOptionKey>> = {};
+  const legacy = LEGACY_RENDERER_AUDIO_OPTION_DEFAULTS;
+  const defaults = DEFAULT_NATIVE_AUDIO_OPTIONS;
+
+  if (Number(state.demuxerReadaheadSecs) === legacy.demuxerReadaheadSecs) {
+    patch.demuxerReadaheadSecs = defaults.demuxerReadaheadSecs;
+  }
+  if (state.cache === legacy.cache) {
+    patch.cache = defaults.cache;
+  }
+  if (Number(state.cachePauseWaitSecs) === legacy.cachePauseWaitSecs) {
+    patch.cachePauseWaitSecs = defaults.cachePauseWaitSecs;
+  }
+  if (state.audioChannels === legacy.audioChannels) {
+    patch.audioChannels = defaults.audioChannels;
+  }
+
+  return patch;
+};
+
+/** 一次性存量设置对齐标记在持久化对象中的键名（渲染层 setting store 的同名 state 字段）。 */
+export const NATIVE_AUDIO_OPTIONS_MIGRATION_FLAG = 'nativeAudioOptionsMigrationDone';
+
+/**
+ * 计算一次性「存量设置对齐」后的**完整持久化对象**，供主进程与渲染层共用。
+ *
+ * 返回 `null` 表示无需改动（该用户已经迁移过，或标记已是 true）。
+ *
+ * 为什么主进程也要调用一次：主进程在创建窗口**之前**就调用 `addon.initialize(...)`
+ * （`app.ts` 的 `initMpvPlayer()` 先于 `createWindow()`），而渲染层的迁移要等窗口
+ * 挂载之后才执行。只靠渲染层会让「升级后的第一次启动」用未对齐的旧默认值初始化
+ * 引擎，第二次启动才对齐 —— 这正是本迁移要避免的行为变化。
+ */
+export const applyLegacyAudioOptionDefaultMigration = (
+  persisted: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null => {
+  const state = persisted ?? {};
+  if (state[NATIVE_AUDIO_OPTIONS_MIGRATION_FLAG] === true) return null;
+
+  const patch = resolveLegacyAudioOptionDefaultPatch({
+    demuxerReadaheadSecs: state.demuxerReadaheadSecs as number | null | undefined,
+    cache: state.cache as string | null | undefined,
+    cachePauseWaitSecs: state.cachePauseWaitSecs as number | null | undefined,
+    audioChannels: state.audioChannels as string | null | undefined,
+  });
+
+  return { ...state, ...patch, [NATIVE_AUDIO_OPTIONS_MIGRATION_FLAG]: true };
+};
+
 export const CACHE_MODES = ['auto', 'yes', 'no'] as const;
 export const AUDIO_CHANNELS = ['auto-safe', 'auto', 'stereo', 'mono'] as const;
 export const AUDIO_FORMATS = ['auto', 'float', 's16', 's32'] as const;

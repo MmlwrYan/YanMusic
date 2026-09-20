@@ -14,7 +14,8 @@ import {
   normalizeNetworkSettings,
   type NetworkSettings,
 } from '../../shared/network';
-import { configureRendererLogger } from '@/utils/logger';
+import { resolveLegacyAudioOptionDefaultPatch } from '../../shared/native-audio-options';
+import logger, { configureRendererLogger } from '@/utils/logger';
 
 export const DEFAULT_SHORTCUT_LABELS: Record<string, string> = {
   togglePlayback: '⌘Space',
@@ -188,6 +189,9 @@ export const useSettingStore = defineStore('setting', {
     audioChannels: 'stereo', // mpv audio-channels（接线前硬编码 stereo）
     audioFormat: 'auto', // mpv audio-format
     gaplessAudio: 'weak', // mpv gapless-audio
+    // 存量设置对齐标记：1.1.2 把上面四项的旧默认值（1 / auto / 1 / auto-safe）
+    // 迁移为「引擎接线前的实际行为」，避免升级后缓冲与声道行为静默变化。
+    nativeAudioOptionsMigrationDone: false,
     kugouApiProxyUrl: DEFAULT_NETWORK_SETTINGS.kugouApiProxyUrl,
     kugouApiTimeoutSecs: DEFAULT_NETWORK_SETTINGS.kugouApiTimeoutSecs,
     mpvHttpProxyUrl: DEFAULT_NETWORK_SETTINGS.mpvHttpProxyUrl,
@@ -225,6 +229,56 @@ export const useSettingStore = defineStore('setting', {
         ...(this.defaultGlobalShortcutLabels ?? {}),
         ...DEFAULT_GLOBAL_SHORTCUT_LABELS,
       };
+    },
+    /**
+     * 一次性把存量的「旧默认值」音频/缓存设置对齐到引擎接线前的实际行为。
+     *
+     * 背景：这四项在 1.1.2 之前从未下发给引擎（引擎侧硬编码），而渲染层会把
+     * 整个 store 状态（含默认值）持久化，因此存量用户的存储值仍是旧默认值。
+     * 若不迁移，接线生效后他们的缓冲时长、缓存模式与输出声道会静默变化。
+     *
+     * 需在 `waitForSqlitePersistHydration()` 之后调用（见 App.vue），
+     * 否则会先于持久化状态回灌而读到默认值。
+     *
+     * 主进程已在引擎初始化前执行过同一迁移（见 `main/mpv/audioOptions.ts`），
+     * 因此正常情况下这里读到的是 `nativeAudioOptionsMigrationDone === true` 而直接跳过；
+     * 保留本调用是为了覆盖「主进程未能落盘」等异常路径，两条路径共用同一个纯函数。
+     */
+    ensureNativeAudioOptionDefaults() {
+      const before = {
+        demuxerReadaheadSecs: this.demuxerReadaheadSecs,
+        cache: this.cache,
+        cachePauseWaitSecs: this.cachePauseWaitSecs,
+        audioChannels: this.audioChannels,
+        nativeAudioOptionsMigrationDone: this.nativeAudioOptionsMigrationDone,
+      };
+
+      if (this.nativeAudioOptionsMigrationDone) {
+        logger.info('[迁移] 存量音频/缓存设置对齐：已执行过，跳过', before);
+        return;
+      }
+
+      logger.info('[迁移] 存量音频/缓存设置对齐：开始', before);
+
+      const patch = resolveLegacyAudioOptionDefaultPatch({
+        demuxerReadaheadSecs: this.demuxerReadaheadSecs,
+        cache: this.cache,
+        cachePauseWaitSecs: this.cachePauseWaitSecs,
+        audioChannels: this.audioChannels,
+      });
+      Object.assign(this, patch);
+      this.nativeAudioOptionsMigrationDone = true;
+
+      logger.info('[迁移] 存量音频/缓存设置对齐：完成', {
+        patch,
+        after: {
+          demuxerReadaheadSecs: this.demuxerReadaheadSecs,
+          cache: this.cache,
+          cachePauseWaitSecs: this.cachePauseWaitSecs,
+          audioChannels: this.audioChannels,
+          nativeAudioOptionsMigrationDone: this.nativeAudioOptionsMigrationDone,
+        },
+      });
     },
     openLogDirectory() {
       if (window.electron?.ipcRenderer) {

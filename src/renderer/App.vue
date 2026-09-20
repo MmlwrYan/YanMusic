@@ -198,6 +198,8 @@ onMounted(async () => {
 
   await waitForSqlitePersistHydration();
   settings.ensureShortcutDefaults();
+  // 存量音频/缓存设置对齐：必须在持久化状态回灌之后执行（见 setting store 注释）
+  settings.ensureNativeAudioOptionDefaults();
   await Promise.all([playlistStore.hydratePlaybackStateFromStorage(), historyStore.hydrate()]);
   player.init();
 
