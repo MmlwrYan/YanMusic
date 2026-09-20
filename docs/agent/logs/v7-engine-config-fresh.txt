@@ -1,0 +1,14 @@
+﻿  [2026-09-20 22:43:12.311] [info]  [MpvController] Native audio options applied {
+  cacheSecs: 30,
+  demuxerMaxMb: 48,
+  demuxerBackMb: 12,
+  audioBufferSecs: 0.5,
+  demuxerReadaheadSecs: 30,
+  cache: 'yes',
+  cachePause: true,
+  cachePauseWaitSecs: 5,
+  audioSamplerate: 'auto',
+  audioChannels: 'stereo',
+  audioFormat: 'auto',
+  gaplessAudio: 'weak'
+}

@@ -1,0 +1,61 @@
+﻿=== V5/V6/V7 存量设置迁移端到端验证（隔离 userData）===
+profile：custom —— 存量用户（三项被显式改过）→ 只对齐未改过的 demuxerReadaheadSecs
+userData：C:\Users\admin\AppData\Local\Temp\yanmusic-migration-verify-custom
+
+[BEFORE 预置的设置] pinia:setting 中的相关字段：
+  demuxerReadaheadSecs               = 1
+  cache                              = "no"
+  cachePauseWaitSecs                 = 2.5
+  audioChannels                      = "mono"
+  nativeAudioOptionsMigrationDone    = null
+
+启动：C:\coding\YanMusic\node_modules\electron\dist\electron.exe . --user-data-dir=C:\Users\admin\AppData\Local\Temp\yanmusic-migration-verify-custom（env.ELECTRON_RUN_AS_NODE="1" → 已清除）
+应用退出：由验证脚本 taskkill /T /F 终止（正常路径：应用会一直运行到用户关闭），终止后落定为 status=1 signal=none
+
+[AFTER 应用启动后] pinia:setting 中的相关字段：
+  demuxerReadaheadSecs               = 30
+  cache                              = "no"
+  cachePauseWaitSecs                 = 2.5
+  audioChannels                      = "mono"
+  nativeAudioOptionsMigrationDone    = true
+
+应用日志中的迁移入口/出口记录：
+  [2026-09-20 22:43:08.131] [info]  [AudioOptions] 存量音频/缓存设置对齐：已在引擎初始化前完成并落盘 {
+  before: {
+    demuxerReadaheadSecs: 1,
+    cache: 'no',
+    cachePauseWaitSecs: 2.5,
+    audioChannels: 'mono'
+  },
+  after: {
+    demuxerReadaheadSecs: 30,
+    cache: 'no',
+    cachePauseWaitSecs: 2.5,
+    audioChannels: 'mono'
+  },
+  nativeAudioOptionsMigrationDone: true
+}
+  [2026-09-20 22:43:08.133] [info]  [MpvController] Native audio options applied {
+  cacheSecs: 30,
+  demuxerMaxMb: 48,
+  demuxerBackMb: 12,
+  audioBufferSecs: 0.5,
+  demuxerReadaheadSecs: 30,
+  cache: 'no',
+  cachePause: true,
+  cachePauseWaitSecs: 2.5,
+  audioSamplerate: 'auto',
+  audioChannels: 'mono',
+  audioFormat: 'auto',
+  gaplessAudio: 'weak'
+}
+  [2026-09-20 22:43:08.965] [info]  [[迁移] 存量音频/缓存设置对齐：已执行过，跳过] {"demuxerReadaheadSecs":30,"cache":"no","cachePauseWaitSecs":2.5,"audioChannels":"mono","nativeAudioOptionsMigrationDone":true}
+
+  demuxerReadaheadSecs               期望 30       实际 30       OK
+  cache                              期望 "no"     实际 "no"     OK
+  cachePauseWaitSecs                 期望 2.5      实际 2.5      OK
+  audioChannels                      期望 "mono"   实际 "mono"   OK
+  nativeAudioOptionsMigrationDone    期望 true     实际 true     OK
+
+迁移结果：PASS —— 结果与预期逐项一致
+

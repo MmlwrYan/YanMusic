@@ -1,0 +1,56 @@
+=== 存量设置迁移端到端验证 20:29:08 ===
+[before] pinia:setting 中相关字段：
+  demuxerReadaheadSecs               = 1
+  cache                              = "auto"
+  cachePauseWaitSecs                 = 1
+  audioChannels                      = "auto-safe"
+  nativeAudioOptionsMigrationDone    = undefined
+[after] pinia:setting 中相关字段：
+  demuxerReadaheadSecs               = 1
+  cache                              = "auto"
+  cachePauseWaitSecs                 = 1
+  audioChannels                      = "auto-safe"
+  nativeAudioOptionsMigrationDone    = undefined
+
+=== 隔离 userData 的迁移端到端验证 20:31:12 ===
+exit=1
+[BEFORE 预置的存量设置]
+  demuxerReadaheadSecs               = 1
+  cache                              = "auto"
+  cachePauseWaitSecs                 = 1
+  audioChannels                      = "auto-safe"
+  nativeAudioOptionsMigrationDone    = undefined
+
+启动：C:\coding\YanMusic\node_modules\electron\dist\electron.exe . --user-data-dir=C:\Users\admin\AppData\Local\Temp\yanmusic-migration-test
+应用退出：status=1 signal=none
+
+[AFTER 应用启动后]
+  demuxerReadaheadSecs               = 1
+  cache                              = "auto"
+  cachePauseWaitSecs                 = 1
+  audioChannels                      = "auto-safe"
+  nativeAudioOptionsMigrationDone    = undefined
+
+迁移结果：MISMATCH —— 迁移未生效
+
+=== 重新构建 dist 后再验证迁移 20:42:03 ===
+vite build exit=0
+exit=1
+[BEFORE 预置的存量设置]
+  demuxerReadaheadSecs               = 1
+  cache                              = "auto"
+  cachePauseWaitSecs                 = 1
+  audioChannels                      = "auto-safe"
+  nativeAudioOptionsMigrationDone    = undefined
+
+启动：C:\coding\YanMusic\node_modules\electron\dist\electron.exe . --user-data-dir=C:\Users\admin\AppData\Local\Temp\yanmusic-migration-test
+应用退出：status=1 signal=none
+
+[AFTER 应用启动后]
+  demuxerReadaheadSecs               = 1
+  cache                              = "auto"
+  cachePauseWaitSecs                 = 1
+  audioChannels                      = "auto-safe"
+  nativeAudioOptionsMigrationDone    = undefined
+
+迁移结果：MISMATCH —— 迁移未生效

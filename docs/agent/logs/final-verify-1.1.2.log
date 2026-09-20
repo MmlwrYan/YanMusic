@@ -1,16 +1,107 @@
-=== verify 1.1.2 20:05:46 ===
-vue-tsc exit=0
+﻿# YanMusic 1.1.2 收尾修复 —— 最终验证日志（V1/V2/V3/V8）
+# 生成时间：2026-09-20 22:50:17
+# 代码状态：542b668（本轮修复提交之后、文档提交之前）
 
-=== pnpm test 20:10:23 ===
-pnpm test exit=0
-? tests 19
-? pass 19
-? fail 0
-? skipped 0
-vite build exit=0
-transforming...? 11 modules transformed.
-rendering chunks...
-computing gzip size...
-dist-electron/preload/index.js  27.70 kB �� gzip: 7.73 kB
+===== V1 vue-tsc --noEmit =====
+命令: node node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+exit code: 0
+stdout/stderr: (无输出)
 
-? built in 82ms
+===== V2 node --test tests/*.test.ts =====
+命令: node --test tests/*.test.ts
+exit code: 0
+(node:28132) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/coding/YanMusic/tests/eq-headroom.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ 全零增益无需补偿 (4.2807ms)
+✔ 只做衰减时无需补偿 (37.4917ms)
+✔ 单段提升的前级补偿约等于该段增益 (5.4122ms)
+✔ 多段同时提升的补偿大于单段最大值（频带叠加） (35.7786ms)
+✔ 补偿后的级联峰值不超过 0 dB（对数网格上） (152.5326ms)
+✔ 对数网格估计与高密度参考网格的偏差 < 0.1 dB (1384.2665ms)
+✔ DC 与 Nyquist 处 peaking 响应为 0 dB (0.395ms)
+✔ 闭式幅度响应与脉冲响应 DFT 一致 (12.3116ms)
+(node:31036) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/coding/YanMusic/tests/native-audio-options.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ 默认值与接线前硬编码到 mpv 的值逐项一致 (5.378ms)
+✔ 持久化对象为空时全部回落默认值 (1.0309ms)
+✔ 回归：从 pinia:setting 形状的持久化对象中读到用户设置 (0.5675ms)
+✔ 数值越界被夹取到合法区间 (0.6076ms)
+✔ 非法取值回落到默认值（不把任意字符串注入 mpv 选项） (1.3814ms)
+✔ audioSamplerate 的 auto / 数值映射 (0.6644ms)
+✔ cachePause 只接受布尔值 (0.5223ms)
+✔ NaN / Infinity 不会污染结果（非有限值一律回落默认值） (0.5091ms)
+✔ 存量旧默认值被对齐到引擎接线前的实际行为 (0.6681ms)
+✔ 用户显式改过的值不会被迁移覆盖 (4.5444ms)
+✔ 部分字段改过时只迁移未改过的字段 (0.5632ms)
+✔ 新装（已是新默认值）不需要迁移 (0.4838ms)
+✔ 迁移后存量用户与新装用户得到同一份引擎配置 (0.5863ms)
+✔ applyLegacyAudioOptionDefaultMigration：迁移一次并写入标记，其他设置项不动 (0.7434ms)
+✔ applyLegacyAudioOptionDefaultMigration：不覆盖存量用户显式改过的值（V6） (0.3286ms)
+✔ applyLegacyAudioOptionDefaultMigration：新装（空对象）只写标记 (0.3676ms)
+✔ applyLegacyAudioOptionDefaultMigration：迁移后存量与新装得到逐项相同的引擎配置（V7） (0.6031ms)
+(node:29740) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/coding/YanMusic/tests/native-engine-options.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ 自定义音频/缓存选项真实到达 libmpv (328.067ms)
+✔ 选项默认值与接线前的硬编码行为一致（真实引擎回读） (115.7231ms)
+✔ 非法取值被归一化，不会注入到 mpv (154.1521ms)
+✔ P1：audio-format 的 auto 由 mpv 默认值表达，回读 no 且可自证 (555.4903ms)
+✔ P2：音频/缓存选项为启动期一次性下发（重建后生效，运行期无改写入口） (220.894ms)
+ℹ tests 30
+ℹ suites 0
+ℹ pass 30
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2212.0895
+
+===== V3 vite build =====
+命令: node node_modules/vite/bin/vite.js build
+exit code: 0
+- vite:vue (11%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✓ built in 11.33s
+vite v8.0.14 building client environment for production...
+[2K
+transforming...✓ 448 modules transformed.
+rendering chunks...
+computing gzip size...
+dist-electron/main/index.js                2.52 kB │ gzip:   1.23 kB
+dist-electron/main/settings-DgHrVxGM.js    5.20 kB │ gzip:   1.95 kB
+dist-electron/main/app-CuOK1kbd.js       829.44 kB │ gzip: 243.50 kB
+
+✓ built in 1.23s
+vite v8.0.14 building client environment for production...
+[2K
+transforming...✓ 11 modules transformed.
+rendering chunks...
+computing gzip size...
+dist-electron/preload/index.js  27.70 kB │ gzip: 7.73 kB
+
+✓ built in 48ms
+
+产物字节数：
+  dist-electron\main\app-CuOK1kbd.js                829449 bytes
+  dist-electron\main\index.js                         2528 bytes
+  dist-electron\main\settings-DgHrVxGM.js             5208 bytes
+  dist-electron\preload\index.js                     27703 bytes
+  dist/index.html                                     7234 bytes
+
+===== V8 原生模块重新编译（4 个 addon）=====
+addon=yan-mpv-player exit=0 elapsed=48s node_bytes=733696 (before=733696)
+addon=yan-storage exit=0 elapsed=28s node_bytes=2426880 (before=2426880)
+addon=yan-spectrum-capture exit=0 elapsed=50s node_bytes=1567744 (before=1567744)
+addon=yan-media-controls exit=0 elapsed=108s node_bytes=7874048 (before=7874048)
+产物字节数与哈希：
+  yan-mpv-player             733696 bytes  sha256=F59749D735DE5E63
+  yan-storage               2426880 bytes  sha256=9CB1509910EBD772
+  yan-spectrum-capture      1567744 bytes  sha256=11D6C12E05ADC35F
+  yan-media-controls        7874048 bytes  sha256=A43E26FB7739C4F2
+

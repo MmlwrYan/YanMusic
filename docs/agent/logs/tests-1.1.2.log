@@ -222,3 +222,50 @@ To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.js
 ? skipped 0
 ? todo 0
 ? duration_ms 1790.3364
+
+=== node --test (with migration tests) 20:27:07 ===
+exit=0
+(node:29448) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/coding/YanMusic/tests/eq-headroom.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+? 全零增益无需补偿 (2.5848ms)
+? 只做衰减时无需补偿 (25.6514ms)
+? 单段提升的前级补偿约等于该段增益 (8.9152ms)
+? 多段同时提升的补偿大于单段最大值（频带叠加） (32.6918ms)
+? 补偿后的级联峰值不超过 0 dB（对数网格上） (105.9686ms)
+? 对数网格估计与高密度参考网格的偏差 < 0.1 dB (1231.7047ms)
+? DC 与 Nyquist 处 peaking 响应为 0 dB (0.4309ms)
+? 闭式幅度响应与脉冲响应 DFT 一致 (13.0442ms)
+(node:31364) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/coding/YanMusic/tests/native-audio-options.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+? 默认值与接线前硬编码到 mpv 的值逐项一致 (6.4281ms)
+? 持久化对象为空时全部回落默认值 (1.0827ms)
+? 回归：从 pinia:setting 形状的持久化对象中读到用户设置 (0.5689ms)
+? 数值越界被夹取到合法区间 (0.5802ms)
+? 非法取值回落到默认值（不把任意字符串注入 mpv 选项） (0.6179ms)
+? audioSamplerate 的 auto / 数值映射 (0.7659ms)
+? cachePause 只接受布尔值 (0.4913ms)
+? NaN / Infinity 不会污染结果（非有限值一律回落默认值） (0.4836ms)
+? 存量旧默认值被对齐到引擎接线前的实际行为 (2.8852ms)
+? 用户显式改过的值不会被迁移覆盖 (1.3205ms)
+? 部分字段改过时只迁移未改过的字段 (0.6126ms)
+? 新装（已是新默认值）不需要迁移 (0.473ms)
+? 迁移后存量用户与新装用户得到同一份引擎配置 (0.7247ms)
+(node:34352) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/coding/YanMusic/tests/native-engine-options.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\coding\YanMusic\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+? 自定义音频/缓存选项真实到达 libmpv (147.7476ms)
+? 选项默认值与接线前的硬编码行为一致（真实引擎回读） (122.9595ms)
+? 非法取值被归一化，不会注入到 mpv (109.8103ms)
+? tests 24
+? suites 0
+? pass 24
+? fail 0
+? cancelled 0
+? skipped 0
+? todo 0
+? duration_ms 2150.5068

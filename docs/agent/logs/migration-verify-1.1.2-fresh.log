@@ -1,0 +1,57 @@
+﻿=== V5/V6/V7 存量设置迁移端到端验证（隔离 userData）===
+profile：fresh —— 新装用户（库里无这四个字段）→ 引擎配置应与存量迁移后逐项相同
+userData：C:\Users\admin\AppData\Local\Temp\yanmusic-migration-verify-fresh
+
+[BEFORE 预置的设置] pinia:setting 中的相关字段：
+  demuxerReadaheadSecs               = null
+  cache                              = null
+  cachePauseWaitSecs                 = null
+  audioChannels                      = null
+  nativeAudioOptionsMigrationDone    = null
+
+启动：C:\coding\YanMusic\node_modules\electron\dist\electron.exe . --user-data-dir=C:\Users\admin\AppData\Local\Temp\yanmusic-migration-verify-fresh（env.ELECTRON_RUN_AS_NODE="1" → 已清除）
+应用退出：由验证脚本 taskkill /T /F 终止（正常路径：应用会一直运行到用户关闭），终止后落定为 status=1 signal=none
+
+[AFTER 应用启动后] pinia:setting 中的相关字段：
+  demuxerReadaheadSecs               = 30
+  cache                              = "yes"
+  cachePauseWaitSecs                 = 5
+  audioChannels                      = "stereo"
+  nativeAudioOptionsMigrationDone    = true
+
+应用日志中的迁移入口/出口记录：
+  [2026-09-20 22:43:12.309] [info]  [AudioOptions] 存量音频/缓存设置对齐：已在引擎初始化前完成并落盘 {
+  before: {
+    demuxerReadaheadSecs: null,
+    cache: null,
+    cachePauseWaitSecs: null,
+    audioChannels: null
+  },
+  after: {
+    demuxerReadaheadSecs: null,
+    cache: null,
+    cachePauseWaitSecs: null,
+    audioChannels: null
+  },
+  nativeAudioOptionsMigrationDone: true
+}
+  [2026-09-20 22:43:12.311] [info]  [MpvController] Native audio options applied {
+  cacheSecs: 30,
+  demuxerMaxMb: 48,
+  demuxerBackMb: 12,
+  audioBufferSecs: 0.5,
+  demuxerReadaheadSecs: 30,
+  cache: 'yes',
+  cachePause: true,
+  cachePauseWaitSecs: 5,
+  audioSamplerate: 'auto',
+  audioChannels: 'stereo',
+  audioFormat: 'auto',
+  gaplessAudio: 'weak'
+}
+  [2026-09-20 22:43:13.188] [info]  [[迁移] 存量音频/缓存设置对齐：已执行过，跳过] {"demuxerReadaheadSecs":30,"cache":"yes","cachePauseWaitSecs":5,"audioChannels":"stereo","nativeAudioOptionsMigrationDone":true}
+
+  nativeAudioOptionsMigrationDone    期望 true     实际 true     OK
+
+迁移结果：PASS —— 结果与预期逐项一致
+

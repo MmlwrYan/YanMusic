@@ -1,0 +1,87 @@
+﻿# V4 真实引擎回读验证（R2 人工验证脚本的自检输出）
+# 生成时间：2026-09-20 22:51:24
+# 命令：node scripts/verify-r2-audio-options.cjs [--user-data <dir>]
+
+########## 运行 1：本机真实 userData（%APPDATA%\YanMusic，1.1.1 安装版正在使用）##########
+exit code: 0
+=== R2 人工验证：用户持久化设置 → 归一化 → 真实 libmpv 回读 ===
+仓库：C:\coding\YanMusic
+设置库：C:\Users\admin\AppData\Roaming\YanMusic\YanMusic.sqlite
+libmpv：C:\coding\YanMusic\build\mpv\libmpv-2.dll
+
+KV 键 pinia:setting 读取：3558 字节
+持久化对象中的相关字段：
+  audioCacheSecs         = 30
+  audioDemuxerMaxMB      = 48
+  audioDemuxerBackMB     = 12
+  audioBufferSecs        = 0.5
+  demuxerReadaheadSecs   = 1
+  cache                  = "auto"
+  cachePause             = true
+  cachePauseWaitSecs     = 1
+  audioSamplerate        = "auto"
+  audioChannels          = "auto-safe"
+  audioFormat            = "auto"
+  gaplessAudio           = "weak"
+
+normalizeNativeAudioOptions() 结果：{"cacheSecs":30,"demuxerMaxMb":48,"demuxerBackMb":12,"audioBufferSecs":0.5,"demuxerReadaheadSecs":1,"cache":"auto","cachePause":true,"cachePauseWaitSecs":1,"audioSamplerate":"auto","audioChannels":"auto-safe","audioFormat":"auto","gaplessAudio":"weak"}
+
+libmpv 回读（证明设置真的到达引擎）：
+  mpv 属性                   期望           实际           判定
+  cache-secs               30           30.000000    OK   ← R2
+  demuxer-max-bytes        50331648     50331648     OK   ← R2（主进程以 "<n>MiB" 下发，mpv 以字节回读）
+  demuxer-max-back-bytes   12582912     12582912     OK   ← R2（同上）
+  audio-buffer             0.5          0.500000     OK   ← R2
+  demuxer-readahead-secs   1            1.000000     OK
+  cache                    auto         auto         OK
+  cache-pause              yes          yes          OK
+  cache-pause-wait         1            1.000000     OK
+  audio-samplerate         0            0            OK   ← mpv 用整数表示，0 == auto
+  audio-channels           auto-safe    auto-safe    OK
+  audio-format             no           no           OK   ← P1：auto → mpv 默认值 no；显式格式名原样回读（见文件头注释）
+  gapless-audio            weak         weak         OK
+
+判定：PASS —— 12 项全部与用户持久化设置一致
+
+########## 运行 2：合成 userData（R2 四项均设为非默认值，证明取值来自持久化设置而非硬编码）##########
+合成设置：audioCacheSecs=77, audioDemuxerMaxMB=96, audioDemuxerBackMB=24, audioBufferSecs=1.5, demuxerReadaheadSecs=11, cache=no, cachePause=false, cachePauseWaitSecs=2.5, audioSamplerate=48000, audioChannels=mono, audioFormat=s16, gaplessAudio=no
+exit code: 0
+=== R2 人工验证：用户持久化设置 → 归一化 → 真实 libmpv 回读 ===
+仓库：C:\coding\YanMusic
+设置库：C:\Users\admin\AppData\Local\Temp\yanmusic-v4-synthetic\YanMusic.sqlite
+libmpv：C:\coding\YanMusic\build\mpv\libmpv-2.dll
+
+KV 键 pinia:setting 读取：277 字节
+持久化对象中的相关字段：
+  audioCacheSecs         = 77
+  audioDemuxerMaxMB      = 96
+  audioDemuxerBackMB     = 24
+  audioBufferSecs        = 1.5
+  demuxerReadaheadSecs   = 11
+  cache                  = "no"
+  cachePause             = false
+  cachePauseWaitSecs     = 2.5
+  audioSamplerate        = "48000"
+  audioChannels          = "mono"
+  audioFormat            = "s16"
+  gaplessAudio           = "no"
+
+normalizeNativeAudioOptions() 结果：{"cacheSecs":77,"demuxerMaxMb":96,"demuxerBackMb":24,"audioBufferSecs":1.5,"demuxerReadaheadSecs":11,"cache":"no","cachePause":false,"cachePauseWaitSecs":2.5,"audioSamplerate":"48000","audioChannels":"mono","audioFormat":"s16","gaplessAudio":"no"}
+
+libmpv 回读（证明设置真的到达引擎）：
+  mpv 属性                   期望           实际           判定
+  cache-secs               77           77.000000    OK   ← R2
+  demuxer-max-bytes        100663296    100663296    OK   ← R2（主进程以 "<n>MiB" 下发，mpv 以字节回读）
+  demuxer-max-back-bytes   25165824     25165824     OK   ← R2（同上）
+  audio-buffer             1.5          1.500000     OK   ← R2
+  demuxer-readahead-secs   11           11.000000    OK
+  cache                    no           no           OK
+  cache-pause              no           no           OK
+  cache-pause-wait         2.5          2.500000     OK
+  audio-samplerate         48000        48000        OK   ← mpv 用整数表示，0 == auto
+  audio-channels           mono         mono         OK
+  audio-format             s16          s16          OK   ← P1：auto → mpv 默认值 no；显式格式名原样回读（见文件头注释）
+  gapless-audio            no           no           OK
+
+判定：PASS —— 12 项全部与用户持久化设置一致
+
