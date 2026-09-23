@@ -25,6 +25,7 @@ import { setupThumbarButtons } from './thumbar';
 import { setupTaskbarThumbnail, destroyTaskbarThumbnail } from './taskbarThumbnail';
 import { refreshTaskbarProgress } from './taskbarProgress';
 import { configureApplicationMenu, configureWebContentsShortcuts } from './applicationMenu';
+import { isAllowedTopLevelNavigation } from '../shared/navigationPolicy';
 import {
   flushPendingShareTargets,
   openShareUrl,
@@ -35,6 +36,9 @@ import type { MpvController } from './mpv/controller';
 
 const WM_TASKBARCREATED = 0x031a;
 const mpvRef: { current: MpvController | null } = { current: null };
+
+/** 开发服务器地址（与各窗口 loadURL 使用的是同一个环境变量）。 */
+const DEV_SERVER_ORIGIN = process.env.VITE_DEV_SERVER_URL ?? null;
 
 // --- 初始化日志 ---
 initLogger();
@@ -114,6 +118,20 @@ if (!gotTheLock) {
 
   app.on('web-contents-created', (_event, contents) => {
     configureWebContentsShortcuts(contents);
+
+    // IMP-12：顶层导航拦截。
+    // 渲染层一旦发生顶层导航（注入的链接、脚本改 location），在 webSecurity:false 前提下
+    // 会加载任意页面且该页面仍持有 preload 的全部能力。此处统一在 web-contents-created
+    // 内注册，覆盖主窗口 / 桌面歌词 / mini 播放器 / 插件窗口全部 webContents。
+    // 放行 file: 与 dev server 同源；webContents.loadURL()/loadFile() 不触发本事件，
+    // 因此窗口创建期加载与 SPA（history API）路由切换均不受影响。
+    contents.on('will-navigate', (event, navigationUrl) => {
+      if (isAllowedTopLevelNavigation(navigationUrl, { devServerOrigin: DEV_SERVER_ORIGIN })) {
+        return;
+      }
+      event.preventDefault();
+      log.warn('[Main] Blocked top-level navigation:', navigationUrl);
+    });
   });
 
   app.whenReady().then(async () => {
