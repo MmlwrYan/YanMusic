@@ -8,6 +8,7 @@ import type { useSettingStore } from '../setting';
 import { PERSONAL_FM_QUEUE_ID, type PlaybackQueueState } from '../playlist';
 import { toRawSong, toRawSongList } from '../playlist/helpers';
 import { useHistoryStore } from '../historyStore';
+import { useMusicJournalStore } from '../musicJournal';
 import {
   buildMediaMeta,
   buildMediaState,
@@ -312,6 +313,9 @@ export const createPlaybackManager = (
       if (state.historyLocalRecorded) return;
       state.historyLocalRecorded = true;
       void useHistoryStore().recordPlay(song);
+      // 听歌档案：与本地历史同一时机采集一次，仅写本地 KV（pinia:musicJournal），
+      // 不上报、不依赖登录态。recordPlay 内部对非法输入静默忽略，不影响播放。
+      useMusicJournalStore().recordPlay(song);
     };
     const sourceList = playlist
       ? toRawSongList(playlist)

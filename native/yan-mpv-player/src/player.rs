@@ -93,6 +93,16 @@ fn normalize_secs(value: f64, fallback: f64, min: f64, max: f64) -> f64 {
     }
 }
 
+/// 把 Rust 字符串转换为 C 字符串。
+///
+/// 与直接 `CString::new(..).unwrap()` 的区别：输入含内部 NUL 字节时返回 Err 而不是 panic。
+/// 该 panic 会逃逸 napi 边界并直接终止进程（实测：媒体标题含 `\0` 时进程以
+/// `NulError` panic 崩溃，退出码 0xC0000409，JS 侧收不到任何异常），
+/// 因此所有可能来自渲染层或媒体元数据的字符串都必须走这里。
+fn to_cstring(value: &str) -> Result<CString, String> {
+    CString::new(value).map_err(|_| "字符串包含非法 NUL 字节，已拒绝下发到播放引擎".to_string())
+}
+
 /// 淡入淡出请求
 #[allow(dead_code)]
 pub struct FadeRequest {
@@ -257,8 +267,12 @@ impl MpvPlayer {
         if self.shutdown.load(Ordering::SeqCst) {
             return;
         }
-        let c_name = CString::new(name).unwrap();
-        let c_value = CString::new(value).unwrap();
+        let Ok(c_name) = to_cstring(name) else {
+            return;
+        };
+        let Ok(c_value) = to_cstring(value) else {
+            return;
+        };
         unsafe {
             (self.lib.mpv_set_option_string)(self.handle, c_name.as_ptr(), c_value.as_ptr());
         }
@@ -266,7 +280,7 @@ impl MpvPlayer {
 
     pub fn request_log_messages(&self, level: &str) -> Result<(), String> {
         self.ensure_active()?;
-        let c_level = CString::new(level).unwrap();
+        let c_level = to_cstring(level)?;
         let _op = self.lock_op()?;
         self.ensure_active()?;
         let rc = unsafe { (self.lib.mpv_request_log_messages)(self.handle, c_level.as_ptr()) };
@@ -290,7 +304,9 @@ impl MpvPlayer {
         if self.shutdown.load(Ordering::SeqCst) {
             return;
         }
-        let c_name = CString::new(name).unwrap();
+        let Ok(c_name) = to_cstring(name) else {
+            return;
+        };
         unsafe {
             (self.lib.mpv_observe_property)(self.handle, 0, c_name.as_ptr(), format);
         }
@@ -323,7 +339,10 @@ impl MpvPlayer {
     /// 执行 mpv 命令（如 loadfile、stop、seek 等）
     fn command(&self, args: &[&str]) -> Result<(), String> {
         self.ensure_active()?;
-        let c_args: Vec<CString> = args.iter().map(|s| CString::new(*s).unwrap()).collect();
+        let c_args: Vec<CString> = args
+            .iter()
+            .map(|s| to_cstring(s))
+            .collect::<Result<Vec<_>, _>>()?;
         let mut ptrs: Vec<*const c_char> = c_args.iter().map(|s| s.as_ptr()).collect();
         ptrs.push(std::ptr::null());
 
@@ -344,8 +363,8 @@ impl MpvPlayer {
     /// 设置字符串属性
     fn set_property_string(&self, name: &str, value: &str) -> Result<(), String> {
         self.ensure_active()?;
-        let c_name = CString::new(name).unwrap();
-        let c_value = CString::new(value).unwrap();
+        let c_name = to_cstring(name)?;
+        let c_value = to_cstring(value)?;
         let _op = self.lock_op()?;
         self.ensure_active()?;
         let rc = unsafe {
@@ -364,7 +383,7 @@ impl MpvPlayer {
     /// 设置 double 属性
     fn set_property_double(&self, name: &str, value: f64) -> Result<(), String> {
         self.ensure_active()?;
-        let c_name = CString::new(name).unwrap();
+        let c_name = to_cstring(name)?;
         let mut val = value;
         let _op = self.lock_op()?;
         self.ensure_active()?;
@@ -389,7 +408,7 @@ impl MpvPlayer {
     /// 设置 flag 属性
     fn set_property_flag(&self, name: &str, value: bool) -> Result<(), String> {
         self.ensure_active()?;
-        let c_name = CString::new(name).unwrap();
+        let c_name = to_cstring(name)?;
         let mut val: c_int = if value { 1 } else { 0 };
         let _op = self.lock_op()?;
         self.ensure_active()?;
@@ -415,7 +434,7 @@ impl MpvPlayer {
     #[allow(dead_code)]
     fn get_property_double(&self, name: &str) -> Result<f64, String> {
         self.ensure_active()?;
-        let c_name = CString::new(name).unwrap();
+        let c_name = to_cstring(name)?;
         let mut val: f64 = 0.0;
         let _op = self.lock_op()?;
         self.ensure_active()?;
@@ -440,7 +459,7 @@ impl MpvPlayer {
     /// 获取字符串属性
     fn get_property_string(&self, name: &str) -> Result<String, String> {
         self.ensure_active()?;
-        let c_name = CString::new(name).unwrap();
+        let c_name = to_cstring(name)?;
         let _op = self.lock_op()?;
         self.ensure_active()?;
         let ptr = unsafe { (self.lib.mpv_get_property_string)(self.handle, c_name.as_ptr()) };
@@ -455,7 +474,7 @@ impl MpvPlayer {
     /// 获取 node 属性（用于 track-list、audio-device-list 等复杂类型）
     fn get_property_node(&self, name: &str) -> Result<MpvNodeOwned, String> {
         self.ensure_active()?;
-        let c_name = CString::new(name).unwrap();
+        let c_name = to_cstring(name)?;
         let mut node = std::mem::MaybeUninit::<MpvNode>::uninit();
         let _op = self.lock_op()?;
         self.ensure_active()?;
@@ -788,7 +807,7 @@ impl MpvPlayer {
     /// 设置音轨 ID
     pub fn set_audio_track(&self, track_id: i64) -> Result<(), String> {
         self.ensure_active()?;
-        let c_name = CString::new("aid").unwrap();
+        let c_name = to_cstring("aid")?;
         let mut val = track_id;
         let _op = self.lock_op()?;
         self.ensure_active()?;

@@ -2,6 +2,56 @@
 >
 > 🤡 如果你是付费获取的，说明你被骗了。
 
+## [1.2.0]
+
+> 本次为**安全审计复核 + 原生层健壮性修复 + 新功能**版本：按「先复现、再修复」的纪律对上一轮审计的 P0/P1 结论逐条复核，**其中一条 P0 结论经复现后被判定不成立并已更正**；修复了两个可复现的原生层/构建链缺陷；把单元测试接入 CI；并交付**新功能「听歌档案」的完整版**（本地时间轴 / 年度回顾 / 时段与情绪聚类 / 导出分享）。
+
+### 新功能
+
+- **听歌档案（本地听歌时间轴）**：把每次播放记成本地事件，按日/周/时段聚合，提供年度回顾与图片/文本导出。全部数据只存本机（KV 键 `pinia:musicJournal`），**不上传、不依赖登录**。完整版按 5 个子批次交付：
+  - **子批次 1（事件采集与近似基线）**：新增 `src/shared/musicJournal.ts`（纯逻辑）与 `src/renderer/stores/musicJournal.ts`（Pinia store，`persist: true` 复用既有 `sqlitePersist`），在播放器「本地历史记录一次」的同一时机采集事件（`src/renderer/stores/player/playback.ts`）。由于 `yan-storage` 的 `play_history` 是**一曲一行**（`native/yan-storage/src/lib.rs:1366-1376` 的 `ON CONFLICT(song_key) DO UPDATE`），升级前的播放无法还原逐次时刻，故以「每曲一条、时间取最后一次播放、次数记 `baselinePlayCount`」的**近似基线**补齐，并以 `synthetic: true` 显式标记——**不把一个总次数摊开成多个伪造时间点**。
+  - **子批次 2（聚合引擎）**：`buildDailyTimeline` / `buildWeeklySummary` / `clusterByTimeOfDay` / `buildYearReview`，全部接受显式 `timeZoneOffsetMinutes`（UTC 以东分钟数），保证跨时区可复现；榜单并列时按**码位序**而非 `localeCompare`（后者依赖运行环境 locale，会让结果不可复现）。
+  - **子批次 3（情绪标签）**：`MOOD_PRESETS` / `normalizeMoodText` / `applyEventMood` / `summarizeMoods`。**不做情绪自动推断**——项目内不存在任何音频情绪分析能力，情绪维度只接受用户手动标注；时段维度由子批次 2 提供。
+  - **子批次 4（视图与视图模型）**：新增 `src/renderer/views/MusicJournal.vue` 与路由 `/main/journal`、侧边栏入口；视图只渲染 `buildJournalView()` 的产物，聚合逻辑全部在被单测覆盖的纯逻辑层；图表用 CSS 自绘，**未引入任何图表库**。
+  - **子批次 5（导出/分享）**：`buildJournalShareText()` 生成纯文本摘要；图片导出复用既有 `share:capture-rect-to-clipboard`、文本复用既有 `share:copy`，**未新增任何 IPC 通道**（已由测试守卫断言）。
+
+### 修复
+
+- **原生层字符串含内部 NUL 时整个进程崩溃**：`native/yan-mpv-player/src/player.rs` 的 `set_property_string()` 等方法使用 `CString::new(..).unwrap()`，当传入的字符串含 `\0` 时 `CString::new` 返回 `Err`，`unwrap` 触发 panic。实测（`node scripts/repro-native-nul-panic.cjs`）该 panic **逃逸 napi 边界**，进程以 `0xC0000409` 退出，JS 侧收不到任何异常——即渲染层或媒体元数据里出现一个 `\0` 就能让主进程直接崩溃。现改为统一的 `to_cstring()` 辅助函数：非法输入返回可上报的错误而非 panic（13 处 `unwrap` 全部替换）。
+- **打包产物缺少关键资源时构建仍然「成功」**：`build/afterPack.js` 原先对「缺原生模块 / 缺 libmpv / 缺 server 模块」只打印 `WARN`，函数不抛错，于是会产出「能安装但无法播放」的包且构建状态为绿。现改为收集全部关键缺失项后显式抛错中止构建；图标等非关键项仍只告警。
+
+### 新增
+
+- `tests/plugin-package-extraction.test.ts`：插件安装包解压的 zip-slip 回归守卫（8 个逃逸型 entry 名必须被拒绝、正常包必须可解压、应用侧不得关闭 entry 名校验）。
+- `tests/music-journal.test.ts`、`tests/music-journal-aggregate.test.ts`、`tests/music-journal-mood.test.ts`、`tests/music-journal-view.test.ts`、`tests/music-journal-share.test.ts`：听歌档案的 33 个纯逻辑用例（含「导出未新增 IPC 通道」的静态守卫）。
+- `scripts/repro-native-nul-panic.cjs`、`scripts/repro-zip-slip.cjs`、`scripts/verify-afterpack-guard.cjs`：三个可复现的取证/验证脚本。
+- CI 新增 `Run unit tests` 步骤（`pnpm test`），位置在原生模块与 libmpv 就位之后、打包之前——只有在此处运行，`tests/native-engine-options.test.ts` 的「选项真实到达 libmpv」端到端断言才会真正执行而非自动跳过。
+
+### 变更
+
+- **新增对外项（听歌档案）**：新增 KV 持久化键 `pinia:musicJournal`（复用既有 `storage:kv` 通道与 `sqlitePersist` 机制）；新增路由 `/main/journal`（name `journal`）与侧边栏「听歌档案」入口。**未新增 IPC 通道、未新增存储表、未改动任何既有键名或文件格式、未引入任何新依赖**。
+- **审计结论更正（重要）**：上一轮审计把「插件包解压存在 zip-slip 路径穿越」列为 P0。经复现，该结论**不成立**：所用 `node-stream-zip@1.16.0` 在读取中央目录时默认调用 `ZipEntry.validateName()`（`node_stream_zip.js:900-904`），其正则 `/\\|^\w+:|^\/|(^|\/)\.\.(\/|$)/` 会拒绝反斜杠、盘符前缀、绝对路径与 `..` 段；应用未设置 `skipEntryNameValidation`，防护处于生效状态。8 个逃逸变体实测全部被 `Malicious entry` 拒绝，仅 `....//` 与 `%2e%2e/` 被接受，而它们是**普通文件名**（不构成逃逸）。本版不修改解压逻辑，改为把这一「已核实为安全」的性质固化为回归测试。
+- **构建行为变更**：`afterPack` 现在会在关键资源缺失时让构建失败。此前「缺资源也能出包」的构建结果将不再出现——这是本次修复的目的，但会改变 CI 的失败面。
+- **错误语义变更**：向播放引擎下发含 `\0` 的字符串，行为由「进程崩溃」变为「抛出可捕获的 JS 错误」。合法输入的行为完全不变（已由 `tests/native-engine-options.test.ts` 的真实引擎回读用例覆盖）。
+
+### 说明
+
+- 验证结果：`pnpm test` **66/66 通过**（原 30 个用例无回归 + zip-slip 守卫 3 例 + 听歌档案 33 例）；`vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0（`dist/` 产出 243 个文件，含 `MusicJournal` 独立懒加载 chunk）；`cargo check --manifest-path native/yan-mpv-player/Cargo.toml --release` 退出码 0，addon 已重编译。
+- **听歌档案的数据可用性说明（重要，不夸大）**：逐次播放事件**从本版起才开始精确采集**。升级前的播放只能以「近似基线」呈现（每曲一条、时间取最后一次播放、次数按历史累计），因此**首次打开档案时的时间轴分布是近似的**，随时间推移会逐步被精确事件取代。含近似数据的日子在视图中以虚线柱与文字说明标识。
+- `scripts/verify-afterpack-guard.cjs` 采用对照实验取证：HEAD 版本的 `afterPack` 在缺少全部关键资源时**不抛错**（复现原缺陷），修复后同一场景抛错并列出 6 项缺失、资源齐备时不误报。
+- **本次未修复的审计项（已知问题，计划在后续版本处理）**：
+  - **IPC 通道无白名单且不校验发送方**：`src/preload/index.ts:283-296` 向渲染层暴露通用 `ipcRenderer.send/invoke/on/off`，`src/main/ipc/registry.ts:26,79` 不校验 `event.senderFrame`。未修复原因：收紧该出口需要先确定 4 类窗口（主窗口 / 桌面歌词 / mini 播放器 / 插件窗口）各自的合法通道集合，并迁移渲染层 22 处裸 `ipcRenderer` 调用点；其中插件窗口的合法通道集涉及**尚未审计**的插件宿主模块，按纪律不得盲改。临时缓解：无。计划修复版本：1.1.4。
+  - **插件包完整性校验为可选**：`src/main/plugins.ts:1819` 仅在市场索引提供 `checksum` 时才校验。未修复原因：把 `checksum` 改为必填会使当前未提供该字段的插件源**无法安装任何插件**，属生态级行为变更，且本环境无网络无法核实真实索引是否已提供该字段，需人工决策。临时缓解：无。计划修复版本：待定。
+  - **`webSecurity: false` / `allowRunningInsecureContent: true` / Windows `no-sandbox`**（`src/main/window.ts:400,401`、`src/main/index.ts:22`）：关闭原因与业务耦合（注释自述「禁用 CORS 限制」），收敛属产品级取舍，需人工决策。临时缓解：无。
+  - **仓库 lint 基线为红**：`pnpm exec eslint . --ext .vue,.js,.ts,.jsx,.tsx` 在 `HEAD` 上即有 **214 errors / 5 warnings**（集中在 `tests/native-engine-options.test.ts` 134 项、`tests/eq-headroom.test.ts` 9 项等），本版**未引入新的 lint 错误**（改动前后总数均为 214/5，新增文件 0 错误），但因此**未把 lint 接入 CI**。计划修复版本：1.1.4。
+  - 其余审计项（`IMP-07` 巨型文件拆分、`IMP-09` 构建可复现性、`IMP-10` 代码签名、`IMP-11` 凭据加密落盘、`IMP-12` 导航拦截等）本轮未处理。
+  - **跨平台 CI 预验证未执行**：本环境无法访问 GitHub（`git ls-remote` 报 SSL 证书校验失败）且无发布凭据，Phase 4（三平台 `workflow_dispatch` 预验证）与 tag 触发发布均未执行，需人工在有网络的环境完成。
+  - **IPC 通道无白名单且不校验发送方**：`src/preload/index.ts:283-296` 向渲染层暴露通用 `ipcRenderer.send/invoke/on/off`，`src/main/ipc/registry.ts:26,79` 不校验 `event.senderFrame`。未修复原因：收紧该出口需要先确定 4 类窗口（主窗口 / 桌面歌词 / mini 播放器 / 插件窗口）各自的合法通道集合，并迁移渲染层 22 处裸 `ipcRenderer` 调用点；其中插件窗口的合法通道集涉及**尚未审计**的插件宿主模块，按纪律不得盲改。临时缓解：无。计划修复版本：1.1.4。
+  - **插件包完整性校验为可选**：`src/main/plugins.ts:1819` 仅在市场索引提供 `checksum` 时才校验。未修复原因：把 `checksum` 改为必填会使当前未提供该字段的插件源**无法安装任何插件**，属生态级行为变更，且本环境无网络无法核实真实索引是否已提供该字段，需人工决策。临时缓解：无。计划修复版本：待定。
+  - **`webSecurity: false` / `allowRunningInsecureContent: true` / Windows `no-sandbox`**（`src/main/window.ts:400,401`、`src/main/index.ts:22`）：关闭原因与业务耦合（注释自述「禁用 CORS 限制」），收敛属产品级取舍，需人工决策。临时缓解：无。
+  - **仓库 lint 基线为红**：`pnpm exec eslint . --ext .vue,.js,.ts,.jsx,.tsx` 在 `HEAD` 上即有 **214 errors / 5 warnings**（集中在 `tests/native-engine-options.test.ts` 134 项、`tests/eq-headroom.test.ts` 9 项等），本版**未引入新的 lint 错误**（改动前后总数均为 214/5，新增文件 0 错误），但因此**未把 lint 接入 CI**。计划修复版本：1.1.4。
+  - 其余审计项（`IMP-07` 巨型文件拆分、`IMP-09` 构建可复现性、`IMP-10` 代码签名、`IMP-11` 凭据加密落盘、`IMP-12` 导航拦截等）本轮未处理。
+
 ## [1.1.2]
 
 > 本次为**播放设置生效性修复**版本：此前「播放器设置」分区里的音频/缓存调优项实际从未下发到播放引擎，EQ 在多段提升时会削顶。本版把这两类问题一并修掉，并补上可复现的自动化测试。

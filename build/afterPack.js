@@ -30,6 +30,10 @@ exports.default = async function afterPack(context) {
 
   log(`platform=${context.electronPlatformName} arch=${context.arch} resources=${resourcesDir}`);
 
+  // 关键缺失项收集器：任何一项非空都会让构建显式失败，
+  // 避免产出「能安装但无法播放 / 无内置 API」的包却显示构建成功。
+  const problems = [];
+
   const nativeDir = path.join(resourcesDir, 'native');
   fs.mkdirSync(nativeDir, { recursive: true });
 
@@ -45,6 +49,7 @@ exports.default = async function afterPack(context) {
       log(`copied native/${name}.node from native/${name}/ (fallback)`);
     } else {
       log(`WARN missing native module: native/${name}/${name}.node — 构建产物将无法加载该原生模块`);
+      problems.push(`缺少原生模块 native/${name}/${name}.node`);
     }
   }
 
@@ -55,9 +60,11 @@ exports.default = async function afterPack(context) {
     const hasLib = files.some((file) => /^(lib)?mpv-2?\.dll$/i.test(file) || /^libmpv/i.test(file));
     if (!hasLib) {
       log('WARN mpv/ 目录存在但没有 libmpv 动态库（libmpv-2.dll / mpv-2.dll）——播放引擎不可用');
+      problems.push('resources/mpv 中没有 libmpv 动态库，播放引擎不可用');
     }
   } else {
     log('WARN 缺少 resources/mpv —— 播放引擎不可用（详见构建报告「已绕过项」）');
+    problems.push('缺少 resources/mpv，播放引擎不可用');
   }
 
   const serverDir = path.join(resourcesDir, 'server');
@@ -69,10 +76,23 @@ exports.default = async function afterPack(context) {
       ? fs.readdirSync(path.join(serverDir, 'util')).filter((f) => f.endsWith('.js')).length
       : 0;
     log(`ok server/ (module=${moduleCount} util=${utilCount})`);
+    if (moduleCount === 0) {
+      log('WARN resources/server/module 下没有 .js —— 内置 KuGou API 模块不可用');
+      problems.push('resources/server/module 下没有 .js 模块，内置 API 不可用');
+    }
   } else {
     log('WARN 缺少 resources/server —— 内置 KuGou API 模块不可用');
+    problems.push('缺少 resources/server，内置 API 不可用');
   }
 
+  // 图标为非关键项：缺失只告警，不阻断构建。
   const iconsDir = path.join(resourcesDir, 'icons');
   log(fs.existsSync(iconsDir) ? `ok icons/ (${fs.readdirSync(iconsDir).length} entries)` : 'WARN 缺少 resources/icons');
+
+  if (problems.length > 0) {
+    throw new Error(
+      `[afterPack] 打包产物缺少关键资源，已中止构建（共 ${problems.length} 项）：\n` +
+        problems.map((item) => `  - ${item}`).join('\n'),
+    );
+  }
 };

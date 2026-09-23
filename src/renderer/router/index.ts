@@ -73,6 +73,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/History.vue'),
       },
       {
+        path: 'journal',
+        name: 'journal',
+        component: () => import('@/views/MusicJournal.vue'),
+        meta: { title: '听歌档案' },
+      },
+      {
         path: 'favorites',
         name: 'favorites',
         component: () => import('@/views/Favorites.vue'),

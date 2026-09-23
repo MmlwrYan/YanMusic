@@ -486,6 +486,13 @@ jobs:
           echo "=== mpv build directory ==="
           ls -la build/mpv/
 
+      - name: Run unit tests
+        # 位置说明：必须放在原生模块与 libmpv 就位之后、打包之前。
+        # tests/native-engine-options.test.ts 会在 addon/libmpv 缺失时自动跳过，
+        # 只有在此处运行才能真正执行「选项真实到达 libmpv」的端到端断言。
+        shell: bash
+        run: pnpm test
+
       - name: Build desktop app
         shell: bash
         env:

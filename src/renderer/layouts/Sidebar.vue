@@ -230,6 +230,14 @@ const builtinSidebarSections = [
         builtinIcon: 'clock',
         order: 40,
       },
+      {
+        id: 'journal',
+        key: 'journal',
+        title: '听歌档案',
+        path: '/main/journal',
+        builtinIcon: 'pulse',
+        order: 45,
+      },
     ],
   },
 ] satisfies SidebarSection[];
