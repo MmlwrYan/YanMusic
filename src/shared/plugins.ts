@@ -380,6 +380,34 @@ export interface PluginNetworkTlsOptions {
   servername?: string;
 }
 
+export const PLUGIN_TLS_RELAXATION_BLOCKED_CODE = 'ERR_PLUGIN_TLS_RELAXATION_BLOCKED';
+export const PLUGIN_TLS_RELAXATION_BLOCKED_MESSAGE =
+  '生产环境不允许插件关闭 TLS 证书校验（rejectUnauthorized: false）；如需调试请在未打包的开发模式下运行';
+
+/**
+ * 是否允许放宽 TLS 证书校验。
+ *
+ * 只有**明确的** `isDevelopment === true` 才算开发模式；上下文缺失时按生产环境处理
+ * （fail-closed），避免调用方漏传参数就把校验放开了。
+ */
+export const isPluginTlsRelaxationAllowed = (context: { isDevelopment: boolean }): boolean =>
+  context?.isDevelopment === true;
+
+/**
+ * 校验插件的 TLS 放宽请求。返回错误信息表示应拒绝；返回 null 表示放行。
+ *
+ * 口径：仅严格等于 `false` 才视为「放宽」（不做真值转换，避免 `0`/`''`/`'false'`
+ * 被误判）；未声明、显式 `true`、只改 SNI 一律放行，保持既有行为不变。
+ */
+export const checkPluginTlsPolicy = (
+  options: { tls?: PluginNetworkTlsOptions } | null | undefined,
+  context: { isDevelopment: boolean },
+): string | null => {
+  if (options?.tls?.rejectUnauthorized !== false) return null;
+  if (isPluginTlsRelaxationAllowed(context)) return null;
+  return PLUGIN_TLS_RELAXATION_BLOCKED_MESSAGE;
+};
+
 /** Main-process request options backed by Axios' Node.js adapter. */
 export interface PluginNetworkRequestOptions {
   url: string;

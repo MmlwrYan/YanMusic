@@ -1,4 +1,5 @@
 import { Agent as HttpsAgent } from 'node:https';
+import { app } from 'electron';
 import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios';
 import type {
   PluginNetworkHeaders,
@@ -7,6 +8,7 @@ import type {
   PluginNetworkResponse,
   PluginNetworkResponseType,
 } from '../../shared/plugins';
+import { PLUGIN_TLS_RELAXATION_BLOCKED_CODE, checkPluginTlsPolicy } from '../../shared/plugins';
 import { resolveNativeProxyUrls } from '../networkPolicy';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -191,6 +193,13 @@ export const requestPluginNetwork = async (
   let finalResponseUrl = url.href;
   const responseType = options.responseType ?? 'json';
   const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+
+  // IMP-13：生产环境不允许插件关闭 TLS 证书校验（开发模式下仍可用于调试）。
+  const tlsPolicyError = checkPluginTlsPolicy(options, { isDevelopment: !app.isPackaged });
+  if (tlsPolicyError) {
+    throw new PluginNetworkRequestError(tlsPolicyError, PLUGIN_TLS_RELAXATION_BLOCKED_CODE);
+  }
+
   if (options.tls && (await resolveNativeProxyUrls(url.href)).some(Boolean)) {
     throw new PluginNetworkRequestError(
       '插件自定义 TLS 请求不能绕过当前全局代理，请关闭自定义 TLS 选项或改用直连模式',
