@@ -22,6 +22,7 @@ import { basename, dirname, extname, isAbsolute, join, resolve } from 'path';
 import { pathToFileURL } from 'url';
 import StreamZip from 'node-stream-zip';
 import { coerce as semverCoerce, gt as semverGt, valid as semverValid } from 'semver';
+import { findUnsafeArchiveEntries } from '../shared/archiveEntry';
 import type {
   EchoPluginDescriptor,
   EchoPluginManifest,
@@ -1835,14 +1836,24 @@ const extractZipWithStreamZip = async (zipPath: string, extractDirectory: string
   try {
     const entries = await zip.entries();
     let totalSize = 0;
+    const entryNames: string[] = [];
 
     for (const entry of Object.values(entries)) {
       if (entry.encrypted) throw new Error('插件安装包包含加密文件');
       if (!entry.isFile) continue;
+      entryNames.push(String(entry.name));
       totalSize += Math.max(0, Math.round(Number(entry.size) || 0));
       if (totalSize > MAX_PLUGIN_PACKAGE_SIZE_BYTES) {
         throw new Error('插件安装包解压后超过 80 MB');
       }
+    }
+
+    // 第一方兜底（IMP-18）：依赖的 node-stream-zip 默认会拒绝逃逸型 entry 名，
+    // 但那属于第三方实现——降级、替换或误开 skipEntryNameValidation 都会静默失去防护。
+    // 这里在落盘前再做一次同规则校验，合法包不受影响（库已在 entries() 阶段拒绝非法名）。
+    const unsafeEntries = findUnsafeArchiveEntries(entryNames);
+    if (unsafeEntries.length > 0) {
+      throw new Error(`插件安装包包含非法路径条目：${unsafeEntries[0]}`);
     }
 
     await zip.extract(null, extractDirectory);

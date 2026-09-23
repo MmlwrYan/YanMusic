@@ -175,15 +175,29 @@ test('正常 entry 名可解压，且文件落在目标目录内', async () => {
   });
 });
 
+/**
+ * 去掉注释后再做源码断言：注释里提到该选项名（例如说明「误开它就会失去防护」）
+ * 不应被误判为真的启用了它。守卫必须看代码，不看注释。
+ */
+const stripComments = (source: string): string =>
+  source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+
 test('应用侧未关闭依赖的 entry 名校验（防止 skipEntryNameValidation 退化）', () => {
-  const pluginsSource = readFileSync(path.join(repoRoot, 'src', 'main', 'plugins.ts'), 'utf8');
+  const pluginsSource = stripComments(
+    readFileSync(path.join(repoRoot, 'src', 'main', 'plugins.ts'), 'utf8'),
+  );
   assert.equal(
     /skipEntryNameValidation/.test(pluginsSource),
     false,
-    'src/main/plugins.ts 出现了 skipEntryNameValidation，会关闭 zip-slip 防护',
+    'src/main/plugins.ts 的代码里出现了 skipEntryNameValidation，会关闭 zip-slip 防护',
   );
   assert.ok(
     /new StreamZip\.async\(\{ file: zipPath \}\)/.test(pluginsSource),
     'StreamZip 构造方式已变化，请重新确认 entry 名校验仍然生效',
+  );
+  // IMP-18：第一方兜底校验必须仍在
+  assert.ok(
+    /findUnsafeArchiveEntries\(/.test(pluginsSource),
+    '第一方 entry 名兜底校验被移除，依赖被替换后将静默失去防护',
   );
 });
