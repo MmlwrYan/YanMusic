@@ -1,0 +1,65 @@
+# Dependabot 依赖更新配置（IMP-16）
+#
+# 覆盖三个生态：
+#   - npm（应用主体依赖）
+#   - cargo（4 个 napi-rs 原生模块，根 workspace 的 Cargo.lock 已纳入版本控制）
+#   - github-actions（CI 供应链）
+#
+# 说明与有意取舍：
+#   - 未添加 `directory: /server` 条目：`server/` 是 git submodule
+#     （见 .gitmodules → MakcRe/KuGouMusicApi），Dependabot 不支持子模块目录，
+#     其依赖需在上游仓库更新。
+#   - 未添加 `native/*/` 的 npm 条目：那些 package.json 只用于 napi-rs 构建工具链，
+#     不是运行时依赖，避免产生无意义的 PR。
+#   - `electron` 忽略 major 升级：主版本升级需人工验证 4 个原生 addon 与打包链路，
+#     自动 PR 无法验证，交人工处理。
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'chore(deps)'
+      include: scope
+    groups:
+      npm-development:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+      npm-production:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+    ignore:
+      - dependency-name: electron
+        update-types:
+          - version-update:semver-major
+      - dependency-name: electron-builder
+        update-types:
+          - version-update:semver-major
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'chore(deps)'
+      include: scope
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'ci(deps)'
+      include: scope
