@@ -4,7 +4,7 @@
 
 ## [1.2.0]
 
-> 本次为**安全审计复核 + 原生层健壮性修复 + 新功能**版本：按「先复现、再修复」的纪律对上一轮审计的 P0/P1 结论逐条复核，**其中一条 P0 结论经复现后被判定不成立并已更正**；修复了两个可复现的原生层/构建链缺陷；把单元测试接入 CI；并交付**新功能「听歌档案」的完整版**（本地时间轴 / 年度回顾 / 时段与情绪聚类 / 导出分享）。
+> 本次为**安全审计复核 + 原生层健壮性修复 + 新功能**版本：按「先复现、再修复」的纪律对上一轮审计的 P0/P1 结论逐条复核，**其中一条 P0 结论经复现后被判定不成立并已更正**；修复了 4 个可复现的原生层 / 构建链 / 安全策略缺陷；把单元测试接入 CI；并交付**新功能「听歌档案」的完整版**（本地时间轴 / 年度回顾 / 时段与情绪聚类 / 导出分享）。本轮同时对原本冻结的审计项做「能修就修」的收敛，实际修复 6 项、跳过 8 项（跳过项及理由见「说明」）。
 
 ### 新功能
 
@@ -19,6 +19,9 @@
 
 - **原生层字符串含内部 NUL 时整个进程崩溃**：`native/yan-mpv-player/src/player.rs` 的 `set_property_string()` 等方法使用 `CString::new(..).unwrap()`，当传入的字符串含 `\0` 时 `CString::new` 返回 `Err`，`unwrap` 触发 panic。实测（`node scripts/repro-native-nul-panic.cjs`）该 panic **逃逸 napi 边界**，进程以 `0xC0000409` 退出，JS 侧收不到任何异常——即渲染层或媒体元数据里出现一个 `\0` 就能让主进程直接崩溃。现改为统一的 `to_cstring()` 辅助函数：非法输入返回可上报的错误而非 panic（13 处 `unwrap` 全部替换）。
 - **打包产物缺少关键资源时构建仍然「成功」**：`build/afterPack.js` 原先对「缺原生模块 / 缺 libmpv / 缺 server 模块」只打印 `WARN`，函数不抛错，于是会产出「能安装但无法播放」的包且构建状态为绿。现改为收集全部关键缺失项后显式抛错中止构建；图标等非关键项仍只告警。
+- **插件可在生产环境关闭 TLS 证书校验**（`IMP-13`）：`src/shared/plugins.ts:376-381` 的 `PluginNetworkTlsOptions.rejectUnauthorized` 由插件直接声明，`src/main/plugins/network.ts` 据此创建 `HttpsAgent`，即打包版本中插件可让应用对目标站点不做证书校验（中间人可篡改响应）。现新增 `checkPluginTlsPolicy()` / `isPluginTlsRelaxationAllowed()`：仅**未打包的开发模式**允许放宽，生产环境抛 `PluginNetworkRequestError`；未声明、显式 `true`、仅改 SNI 一律放行（既有行为不变），且只把严格等于 `false` 视为放宽。
+- **顶层导航完全没有拦截**（`IMP-12`）：`src/main` 全目录此前无 `will-navigate`，在 `webSecurity: false` 前提下渲染层一旦被导航（注入链接、脚本改 `location`）就会加载任意页面，而该页面仍持有 preload 的全部能力。现新增 `src/shared/navigationPolicy.ts`（fail-closed 纯策略）并在 `src/main/app.ts` 既有的 `web-contents-created` 钩子内注册 `will-navigate`，覆盖主窗口 / 桌面歌词 / mini 播放器 / 插件窗口全部 webContents；仅放行 `file:` / `about:` / dev server 同源。
+- **`.gitignore` 整目录忽略 `build/`**（`IMP-15`）：`.gitignore:5` 的 `build/` 会忽略 `afterPack.js`、`installer.nsh`、`icons/`、`tools/` 等构建必需资产，它们此前仅靠历史上 `-f` 强制添加才得以跟踪，新增的构建脚本会被静默漏提交。现改为 `build/mpv/`（只排除随构建放入的大体积 libmpv 运行时目录）。
 
 ### 新增
 
@@ -26,6 +29,9 @@
 - `tests/music-journal.test.ts`、`tests/music-journal-aggregate.test.ts`、`tests/music-journal-mood.test.ts`、`tests/music-journal-view.test.ts`、`tests/music-journal-share.test.ts`：听歌档案的 33 个纯逻辑用例（含「导出未新增 IPC 通道」的静态守卫）。
 - `scripts/repro-native-nul-panic.cjs`、`scripts/repro-zip-slip.cjs`、`scripts/verify-afterpack-guard.cjs`：三个可复现的取证/验证脚本。
 - CI 新增 `Run unit tests` 步骤（`pnpm test`），位置在原生模块与 libmpv 就位之后、打包之前——只有在此处运行，`tests/native-engine-options.test.ts` 的「选项真实到达 libmpv」端到端断言才会真正执行而非自动跳过。
+- `src/shared/archiveEntry.ts`：第一方 entry 名安全校验（与 `node-stream-zip` 同规则，额外拒绝含 NUL 的名称），并在 `src/main/plugins.ts` 解压前做兜底——依赖被降级 / 替换 / 误开跳过名校验时仍有防护。
+- `.github/dependabot.yml`：Dependabot 覆盖 npm / cargo / github-actions 三生态（`IMP-16`）。未添加 `server/` 条目（该目录是 git submodule，Dependabot 不支持）。
+- `tests/plugin-tls-policy.test.ts`（5 例）、`tests/share-web-endpoint.test.ts`（7 例）、`tests/navigation-policy.test.ts`（6 例）、`tests/ipc-channel-contract.test.ts`（5 例）、`tests/plugin-archive-entry.test.ts`（8 例）：本轮新增的 31 个纯逻辑 / 契约用例，其中 IPC 通道契约测试覆盖通道命名约定、handler 无重复注册、关键通道存在、preload 调用的通道在主进程均有注册（无断链）、外部注册清单不腐烂。
 
 ### 变更
 
@@ -33,24 +39,27 @@
 - **审计结论更正（重要）**：上一轮审计把「插件包解压存在 zip-slip 路径穿越」列为 P0。经复现，该结论**不成立**：所用 `node-stream-zip@1.16.0` 在读取中央目录时默认调用 `ZipEntry.validateName()`（`node_stream_zip.js:900-904`），其正则 `/\\|^\w+:|^\/|(^|\/)\.\.(\/|$)/` 会拒绝反斜杠、盘符前缀、绝对路径与 `..` 段；应用未设置 `skipEntryNameValidation`，防护处于生效状态。8 个逃逸变体实测全部被 `Malicious entry` 拒绝，仅 `....//` 与 `%2e%2e/` 被接受，而它们是**普通文件名**（不构成逃逸）。本版不修改解压逻辑，改为把这一「已核实为安全」的性质固化为回归测试。
 - **构建行为变更**：`afterPack` 现在会在关键资源缺失时让构建失败。此前「缺资源也能出包」的构建结果将不再出现——这是本次修复的目的，但会改变 CI 的失败面。
 - **错误语义变更**：向播放引擎下发含 `\0` 的字符串，行为由「进程崩溃」变为「抛出可捕获的 JS 错误」。合法输入的行为完全不变（已由 `tests/native-engine-options.test.ts` 的真实引擎回读用例覆盖）。
+- **分享落地页域名切换（行为变更，`IMP-14`）**：`SHARE_WEB_BASE_URL` 由上游 Pages（`hoowhoami.github.io/yanmusic/share/`）改为自有 Pages（`mmlwryan.github.io/YanMusic/share/`）；新增 `LEGACY_SHARE_WEB_BASE_URLS`，**旧域名仍可解析**，已分发出去的旧分享链接不会失效。**前置条件：GitHub Pages 必须配置为从 `docs/` 目录发布**（仓库内已有 `docs/share/index.html` 与 `docs/.nojekyll`）；若该地址不可用，新生成的分享链接将无法打开。
+- **插件 TLS 行为变更（`IMP-13`）**：插件声明 `tls.rejectUnauthorized: false` 在**打包版本**中会被拒绝并抛出错误；未打包的开发模式下仍可用于调试。
+- **顶层导航行为变更（`IMP-12`）**：应用各窗口的顶层导航被限制为 `file:` / `about:` / dev server 同源，其余一律阻止并记录日志。`webContents.loadURL()` / `loadFile()` 不触发该事件，窗口创建期加载与 SPA 路由切换不受影响。
 
 ### 说明
 
-- 验证结果：`pnpm test` **66/66 通过**（原 30 个用例无回归 + zip-slip 守卫 3 例 + 听歌档案 33 例）；`vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0（`dist/` 产出 243 个文件，含 `MusicJournal` 独立懒加载 chunk）；`cargo check --manifest-path native/yan-mpv-player/Cargo.toml --release` 退出码 0，addon 已重编译。
+- 验证结果：`pnpm test` **97/97 通过**（原 30 个用例无回归 + zip-slip 守卫 3 例 + 听歌档案 33 例 + 本轮新增 31 例）；`vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0（`dist/` 产出 243 个文件，含 `MusicJournal` 独立懒加载 chunk）；`cargo check --manifest-path native/yan-mpv-player/Cargo.toml --release` 退出码 0，addon 已重编译；`eslint` 全量 **214 errors / 5 warnings**（与 `HEAD` 基线逐位相同，本轮新增文件 0 错误）。
 - **听歌档案的数据可用性说明（重要，不夸大）**：逐次播放事件**从本版起才开始精确采集**。升级前的播放只能以「近似基线」呈现（每曲一条、时间取最后一次播放、次数按历史累计），因此**首次打开档案时的时间轴分布是近似的**，随时间推移会逐步被精确事件取代。含近似数据的日子在视图中以虚线柱与文字说明标识。
 - `scripts/verify-afterpack-guard.cjs` 采用对照实验取证：HEAD 版本的 `afterPack` 在缺少全部关键资源时**不抛错**（复现原缺陷），修复后同一场景抛错并列出 6 项缺失、资源齐备时不误报。
-- **本次未修复的审计项（已知问题，计划在后续版本处理）**：
-  - **IPC 通道无白名单且不校验发送方**：`src/preload/index.ts:283-296` 向渲染层暴露通用 `ipcRenderer.send/invoke/on/off`，`src/main/ipc/registry.ts:26,79` 不校验 `event.senderFrame`。未修复原因：收紧该出口需要先确定 4 类窗口（主窗口 / 桌面歌词 / mini 播放器 / 插件窗口）各自的合法通道集合，并迁移渲染层 22 处裸 `ipcRenderer` 调用点；其中插件窗口的合法通道集涉及**尚未审计**的插件宿主模块，按纪律不得盲改。临时缓解：无。计划修复版本：1.1.4。
-  - **插件包完整性校验为可选**：`src/main/plugins.ts:1819` 仅在市场索引提供 `checksum` 时才校验。未修复原因：把 `checksum` 改为必填会使当前未提供该字段的插件源**无法安装任何插件**，属生态级行为变更，且本环境无网络无法核实真实索引是否已提供该字段，需人工决策。临时缓解：无。计划修复版本：待定。
-  - **`webSecurity: false` / `allowRunningInsecureContent: true` / Windows `no-sandbox`**（`src/main/window.ts:400,401`、`src/main/index.ts:22`）：关闭原因与业务耦合（注释自述「禁用 CORS 限制」），收敛属产品级取舍，需人工决策。临时缓解：无。
-  - **仓库 lint 基线为红**：`pnpm exec eslint . --ext .vue,.js,.ts,.jsx,.tsx` 在 `HEAD` 上即有 **214 errors / 5 warnings**（集中在 `tests/native-engine-options.test.ts` 134 项、`tests/eq-headroom.test.ts` 9 项等），本版**未引入新的 lint 错误**（改动前后总数均为 214/5，新增文件 0 错误），但因此**未把 lint 接入 CI**。计划修复版本：1.1.4。
-  - 其余审计项（`IMP-07` 巨型文件拆分、`IMP-09` 构建可复现性、`IMP-10` 代码签名、`IMP-11` 凭据加密落盘、`IMP-12` 导航拦截等）本轮未处理。
-  - **跨平台 CI 预验证未执行**：本环境无法访问 GitHub（`git ls-remote` 报 SSL 证书校验失败）且无发布凭据，Phase 4（三平台 `workflow_dispatch` 预验证）与 tag 触发发布均未执行，需人工在有网络的环境完成。
-  - **IPC 通道无白名单且不校验发送方**：`src/preload/index.ts:283-296` 向渲染层暴露通用 `ipcRenderer.send/invoke/on/off`，`src/main/ipc/registry.ts:26,79` 不校验 `event.senderFrame`。未修复原因：收紧该出口需要先确定 4 类窗口（主窗口 / 桌面歌词 / mini 播放器 / 插件窗口）各自的合法通道集合，并迁移渲染层 22 处裸 `ipcRenderer` 调用点；其中插件窗口的合法通道集涉及**尚未审计**的插件宿主模块，按纪律不得盲改。临时缓解：无。计划修复版本：1.1.4。
-  - **插件包完整性校验为可选**：`src/main/plugins.ts:1819` 仅在市场索引提供 `checksum` 时才校验。未修复原因：把 `checksum` 改为必填会使当前未提供该字段的插件源**无法安装任何插件**，属生态级行为变更，且本环境无网络无法核实真实索引是否已提供该字段，需人工决策。临时缓解：无。计划修复版本：待定。
-  - **`webSecurity: false` / `allowRunningInsecureContent: true` / Windows `no-sandbox`**（`src/main/window.ts:400,401`、`src/main/index.ts:22`）：关闭原因与业务耦合（注释自述「禁用 CORS 限制」），收敛属产品级取舍，需人工决策。临时缓解：无。
-  - **仓库 lint 基线为红**：`pnpm exec eslint . --ext .vue,.js,.ts,.jsx,.tsx` 在 `HEAD` 上即有 **214 errors / 5 warnings**（集中在 `tests/native-engine-options.test.ts` 134 项、`tests/eq-headroom.test.ts` 9 项等），本版**未引入新的 lint 错误**（改动前后总数均为 214/5，新增文件 0 错误），但因此**未把 lint 接入 CI**。计划修复版本：1.1.4。
-  - 其余审计项（`IMP-07` 巨型文件拆分、`IMP-09` 构建可复现性、`IMP-10` 代码签名、`IMP-11` 凭据加密落盘、`IMP-12` 导航拦截等）本轮未处理。
+- **本轮跳过的审计项（已知问题，逐条给出理由与前置条件）**：
+  - **`IMP-01` IPC 通道无白名单且不校验发送方**：`src/preload/index.ts:283-296` 向渲染层暴露通用 `ipcRenderer.send/invoke/on/off`，`src/main/ipc/registry.ts:26,79` 不校验 `event.senderFrame`。**跳过理由**：前置审计（只读）发现两个结构性障碍——① 4 类窗口共用**同一个 preload**（`window.ts:360`、`desktopLyric/window.ts:142`、`pluginWindows.ts:230`、`miniPlayer.ts:473`），typed helper 面对所有窗口完全相同；② **mini 播放器加载的是 `dist/index.html`（`miniPlayer.ts:231`），与主窗口（`window.ts:362`）是同一份 bundle**，二者在「可用通道集合」上不可区分。因此「窗口 × 通道」矩阵中存在大量无法判定的等价格，按白名单收口会误伤现有调用。**前置条件**：把 mini 播放器拆成独立入口（或按 `webContents.id` + 路由显式声明允许集），并迁移渲染层 22 处裸 `ipcRenderer` 调用点。
+  - **`IMP-03` 插件包完整性校验为可选**：`src/main/plugins.ts` 仅在市场索引提供 `checksum` 时才校验。**跳过理由**：本环境无法访问索引（`web_fetch` 报 hostname 解析到非公网 IP），无法核实真实索引是否已提供该字段；若强制必填而索引未提供，会导致该插件源**所有插件无法安装**。**前置条件**：联网核实 `echo-plugins.json` 的 `checksum` 覆盖率（或推动插件源补齐该字段）。
+  - **`IMP-05` `webSecurity: false` / `allowRunningInsecureContent: true` / Windows `no-sandbox`**：`src/main/window.ts:400-401`、`src/main/index.ts:22`。**跳过理由**：属产品级取舍——`window.ts:400` 注释自述为「禁用 CORS 限制」，关闭它还影响封面图/媒体资源的跨域加载路径，收敛需先明确哪些请求可改走主进程 `api:request`，属产品决策而非缺陷修复。**前置条件**：维护者确认 `webSecurity` 关闭的真实业务依赖清单。
+  - **`IMP-07` 巨型文件拆分**（`src/main/plugins.ts` 3027 行、`runtime.ts` 2665 行、`listenTogether.ts` 2541 行等）：**跳过理由**：属重构而非修复，改动面大且无行为收益，与本轮「修复」目标不符。**前置条件**：单独立项并配套回归测试。
+  - **`IMP-09` 构建可复现性**：mpv 二进制从第三方最新 release 下载且无校验；`server` 依赖用 `npm install --legacy-peer-deps`。**跳过理由**：① `server/package-lock.json` **不存在**（该子模块只有 `pnpm-lock.yaml`），`npm ci` 会直接失败，而上游 lockfile 同步需在子模块仓库修复；② mpv 固定到具体 release tag + SHA-256 需联网核实，伪造会导致 Windows 构建腿失败。**前置条件**：联网核实 mpv release tag 与资产 SHA-256；在 `server` 子模块补齐 `package-lock.json`。
+  - **`IMP-10` 代码签名 / 公证**：`build.yml:500` 显式 `CSC_IDENTITY_AUTO_DISCOVERY: 'false'`。**跳过理由**：需要 Windows 代码签名证书与 Apple 开发者账号（外部采购条件）。**前置条件**：具备证书与公证凭据。
+  - **`IMP-11` 用户凭据加密落盘**：`src/main/storage/kv.ts:19` 明文 JSON 写入 SQLite；`safeStorage` 目前仅用于代理密码（`src/main/networkSettings.ts:46-52`）。**跳过理由**：合规的降级路径要求「提示用户 + 拒绝保存 token」，而「提示」需要新增 IPC 通道与设置页 UI（本轮纪律禁止新增通道）；若改为静默丢弃 token，会导致无 keyring 的 Linux 用户重启后静默掉登录，属未确认的 UX 退化。**前置条件**：确定 Linux 无 keyring 时的用户可见降级交互（需产品决策 + 允许新增通道）。
+  - **`IMP-16` 的 husky / lint-staged 部分**：**跳过理由**：`husky` 与 `lint-staged` 均需新增 devDependency，与本轮「不引入新依赖」纪律冲突，且本环境无网络无法安装。已交付的部分是 `.github/dependabot.yml`（纯配置，无依赖）。**前置条件**：允许新增这两个 devDependency 并联网安装。
+  - **`IMP-17` CI 第三方 Action 未固定 commit SHA**：`build.yml` 共 10 处 `uses:` 全部为 tag/branch 引用（含 `dtolnay/rust-toolchain@stable`）。**跳过理由**：固定 SHA 需要各 Action 对应 tag 的真实 commit SHA，本环境无法访问 GitHub（`git ls-remote https://github.com/actions/checkout` 报 SSL 证书校验失败，exit 128）且无本地缓存；**伪造 SHA 会导致 CI 无法解析 action、6 个构建腿全部失败**。**前置条件**：联网查询各 Action 对应 tag 的 commit SHA。
+  - **仓库 lint 基线为红**：`HEAD` 上即有 **214 errors / 5 warnings**（集中在 `tests/native-engine-options.test.ts` 134 项等）。本版未引入新的 lint 错误（总数逐位持平，新增文件 0 错误），但因此**未把 lint 接入 CI**。**前置条件**：先做一次独立的仓库级格式化批次。
+  - **跨平台 CI 预验证未执行**：本环境无法访问 GitHub（`git ls-remote` 报 SSL 证书校验失败）且无 `gh` CLI 与发布凭据，三平台 `workflow_dispatch` 预验证与 tag 触发发布均未执行，需人工在有网络的环境完成。**注意**：本地仅能验证 Windows，Linux / macOS 必须由真实 runner 验证。
 
 ## [1.1.2]
 
