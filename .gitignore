@@ -2,7 +2,10 @@
 dist/
 dist-electron/
 release/
-build/
+# 只排除随构建放入的大体积 libmpv 运行时目录；
+# build/ 下的脚本与资源（afterPack.js、installer.nsh、icons/、tools/）是构建必需且必须被跟踪，
+# 因此不能整目录忽略，否则新增的构建脚本会被静默漏提交。
+build/mpv/
 
 # Rust build artifacts
 target/
