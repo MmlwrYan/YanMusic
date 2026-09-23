@@ -1,6 +1,16 @@
 export const SHARE_SCHEME = 'yanmusic';
-// TODO(source): 分享落地页仍指向原实现的 GitHub Pages 地址，待自有部署确认后替换
-export const SHARE_WEB_BASE_URL = 'https://hoowhoami.github.io/yanmusic/share/';
+/**
+ * 分享落地页（自有 GitHub Pages，由仓库 `docs/` 目录发布）。
+ *
+ * 前置条件：Pages 必须配置为从 `docs/` 目录发布，否则该地址不可用
+ * （仓库内已有 `docs/share/index.html` 与 `docs/.nojekyll`）。
+ */
+export const SHARE_WEB_BASE_URL = 'https://mmlwryan.github.io/YanMusic/share/';
+/**
+ * 历史分享链接指向的落地页地址。**仅用于解析兼容**，不再用于生成新链接，
+ * 以保证已经分发出去的旧链接不会失效。
+ */
+export const LEGACY_SHARE_WEB_BASE_URLS = ['https://hoowhoami.github.io/yanmusic/share/'] as const;
 
 export type ShareResourceType =
   | 'song'
@@ -35,8 +45,33 @@ const SHARE_TYPE_LABELS: Record<ShareResourceType, string> = {
   'listen-together': '一起听',
 };
 
-const SHARE_WEB_ORIGIN = new URL(SHARE_WEB_BASE_URL).origin;
-const SHARE_WEB_PATH = new URL(SHARE_WEB_BASE_URL).pathname.replace(/\/$/, '');
+interface ShareWebEndpoint {
+  origin: string;
+  path: string;
+}
+
+const toShareWebEndpoint = (baseUrl: string): ShareWebEndpoint => {
+  const url = new URL(baseUrl);
+  return { origin: url.origin, path: url.pathname.replace(/\/$/, '') };
+};
+
+/** 可接受的落地页端点：自有域名在前，历史域名随后（仅解析兼容）。 */
+const SHARE_WEB_ENDPOINTS: ShareWebEndpoint[] = [
+  SHARE_WEB_BASE_URL,
+  ...LEGACY_SHARE_WEB_BASE_URLS,
+].map(toShareWebEndpoint);
+
+/** 匹配某个落地页端点；不匹配返回 null。 */
+const matchShareWebEndpoint = (url: URL): ShareWebEndpoint | null => {
+  const pathname = url.pathname.replace(/\/$/, '');
+  return (
+    SHARE_WEB_ENDPOINTS.find(
+      (endpoint) =>
+        endpoint.origin === url.origin &&
+        (pathname === endpoint.path || pathname.startsWith(`${endpoint.path}/`)),
+    ) ?? null
+  );
+};
 
 const isShareResourceType = (value: string): value is ShareResourceType =>
   value === 'song' ||
@@ -178,10 +213,10 @@ export const parseShareWebUrl = (value: string): ShareTarget | null => {
   } catch {
     return null;
   }
-  if (url.origin !== SHARE_WEB_ORIGIN) return null;
+  const endpoint = matchShareWebEndpoint(url);
+  if (!endpoint) return null;
 
   const pathname = url.pathname.replace(/\/$/, '');
-  if (pathname !== SHARE_WEB_PATH && !pathname.startsWith(`${SHARE_WEB_PATH}/`)) return null;
 
   const targetParam = readText(url.searchParams.get('target'));
   if (targetParam) {
@@ -196,7 +231,7 @@ export const parseShareWebUrl = (value: string): ShareTarget | null => {
   );
   if (queryTarget) return queryTarget;
 
-  const pathRest = pathname.slice(SHARE_WEB_PATH.length).replace(/^\/+/, '');
+  const pathRest = pathname.slice(endpoint.path.length).replace(/^\/+/, '');
   const [pathType, ...pathIdParts] = pathRest.split('/').filter(Boolean);
   if (!pathType || pathIdParts.length === 0) return null;
 
