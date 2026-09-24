@@ -39,14 +39,37 @@ const libmpvPath = libmpvCandidates.find((candidate) => existsSync(candidate));
  * 注意：这里只把「进程崩溃 / 非 0 退出」判为不可用；断言失败仍然照常失败。
  */
 const probeEngineAvailability = (): string | null => {
+  // 探测脚本必须覆盖本文件用到的**全部**引擎调用面，否则「探测通过、随后测试时崩溃」
+  // 仍然会带走整个测试进程（实测过一次）。这里逐步打点，崩溃时能直接定位到哪一步。
   const script = [
     `const addon = require(${JSON.stringify(addonPath)});`,
-    `try {`,
-    `  addon.initialize(${JSON.stringify(libmpvPath)}, undefined);`,
-    `} catch (error) {`,
-    `  console.error('INIT_FAIL: ' + (error && error.message ? error.message : String(error)));`,
-    `  process.exit(3);`,
-    `}`,
+    `const CONFIG = ${JSON.stringify({
+      cacheSecs: 45,
+      demuxerMaxMb: 96,
+      demuxerBackMb: 24,
+      audioBufferSecs: 1.25,
+      demuxerReadaheadSecs: 7,
+      cache: 'auto',
+      cachePause: false,
+      cachePauseWaitSecs: 2.5,
+      audioSamplerate: '48000',
+      audioChannels: 'mono',
+      audioFormat: 's16',
+      gaplessAudio: 'no',
+    })};`,
+    `const step = (label, fn) => {`,
+    `  try { fn(); console.log('STEP_OK ' + label); }`,
+    `  catch (error) { console.error('STEP_FAIL ' + label + ': ' + (error && error.message ? error.message : String(error))); process.exit(3); }`,
+    `};`,
+    // 1) 带完整配置初始化 + 读回两个代表性属性（对应测试 1/2）
+    `step('initialize-with-config', () => addon.initialize(${JSON.stringify(libmpvPath)}, CONFIG));`,
+    `step('getProperty:options/cache', () => addon.getProperty('options/cache'));`,
+    `step('getProperty:option-info/audio-format', () => addon.getProperty('option-info/audio-format'));`,
+    `step('destroy-after-config', () => addon.destroy());`,
+    // 2) 无配置初始化 + 读回（对应测试 2 的简化路径）
+    `step('initialize-default', () => addon.initialize(${JSON.stringify(libmpvPath)}));`,
+    `step('getProperty:options/cache-secs', () => addon.getProperty('options/cache-secs'));`,
+    `step('destroy-after-default', () => addon.destroy());`,
     `console.log('PROBE_OK');`,
     `process.exit(0);`,
   ].join('\n');
@@ -59,16 +82,21 @@ const probeEngineAvailability = (): string | null => {
   const stdout = String(result.stdout ?? '').trim();
   if (result.status === 0 && stdout.includes('PROBE_OK')) return null;
 
+  // 崩溃前的最后一步能从 stdout 里看出来，直接写进诊断信息。
+  const lastStep = stdout
+    .split('\n')
+    .filter((line) => line.startsWith('STEP_OK '))
+    .map((line) => line.replace('STEP_OK ', '').trim())
+    .pop();
   const detail = [String(result.stderr ?? '').trim(), stdout]
     .filter(Boolean)
     .join(' | ')
     .replace(/\s+/g, ' ')
     .slice(0, 400);
   const exitDescription =
-    result.status === null
-      ? `进程被信号终止 signal=${result.signal}（加载 libmpv 时崩溃）`
-      : `退出码 ${result.status}`;
-  return `播放引擎无法在本机启动（${exitDescription}）：${detail || '无输出'}`;
+    result.status === null ? `进程被信号终止 signal=${result.signal}` : `退出码 ${result.status}`;
+  const progress = lastStep ? `；最后成功的一步：${lastStep}` : '；第一步即失败';
+  return `播放引擎无法在本机启动（${exitDescription}${progress}）：${detail || '无输出'}`;
 };
 
 const baseSkipReason = !existsSync(addonPath)
