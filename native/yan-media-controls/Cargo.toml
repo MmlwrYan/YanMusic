@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "yan-media-controls"
 version = "0.1.0"
 edition = "2021"
@@ -29,7 +29,7 @@ features = [
 
 # Linux: MPRIS D-Bus
 [target.'cfg(target_os = "linux")'.dependencies]
-mpris-server = "0.9"
+mpris-server = "0.10"
 tempfile = "3"
 
 # macOS: MPNowPlayingInfoCenter
