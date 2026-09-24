@@ -2,6 +2,40 @@
 >
 > 🤡 如果你是付费获取的，说明你被骗了。
 
+## [1.2.1]
+
+> 本次为**主题可用性修复 + 供应链加固 + 审计收敛**的补丁版本，**不含任何新功能**：修复 1.2.0 新交付的「听歌档案」在浅色主题下不可读的问题，并把同一类缺陷在全渲染层扫干净（共 5 个未定义 CSS 令牌 / 18 处引用 / 7 个文件）；把 3 个 workflow 中 14 处第三方 Action 引用固定到 commit SHA；更正 README 的 Node 版本要求并补记「听歌档案」。本轮同时完成一次全仓审计：新增 8 项发现（3 项已修、2 项经复现判定**不成立**并给出反证、3 项跳过），上一轮遗留的 9 项跳过项逐条复核后维持跳过（理由与前置条件见「说明」）。
+
+### 修复
+
+- **听歌档案在浅色主题下不可读**（1.2.0 新功能的可用性回归）：`src/renderer/views/MusicJournal.vue` 引用全仓从未定义的 `--text-primary` 与 `--accent`，`var()` 回退到为深色背景写死的 `#e8e8ea`，在浅色主题（`--surface-main-base: #f5f5f7`）上正文对比度仅 **1.12:1**（WCAG AA 正文要求 4.5:1），标题与正文几乎不可见；面板底色、边框、图表柱身另用 `rgb(255 255 255 / n%)` 等硬编码半透明色，在浅色底上呈整页白雾。现全部改用 `src/renderer/style.css` 既有令牌（`--text-main` / `--bg-card` / `--bg-info-card` / `--border-subtle` / `--control-*` / `--color-primary*` / `--row-selected-bg`），**未新增主题变量、未改模板与脚本逻辑**；「近似基线」的虚线斜纹标识（`color-mix(in srgb, var(--color-primary) 45%, transparent)`）按原样保留，仍与精确数据可区分。
+- **渲染层 5 个未定义 CSS 令牌 / 18 处引用 / 7 个文件**（审计新发现 `N-01`，与上一条同类）：修好听歌档案后做全仓扫描，发现同类问题仍在别处存在。其中 **8 处为「无回退」引用**——`var()` 无法解析会让**整条声明失效**，颜色与边框完全不生效：`--border-main`（3 处，复选框边框整条失效）、`--color-red-500`（3 处，插件管理页错误色整条失效）、`--primary`（2 处，歌曲卡片高亮色整条失效），分别改为 `--control-checkbox-border`、`--state-danger`、`--color-primary`（前者在 `:root` 与 `.dark` 均有定义，两主题自适应）；另 10 处为回退到硬编码 `#ef4444` 的 `--color-danger`（9 处）与 `--color-error`（1 处），恒定颜色脱离主题令牌体系，统一改为 `--state-danger`。改动仅 18 行字面替换（`git diff --numstat` 逐项核对为 18 增 / 18 删），无格式化改动、无逻辑改动。
+
+### 新增
+
+- `tests/music-journal-theme.test.ts`（5 例）：听歌档案主题回归守卫——令牌定义守卫（引用的令牌必须在 `style.css` 中存在）、**明暗双主题 WCAG AA 对比度断言**（按令牌实际取值计算正文与次级文字对比度）、硬编码颜色守卫、近似基线标识保留守卫。
+- `tests/theme-token-consistency.test.ts`（4 例）：把上一条从「单页修复」升级为**全仓守卫**——渲染层不得引用未定义 CSS 令牌（正确区分「运行时注入（如 `applyAccentToRoot` 写入的 `--color-primary`）/ 库约定（`--reka-*`）/ 设计性覆盖点」三类合法例外）、**「无回退」的未定义引用必须为零**、危险色必须统一走 `--state-danger`、主题令牌体系自检。
+- `tests/ci-supply-chain.test.ts`（3 例）：CI 供应链守卫——所有 `uses:` 必须固定到 40 位十六进制 commit SHA、必须带可读版本注释、本地 `./` 复合 Action 豁免。
+
+### 变更
+
+- **CI 第三方 Action 引用方式变更（`IMP-17`，上一轮跳过项本轮落地）**：`build.yml` / `issue-ai-labeler.yml` / `issue-closer.yml` 共 **14 处** `uses:` 由 tag/branch 引用改为 commit SHA，并保留 `# vX` 版本注释。**影响**：Dependabot 的 `github-actions` 更新将改为提交 SHA 升级（注释同步），这是本次加固的预期行为；已核验 `# vX` 注释格式可被 `tests/ci-supply-chain.test.ts` 持续校验。
+- **README 前置要求更正**：`Node.js 18+` → `20.19+ 或 22.12+`。原表述与依赖实际要求矛盾——`vite@8.0.14` 的 `engines` 为 `^20.19.0 || >=22.12.0`，按原文用 Node 18 执行 `pnpm dev` / `pnpm build` 会直接失败；同时标注 `pnpm test` 需 22.18+（依赖 Node 原生 TS 剥离），CI 打包用 20、测试用 24。
+- **README 核心特性补记「听歌档案」**：该功能已在 1.2.0 上线（`src/renderer/router/index.ts:76-79`，路由 `/main/journal`）但未记入特性列表，现按实际能力补记（时间轴 / 周汇总 / 7-14-30-90 天窗口 / 情绪标注）。属文档一致性补正，**非新功能**。
+
+### 说明
+
+- 验证结果：`pnpm test` **109/109 通过**（1.2.0 为 97/97，本轮新增 12 例且原有用例无回归）；`vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0（`dist/` 产出 243 个文件）；`cargo check` 退出码 0；`eslint` 全量 **80 errors / 0 warnings**（与 `HEAD` 基线逐位相同，本轮新增文件 0 错误）。
+- **本轮新增审计发现中经复现判定「不成立」的 2 项（不修改代码）**：
+  - `N-04`「macOS 系统音频捕获 `try_into().unwrap()` 存在 panic 风险」：`native/yan-spectrum-capture/src/backend/macos_sck.rs:802/816/830/845` 的 4 处 `try_into().unwrap()` **各自紧跟在显式长度检查之后**（`:799/813/827/842`），切片长度可证为 `N`，`unwrap` 不可达。**判定不成立**。
+  - `N-05`「主进程 `fetch(` 调用缺少超时，可能永久挂起」：3 处调用**均已带中止机制**——`src/main/mediaControls.ts:79-80` 与 `src/main/plugins.ts:1124-1134` 均传入 `signal: controller.signal` 并在 `finally` 中 `clearTimeout`（后者还把 `AbortError` 映射为超时错误信息），`src/main/networkPolicy.ts:161` 为透传包装，超时由调用方的 `init` 决定。**判定不成立**。
+- **本轮跳过的审计发现（3 项，逐条给出理由与前置条件）**：
+  - `N-02` **`index.html` / `desktop-lyric.html` 缺少 CSP**（仅 `plugin-window.html` 有）：**跳过理由**：二者均以 `webSecurity: false` 运行，且渲染层存在大量内联样式与运行时注入（主题色 `<style>`、`style-src 'unsafe-inline'` 需求），本环境无 GUI 无法验证收紧后是否造成回归，盲改有「白屏」风险且无法自证。**前置条件**：可在本地 GUI 环境逐窗口验证 CSP 收紧（先 `Content-Security-Policy-Report-Only` 观测）。
+  - `N-03` **无障碍属性缺失**：9 处 `<img>` 无 `alt`，144 个 `.vue` 文件中仅 33 个使用 `aria-*` / `role`。**跳过理由**：`alt` 文案属产品文案决策（多为封面图，需定「读曲名」还是「标记装饰图」），且屏幕阅读器行为本环境无法验证；批量添加 `aria-*` 在无法验证的前提下属高风险盲改。**前置条件**：确定封面图的 `alt` 约定，并引入可自动化的 a11y 检查（如 axe）在 CI 中做守卫。
+  - `N-07` **巨型文件拆分**（41 个文件 > 800 行）：同上轮 `IMP-07` 判断，属重构而非修复，与本轮「补丁版本」目标不符。**前置条件**：单独立项并配套回归测试。
+- **上一轮 9 项跳过项复核结论**：`IMP-01`（4 类窗口共用同一 preload，且 mini 播放器与主窗口加载同一份 bundle，白名单收口会误伤）、`IMP-03`（本环境无法核实插件索引 `checksum` 覆盖率）、`IMP-05`（`webSecurity` 关闭属产品级取舍）、`IMP-07`、`IMP-09`（`server` 子模块无 `package-lock.json`，mpv 资产需联网核实 SHA-256）、`IMP-10`（代码签名证书为外部采购条件）、`IMP-11`（无 keyring 时的降级交互需产品决策）、`IMP-16` 的 husky/lint-staged 部分（需新增依赖，与本轮纪律冲突）——**逐条复核后维持跳过**，理由与前置条件不变。本轮已落地的只有 `IMP-17`（见「变更」）。
+- **本轮不改动的模块**：`src/main/runtime.ts`、`server/`、`cloudflare/` 仅做只读审计，未产生任何改动。
+
 ## [1.2.0]
 
 > 本次为**安全审计复核 + 原生层健壮性修复 + 新功能**版本：按「先复现、再修复」的纪律对上一轮审计的 P0/P1 结论逐条复核，**其中一条 P0 结论经复现后被判定不成立并已更正**；修复了 4 个可复现的原生层 / 构建链 / 安全策略缺陷；把单元测试接入 CI；并交付**新功能「听歌档案」的完整版**（本地时间轴 / 年度回顾 / 时段与情绪聚类 / 导出分享）。本轮同时对原本冻结的审计项做「能修就修」的收敛，实际修复 6 项、跳过 8 项（跳过项及理由见「说明」）。
