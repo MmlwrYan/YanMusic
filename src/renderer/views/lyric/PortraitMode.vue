@@ -311,6 +311,7 @@ defineExpose({
           v-show="blurLayers[layerIndex]"
           :key="`blur-${layerIndex}`"
           :src="blurLayers[layerIndex]"
+          alt=""
           class="portrait-blur-img"
           :class="{ 'is-visible': visibleBlurLayer === layerIndex }"
         />

@@ -263,6 +263,7 @@ onUnmounted(() => {
     >
       <img
         :src="blurCoverUrl"
+        alt=""
         class="lyric-blur-bg-img"
         :class="{ 'lyric-blur-bg-img--rhythm': isBlurBackgroundRhythmEnabled }"
       />
