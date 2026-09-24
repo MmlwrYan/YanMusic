@@ -31,6 +31,7 @@
 - **音乐云盘**：支持本地音频和跨平台文件导入，快速将专属音乐同步至云端存储。
 - **听歌识曲**：支持麦克风和系统音频捕获，快速识别正在播放的歌曲。
 - **歌曲详情**：支持查看歌曲档案及播放详情。
+- **听歌档案**：以时间轴与周汇总回顾个人收听记录，支持 7 / 14 / 30 / 90 天窗口切换，并可为每次播放标注情绪。
 - **分享功能**: 支持将你喜欢的歌曲、歌单、专辑、歌手、插件一键分享给好友或社交平台。
 - **歌曲评论**：支持查看歌曲评论与评论楼层跳转。
 - **歌词显示**：支持 LRC/YRC 逐字歌词解析、歌词选择、歌词翻译、正则过滤、滚动同步、全屏歌词、写真模式、桌面歌词。
@@ -77,8 +78,8 @@
 
 ### 前置要求
 
-- [Node.js](https://nodejs.org/) 18+
-- [pnpm](https://pnpm.io/) 9+
+- [Node.js](https://nodejs.org/) 20.19+ 或 22.12+（Vite 8 的最低要求；`pnpm test` 需要 22.18+，CI 打包用 20、测试用 24）
+- [pnpm](https://pnpm.io/) 9+（与 CI 一致）
 - [Rust](https://www.rust-lang.org/)（编译原生模块需要）
 - [mpv / libmpv](https://mpv.io/)（播放引擎，macOS: `brew install mpv`，Linux: `apt install libmpv-dev`，Windows: 自行下载 `libmpv-2.dll` 到 `build\mpv` 目录）
 - Linux 构建系统音频捕获模块需要 ALSA 开发库（Debian/Ubuntu: `sudo apt install libasound2-dev`）
