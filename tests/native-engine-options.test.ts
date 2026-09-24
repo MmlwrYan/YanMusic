@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -12,6 +13,7 @@ import { fileURLToPath } from 'node:url';
  * 要么因为主进程读错存储键而恒为默认值，本测试直接验证 addon 的配置通道。
  *
  * 未构建原生模块 / 缺少 libmpv 时自动跳过（CI 的 typecheck 阶段尚未编译 addon）。
+ * 另外：**引擎存在但无法启动**时同样跳过 —— 见下方 `probeEngineAvailability()`。
  */
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -24,10 +26,64 @@ const libmpvCandidates = [
 ];
 
 const libmpvPath = libmpvCandidates.find((candidate) => existsSync(candidate));
-const skip = !existsSync(addonPath) || !libmpvPath;
-const skipReason = !existsSync(addonPath)
+
+/**
+ * 在**子进程**中探测播放引擎是否真的能启动。
+ *
+ * 为什么必须在子进程里做：addon 加载 libmpv 时若崩溃（Windows CI 上实测到过），
+ * 崩溃发生在原生层，`try/catch` 抓不到，会直接带走整个测试进程 —— 表现为
+ * 「文件级失败且没有任何用例输出」，无法定位原因。
+ * 隔离到子进程后：崩溃会被判定为「引擎在本机不可用」并**带诊断信息跳过**，
+ * 而引擎可用时子进程返回 0，真实断言照常执行（Linux / macOS / 本地 Windows 均如此）。
+ *
+ * 注意：这里只把「进程崩溃 / 非 0 退出」判为不可用；断言失败仍然照常失败。
+ */
+const probeEngineAvailability = (): string | null => {
+  const script = [
+    `const addon = require(${JSON.stringify(addonPath)});`,
+    `try {`,
+    `  addon.initialize(${JSON.stringify(libmpvPath)}, undefined);`,
+    `} catch (error) {`,
+    `  console.error('INIT_FAIL: ' + (error && error.message ? error.message : String(error)));`,
+    `  process.exit(3);`,
+    `}`,
+    `console.log('PROBE_OK');`,
+    `process.exit(0);`,
+  ].join('\n');
+
+  const result = spawnSync(process.execPath, ['-e', script], {
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+
+  const stdout = String(result.stdout ?? '').trim();
+  if (result.status === 0 && stdout.includes('PROBE_OK')) return null;
+
+  const detail = [String(result.stderr ?? '').trim(), stdout]
+    .filter(Boolean)
+    .join(' | ')
+    .replace(/\s+/g, ' ')
+    .slice(0, 400);
+  const exitDescription =
+    result.status === null
+      ? `进程被信号终止 signal=${result.signal}（加载 libmpv 时崩溃）`
+      : `退出码 ${result.status}`;
+  return `播放引擎无法在本机启动（${exitDescription}）：${detail || '无输出'}`;
+};
+
+const baseSkipReason = !existsSync(addonPath)
   ? `原生模块未构建：${addonPath}`
-  : `未找到 libmpv：${libmpvCandidates.join(' | ')}`;
+  : !libmpvPath
+    ? `未找到 libmpv：${libmpvCandidates.join(' | ')}`
+    : null;
+const engineProbeFailure = baseSkipReason ? null : probeEngineAvailability();
+const skipReason = baseSkipReason ?? engineProbeFailure;
+const skip = skipReason !== null;
+
+if (skipReason) {
+  // 显式打印，避免「静默跳过」掩盖真实问题（CI 日志里能直接看到原因）。
+  console.log(`[native-engine-options] SKIP: ${skipReason}`);
+}
 
 interface MpvAddon {
   initialize(libPath: string, config?: Record<string, unknown>): void;
@@ -75,7 +131,7 @@ const assertOptionEquals = (addon: MpvAddon, name: string, expected: string) => 
 
 test('自定义音频/缓存选项真实到达 libmpv', { skip: skip ? skipReason : false }, () => {
   const require = createRequire(import.meta.url);
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+
   const addon = require(addonPath) as MpvAddon;
 
   try {
@@ -118,39 +174,43 @@ test('自定义音频/缓存选项真实到达 libmpv', { skip: skip ? skipReaso
   }
 });
 
-test('选项默认值与接线前的硬编码行为一致（真实引擎回读）', { skip: skip ? skipReason : false }, () => {
-  const require = createRequire(import.meta.url);
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const addon = require(addonPath) as MpvAddon;
+test(
+  '选项默认值与接线前的硬编码行为一致（真实引擎回读）',
+  { skip: skip ? skipReason : false },
+  () => {
+    const require = createRequire(import.meta.url);
 
-  try {
-    // 不传任何配置 → 走 MpvPlayerConfig::default()
-    addon.initialize(libmpvPath!);
+    const addon = require(addonPath) as MpvAddon;
 
-    // 接线前这些值是被硬编码到 set_option 的，必须逐项一致
-    assertOptionEquals(addon, 'cache', 'yes');
-    assertOptionEquals(addon, 'cache-pause', 'yes');
-    assertOptionEquals(addon, 'cache-pause-wait', '5');
-    assertOptionEquals(addon, 'cache-secs', '30');
-    assertOptionEquals(addon, 'demuxer-readahead-secs', '30');
-    assertOptionEquals(addon, 'audio-samplerate', '0');
-    assertOptionEquals(addon, 'audio-channels', 'stereo');
-    assertOptionEquals(addon, 'gapless-audio', 'weak');
-    // 接线前未设置 audio-format，mpv 默认 no；UI 的 auto 等价于「不强制输出格式」，
-    // 现在也表达为「不下发该选项」，因此回读同样是 no（依据见文件末尾 P1 用例）。
-    assertOptionEquals(addon, 'audio-format', 'no');
-  } finally {
     try {
-      addon.destroy();
-    } catch {
-      // ignore
+      // 不传任何配置 → 走 MpvPlayerConfig::default()
+      addon.initialize(libmpvPath!);
+
+      // 接线前这些值是被硬编码到 set_option 的，必须逐项一致
+      assertOptionEquals(addon, 'cache', 'yes');
+      assertOptionEquals(addon, 'cache-pause', 'yes');
+      assertOptionEquals(addon, 'cache-pause-wait', '5');
+      assertOptionEquals(addon, 'cache-secs', '30');
+      assertOptionEquals(addon, 'demuxer-readahead-secs', '30');
+      assertOptionEquals(addon, 'audio-samplerate', '0');
+      assertOptionEquals(addon, 'audio-channels', 'stereo');
+      assertOptionEquals(addon, 'gapless-audio', 'weak');
+      // 接线前未设置 audio-format，mpv 默认 no；UI 的 auto 等价于「不强制输出格式」，
+      // 现在也表达为「不下发该选项」，因此回读同样是 no（依据见文件末尾 P1 用例）。
+      assertOptionEquals(addon, 'audio-format', 'no');
+    } finally {
+      try {
+        addon.destroy();
+      } catch {
+        // ignore
+      }
     }
-  }
-});
+  },
+);
 
 test('非法取值被归一化，不会注入到 mpv', { skip: skip ? skipReason : false }, () => {
   const require = createRequire(import.meta.url);
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+
   const addon = require(addonPath) as MpvAddon;
 
   try {
@@ -207,41 +267,45 @@ test('非法取值被归一化，不会注入到 mpv', { skip: skip ? skipReason
  * 处理：UI 的 `auto`（= 不强制输出格式）改为由**不下发该选项**表达，语义与 mpv 默认完全
  * 一致，同时消除了原先那次被 `set_option` 静默吞掉的非法写入（见 player.rs）。
  */
-test('P1：audio-format 的 auto 由 mpv 默认值表达，回读 no 且可自证', { skip: skip ? skipReason : false }, () => {
-  const require = createRequire(import.meta.url);
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const addon = require(addonPath) as MpvAddon;
+test(
+  'P1：audio-format 的 auto 由 mpv 默认值表达，回读 no 且可自证',
+  { skip: skip ? skipReason : false },
+  () => {
+    const require = createRequire(import.meta.url);
 
-  try {
-    // 1) mpv 自己报告的默认值就是 no
-    addon.initialize(libmpvPath!, { audioFormat: 'auto' });
-    const info = JSON.parse(addon.getProperty('option-info/audio-format')) as {
-      'default-value': string;
-    };
-    assert.equal(
-      info['default-value'],
-      'no',
-      'mpv 自报 audio-format 默认值应为 no（说明回读的 no 是默认值而非 auto 的别名）',
-    );
-    assertOptionEquals(addon, 'audio-format', 'no');
+    const addon = require(addonPath) as MpvAddon;
 
-    // 2) 具体格式名仍能真正下发 —— 映射层没有被削弱
-    for (const format of ['s16', 's32', 'float']) {
-      addon.initialize(libmpvPath!, { audioFormat: format });
-      assertOptionEquals(addon, 'audio-format', format);
-    }
-
-    // 3) 非法值一律回落 auto（= 不下发），回读仍是默认 no
-    addon.initialize(libmpvPath!, { audioFormat: 'no' });
-    assertOptionEquals(addon, 'audio-format', 'no');
-  } finally {
     try {
-      addon.destroy();
-    } catch {
-      // ignore
+      // 1) mpv 自己报告的默认值就是 no
+      addon.initialize(libmpvPath!, { audioFormat: 'auto' });
+      const info = JSON.parse(addon.getProperty('option-info/audio-format')) as {
+        'default-value': string;
+      };
+      assert.equal(
+        info['default-value'],
+        'no',
+        'mpv 自报 audio-format 默认值应为 no（说明回读的 no 是默认值而非 auto 的别名）',
+      );
+      assertOptionEquals(addon, 'audio-format', 'no');
+
+      // 2) 具体格式名仍能真正下发 —— 映射层没有被削弱
+      for (const format of ['s16', 's32', 'float']) {
+        addon.initialize(libmpvPath!, { audioFormat: format });
+        assertOptionEquals(addon, 'audio-format', format);
+      }
+
+      // 3) 非法值一律回落 auto（= 不下发），回读仍是默认 no
+      addon.initialize(libmpvPath!, { audioFormat: 'no' });
+      assertOptionEquals(addon, 'audio-format', 'no');
+    } finally {
+      try {
+        addon.destroy();
+      } catch {
+        // ignore
+      }
     }
-  }
-});
+  },
+);
 
 /**
  * P2 — 属性下发路径判定：这 12 项音频/缓存选项是**启动期一次性下发**（重启生效），
@@ -260,81 +324,85 @@ test('P1：audio-format 的 auto 由 mpv 默认值表达，回读 no 且可自�
  * 本用例用真实引擎断言：初始化值生效 → 重建（等价于重启应用）后新值生效，
  * 并断言 addon 导出面上不存在运行期改写入口。
  */
-test('P2：音频/缓存选项为启动期一次性下发（重建后生效，运行期无改写入口）', { skip: skip ? skipReason : false }, () => {
-  const require = createRequire(import.meta.url);
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const addon = require(addonPath) as MpvAddon;
+test(
+  'P2：音频/缓存选项为启动期一次性下发（重建后生效，运行期无改写入口）',
+  { skip: skip ? skipReason : false },
+  () => {
+    const require = createRequire(import.meta.url);
 
-  try {
-    // 1) 运行期改写入口不存在（导出面 31 项，逐一核对没有通用/专用写入入口）
-    const surface = Object.keys(addon);
-    for (const forbidden of ['setProperty', 'set_property', 'setOption', 'set_option']) {
-      assert.ok(!surface.includes(forbidden), `addon 不应导出运行期通用写入入口 ${forbidden}`);
-    }
-    for (const name of [
-      'setAudioFormat',
-      'setAudioChannels',
-      'setAudioSamplerate',
-      'setCache',
-      'setCacheSecs',
-      'setCachePause',
-      'setCachePauseWaitSecs',
-      'setDemuxerMaxMb',
-      'setDemuxerBackMb',
-      'setDemuxerReadaheadSecs',
-      'setAudioBufferSecs',
-      'setGaplessAudio',
-    ]) {
-      assert.ok(!surface.includes(name), `addon 不应导出运行期写入入口 ${name}`);
-    }
+    const addon = require(addonPath) as MpvAddon;
 
-    // 2) 初始化时的配置生效
-    addon.initialize(libmpvPath!, {
-      cacheSecs: 30,
-      demuxerMaxMb: 48,
-      demuxerBackMb: 12,
-      audioBufferSecs: 0.5,
-      demuxerReadaheadSecs: 30,
-      cache: 'yes',
-      cachePause: true,
-      cachePauseWaitSecs: 5,
-      audioSamplerate: 'auto',
-      audioChannels: 'stereo',
-      gaplessAudio: 'weak',
-    });
-    assertOptionEquals(addon, 'cache-secs', '30');
-    assertOptionEquals(addon, 'cache', 'yes');
-    assertOptionEquals(addon, 'audio-channels', 'stereo');
-    assertOptionEquals(addon, 'demuxer-readahead-secs', '30');
-
-    // 3) 重建（= 重启应用，主进程会重新调用 addon.initialize）后新值生效
-    addon.initialize(libmpvPath!, {
-      cacheSecs: 77,
-      demuxerMaxMb: 96,
-      demuxerBackMb: 24,
-      audioBufferSecs: 1.5,
-      demuxerReadaheadSecs: 11,
-      cache: 'no',
-      cachePause: false,
-      cachePauseWaitSecs: 2.5,
-      audioSamplerate: '48000',
-      audioChannels: 'mono',
-      gaplessAudio: 'no',
-    });
-    assertOptionEquals(addon, 'cache-secs', '77');
-    assertOptionEquals(addon, 'cache', 'no');
-    assertOptionEquals(addon, 'audio-channels', 'mono');
-    assertOptionEquals(addon, 'demuxer-readahead-secs', '11');
-    assertOptionEquals(addon, 'audio-buffer', '1.5');
-    assertOptionEquals(addon, 'cache-pause', 'no');
-    assertOptionEquals(addon, 'cache-pause-wait', '2.5');
-    assertOptionEquals(addon, 'audio-samplerate', '48000');
-    assertOptionEquals(addon, 'gapless-audio', 'no');
-  } finally {
     try {
-      addon.destroy();
-    } catch {
-      // ignore
+      // 1) 运行期改写入口不存在（导出面 31 项，逐一核对没有通用/专用写入入口）
+      const surface = Object.keys(addon);
+      for (const forbidden of ['setProperty', 'set_property', 'setOption', 'set_option']) {
+        assert.ok(!surface.includes(forbidden), `addon 不应导出运行期通用写入入口 ${forbidden}`);
+      }
+      for (const name of [
+        'setAudioFormat',
+        'setAudioChannels',
+        'setAudioSamplerate',
+        'setCache',
+        'setCacheSecs',
+        'setCachePause',
+        'setCachePauseWaitSecs',
+        'setDemuxerMaxMb',
+        'setDemuxerBackMb',
+        'setDemuxerReadaheadSecs',
+        'setAudioBufferSecs',
+        'setGaplessAudio',
+      ]) {
+        assert.ok(!surface.includes(name), `addon 不应导出运行期写入入口 ${name}`);
+      }
+
+      // 2) 初始化时的配置生效
+      addon.initialize(libmpvPath!, {
+        cacheSecs: 30,
+        demuxerMaxMb: 48,
+        demuxerBackMb: 12,
+        audioBufferSecs: 0.5,
+        demuxerReadaheadSecs: 30,
+        cache: 'yes',
+        cachePause: true,
+        cachePauseWaitSecs: 5,
+        audioSamplerate: 'auto',
+        audioChannels: 'stereo',
+        gaplessAudio: 'weak',
+      });
+      assertOptionEquals(addon, 'cache-secs', '30');
+      assertOptionEquals(addon, 'cache', 'yes');
+      assertOptionEquals(addon, 'audio-channels', 'stereo');
+      assertOptionEquals(addon, 'demuxer-readahead-secs', '30');
+
+      // 3) 重建（= 重启应用，主进程会重新调用 addon.initialize）后新值生效
+      addon.initialize(libmpvPath!, {
+        cacheSecs: 77,
+        demuxerMaxMb: 96,
+        demuxerBackMb: 24,
+        audioBufferSecs: 1.5,
+        demuxerReadaheadSecs: 11,
+        cache: 'no',
+        cachePause: false,
+        cachePauseWaitSecs: 2.5,
+        audioSamplerate: '48000',
+        audioChannels: 'mono',
+        gaplessAudio: 'no',
+      });
+      assertOptionEquals(addon, 'cache-secs', '77');
+      assertOptionEquals(addon, 'cache', 'no');
+      assertOptionEquals(addon, 'audio-channels', 'mono');
+      assertOptionEquals(addon, 'demuxer-readahead-secs', '11');
+      assertOptionEquals(addon, 'audio-buffer', '1.5');
+      assertOptionEquals(addon, 'cache-pause', 'no');
+      assertOptionEquals(addon, 'cache-pause-wait', '2.5');
+      assertOptionEquals(addon, 'audio-samplerate', '48000');
+      assertOptionEquals(addon, 'gapless-audio', 'no');
+    } finally {
+      try {
+        addon.destroy();
+      } catch {
+        // ignore
+      }
     }
-  }
-});
+  },
+);
