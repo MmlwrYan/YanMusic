@@ -338,7 +338,7 @@ const clearJournal = () => {
   padding: 24px;
   overflow-y: auto;
   height: 100%;
-  color: var(--text-primary, #e8e8ea);
+  color: var(--text-main);
 }
 
 .journal-header {
@@ -382,8 +382,8 @@ const clearJournal = () => {
   font-size: 12px;
   color: inherit;
   cursor: pointer;
-  background: rgb(255 255 255 / 6%);
-  border: 1px solid rgb(255 255 255 / 12%);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
   border-radius: 8px;
 }
 
@@ -399,7 +399,7 @@ const clearJournal = () => {
 .journal-hint {
   margin: 0;
   font-size: 12px;
-  color: var(--accent, #7aa2f7);
+  color: var(--color-primary);
 }
 
 .journal-capture {
@@ -407,7 +407,7 @@ const clearJournal = () => {
   flex-direction: column;
   gap: 18px;
   padding: 18px;
-  background: rgb(255 255 255 / 3%);
+  background: var(--bg-card);
   border-radius: 14px;
 }
 
@@ -422,7 +422,7 @@ const clearJournal = () => {
   flex-direction: column;
   gap: 2px;
   padding: 12px 14px;
-  background: rgb(255 255 255 / 5%);
+  background: var(--bg-info-card);
   border-radius: 10px;
 }
 
@@ -473,7 +473,7 @@ const clearJournal = () => {
   height: 160px;
   padding: 8px;
   overflow-x: auto;
-  background: rgb(0 0 0 / 12%);
+  background: var(--bg-info-card);
   border-radius: 10px;
 }
 
@@ -494,20 +494,21 @@ const clearJournal = () => {
 
 .journal-bar {
   width: 100%;
-  background: linear-gradient(180deg, #7aa2f7, #4a6fd4);
+  background: linear-gradient(180deg, var(--color-primary), var(--color-primary-hover));
   border-radius: 4px 4px 2px 2px;
   transition: height 0.2s ease;
 }
 
+/* 「近似基线」标识：虚线描边 + 45° 斜纹，与实心柱区分（设计特性，勿删） */
 .journal-bar--synthetic {
   background: repeating-linear-gradient(
     45deg,
-    rgb(122 162 247 / 45%),
-    rgb(122 162 247 / 45%) 4px,
-    rgb(122 162 247 / 15%) 4px,
-    rgb(122 162 247 / 15%) 8px
+    color-mix(in srgb, var(--color-primary) 45%, transparent),
+    color-mix(in srgb, var(--color-primary) 45%, transparent) 4px,
+    color-mix(in srgb, var(--color-primary) 15%, transparent) 4px,
+    color-mix(in srgb, var(--color-primary) 15%, transparent) 8px
   );
-  border: 1px dashed rgb(122 162 247 / 60%);
+  border: 1px dashed color-mix(in srgb, var(--color-primary) 60%, transparent);
 }
 
 .journal-bar-label {
@@ -526,7 +527,7 @@ const clearJournal = () => {
 .journal-table td {
   padding: 6px 8px;
   text-align: left;
-  border-bottom: 1px solid rgb(255 255 255 / 8%);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .journal-table th {
@@ -551,13 +552,13 @@ const clearJournal = () => {
 .journal-bucket-track {
   height: 10px;
   overflow: hidden;
-  background: rgb(255 255 255 / 8%);
+  background: var(--control-track-bg);
   border-radius: 5px;
 }
 
 .journal-bucket-fill {
   height: 100%;
-  background: linear-gradient(90deg, #4a6fd4, #7aa2f7);
+  background: linear-gradient(90deg, var(--color-primary-hover), var(--color-primary));
 }
 
 .journal-bucket-value {
@@ -574,12 +575,12 @@ const clearJournal = () => {
 .journal-mood-chip {
   padding: 4px 10px;
   font-size: 12px;
-  background: rgb(122 162 247 / 18%);
+  background: var(--control-active-bg);
   border-radius: 999px;
 }
 
 .journal-mood-chip--muted {
-  background: rgb(255 255 255 / 6%);
+  background: var(--bg-info-card);
   opacity: 0.7;
 }
 
@@ -641,7 +642,7 @@ const clearJournal = () => {
   align-items: center;
   justify-content: space-between;
   padding: 8px 10px;
-  background: rgb(255 255 255 / 4%);
+  background: var(--bg-info-card);
   border-radius: 8px;
 }
 
@@ -672,12 +673,12 @@ const clearJournal = () => {
   color: inherit;
   cursor: pointer;
   background: transparent;
-  border: 1px solid rgb(255 255 255 / 15%);
+  border: 1px solid var(--control-border);
   border-radius: 999px;
 }
 
 .journal-mood-button--active {
-  background: rgb(122 162 247 / 28%);
-  border-color: rgb(122 162 247 / 60%);
+  background: var(--row-selected-bg);
+  border-color: color-mix(in srgb, var(--color-primary) 60%, transparent);
 }
 </style>
