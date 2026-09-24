@@ -385,7 +385,13 @@ jobs:
               fi
 
               RELEASES_JSON="/tmp/mpv-winbuild-releases.json"
-              curl -fsSL "https://api.github.com/repos/zhongfly/mpv-winbuild/releases?per_page=20" -o "$RELEASES_JSON"
+              # CI 失败修复（第 2 项）：不带 token 的 GitHub API 会命中匿名限流
+              # （实测 Windows-x64 腿返回 403），改用 GITHUB_TOKEN 走高配额通道。
+              curl -fsSL \
+                -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/zhongfly/mpv-winbuild/releases?per_page=20" \
+                -o "$RELEASES_JSON"
               DOWNLOAD_URL=$(python3 - "$RELEASES_JSON" <<'PY'
           import json
           import os
@@ -486,12 +492,26 @@ jobs:
           echo "=== mpv build directory ==="
           ls -la build/mpv/
 
+      - name: Setup Node.js for unit tests
+        # CI 失败修复（第 1 项）：`pnpm test` 直接执行 `.ts`
+        # （`node --test tests/*.test.ts`），需要 Node >= 22.18 的原生 TypeScript 支持；
+        # 在 Node 20 上会抛 ERR_UNKNOWN_FILE_EXTENSION: Unknown file extension ".ts"。
+        # 只在测试步骤前后切换版本，打包链路继续使用上面已确定的 Node 20（已验证组合）。
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
       - name: Run unit tests
         # 位置说明：必须放在原生模块与 libmpv 就位之后、打包之前。
         # tests/native-engine-options.test.ts 会在 addon/libmpv 缺失时自动跳过，
         # 只有在此处运行才能真正执行「选项真实到达 libmpv」的端到端断言。
         shell: bash
         run: pnpm test
+
+      - name: Restore Node.js for packaging
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
       - name: Build desktop app
         shell: bash
