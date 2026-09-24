@@ -921,7 +921,7 @@ const statusLabel = (status: ImportItemResult['status']): string => {
       <label class="flex items-center gap-2 cursor-pointer select-none">
         <CheckboxRoot
           v-model:model-value="neverShowBackgroundConfirm"
-          class="w-4 h-4 rounded border border-[var(--border-main)] flex items-center justify-center data-[state=checked]:bg-[var(--color-primary)] data-[state=checked]:border-[var(--color-primary)]"
+          class="w-4 h-4 rounded border border-[var(--control-checkbox-border)] flex items-center justify-center data-[state=checked]:bg-[var(--color-primary)] data-[state=checked]:border-[var(--color-primary)]"
         >
           <CheckboxIndicator class="text-white">
             <Icon :icon="iconCheckMark" width="12" height="12" />
@@ -1060,8 +1060,8 @@ const statusLabel = (status: ImportItemResult['status']): string => {
 
 .import-alert {
   @apply flex items-center gap-2 rounded-[10px] px-3 py-2 text-[12px];
-  background: color-mix(in srgb, var(--color-danger, #ef4444) 12%, transparent);
-  color: var(--color-danger, #ef4444);
+  background: color-mix(in srgb, var(--state-danger) 12%, transparent);
+  color: var(--state-danger);
 }
 
 .import-section {
@@ -1132,14 +1132,14 @@ const statusLabel = (status: ImportItemResult['status']): string => {
   background: color-mix(in srgb, var(--color-primary) 10%, transparent);
 }
 .import-summary-inline.is-warn {
-  background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, transparent);
+  background: color-mix(in srgb, var(--state-danger) 10%, transparent);
 }
 .import-summary-icon-sm {
   @apply inline-flex items-center justify-center w-7 h-7 rounded-full shrink-0 text-white;
   background: var(--color-primary);
 }
 .import-summary-inline.is-warn .import-summary-icon-sm {
-  background: var(--color-danger, #ef4444);
+  background: var(--state-danger);
 }
 .import-summary-title {
   @apply text-[12.5px] font-semibold text-text-main truncate leading-tight;
@@ -1272,7 +1272,7 @@ const statusLabel = (status: ImportItemResult['status']): string => {
   background: color-mix(in srgb, var(--color-text-main) 25%, transparent);
 }
 .import-track-row.status-failed .import-status-dot {
-  background: var(--color-danger, #ef4444);
+  background: var(--state-danger);
 }
 
 @keyframes import-pulse {

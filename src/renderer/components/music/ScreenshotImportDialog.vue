@@ -693,7 +693,7 @@ const itemStatusLabel = (status: ImportItemResult['status']) => {
       <label class="flex items-center gap-2 cursor-pointer select-none">
         <CheckboxRoot
           v-model:model-value="neverShowBackgroundConfirm"
-          class="w-4 h-4 rounded border border-[var(--border-main)] flex items-center justify-center data-[state=checked]:bg-[var(--color-primary)] data-[state=checked]:border-[var(--color-primary)]"
+          class="w-4 h-4 rounded border border-[var(--control-checkbox-border)] flex items-center justify-center data-[state=checked]:bg-[var(--color-primary)] data-[state=checked]:border-[var(--color-primary)]"
         >
           <CheckboxIndicator class="text-white">
             <Icon :icon="iconCheckMark" width="12" height="12" />
@@ -766,8 +766,8 @@ const itemStatusLabel = (status: ImportItemResult['status']) => {
 
 .screenshot-alert {
   @apply flex items-center gap-2 rounded-[10px] px-3 py-2 text-[12px];
-  background: color-mix(in srgb, var(--color-danger, #ef4444) 12%, transparent);
-  color: var(--color-danger, #ef4444);
+  background: color-mix(in srgb, var(--state-danger) 12%, transparent);
+  color: var(--state-danger);
 }
 
 .screenshot-import-stepper {
@@ -833,7 +833,7 @@ const itemStatusLabel = (status: ImportItemResult['status']) => {
 }
 
 .screenshot-track-row.status-failed .screenshot-status-dot {
-  background: var(--color-danger, #ef4444);
+  background: var(--state-danger);
 }
 
 .screenshot-summary {

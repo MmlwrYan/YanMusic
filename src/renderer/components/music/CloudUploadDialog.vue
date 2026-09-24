@@ -1005,7 +1005,7 @@ const statusLabel = (item: CloudUploadItem) => {
       <label class="flex items-center gap-2 cursor-pointer select-none">
         <CheckboxRoot
           v-model:model-value="neverShowBackgroundConfirm"
-          class="w-4 h-4 rounded border border-[var(--border-main)] flex items-center justify-center data-[state=checked]:bg-[var(--color-primary)] data-[state=checked]:border-[var(--color-primary)]"
+          class="w-4 h-4 rounded border border-[var(--control-checkbox-border)] flex items-center justify-center data-[state=checked]:bg-[var(--color-primary)] data-[state=checked]:border-[var(--color-primary)]"
         >
           <CheckboxIndicator class="text-white">
             <Icon :icon="iconCheckMark" width="12" height="12" />

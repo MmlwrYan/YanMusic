@@ -398,7 +398,7 @@ const commitRenameEffect = (id: string) => {
 }
 
 .effect-row-btn.is-danger:hover {
-  color: var(--color-error, #ef4444);
+  color: var(--state-danger);
 }
 
 .effect-empty {

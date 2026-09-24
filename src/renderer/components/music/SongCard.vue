@@ -516,7 +516,7 @@ const handleFavorite = () => {
 }
 
 .song-link:hover {
-  color: var(--primary);
+  color: var(--color-primary);
 }
 
 .song-actions {
@@ -550,7 +550,7 @@ const handleFavorite = () => {
 }
 
 .song-action:hover {
-  color: var(--primary);
+  color: var(--color-primary);
   transform: scale(1.12);
 }
 

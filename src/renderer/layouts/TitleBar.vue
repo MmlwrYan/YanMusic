@@ -955,7 +955,7 @@ onUnmounted(() => {
 
 .task-item-error-text {
   font-size: 11px;
-  color: var(--color-danger, #ef4444);
+  color: var(--state-danger);
   flex: 1;
   min-width: 0;
   overflow: hidden;
