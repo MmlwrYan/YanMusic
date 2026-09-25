@@ -1,0 +1,14 @@
+# 作者身份归一（git mailmap）
+#
+# 这个文件只影响 git 与 GitHub 显示作者时的映射结果，**不改写任何提交对象**：
+# 提交里的 author/committer 字段原样保留，历史与 SHA 完全不变。
+#
+# 用法：git log --use-mailmap / git shortlog --use-mailmap
+#      （git shortlog 默认就会读取本文件）
+
+# 同一邮箱在历史提交里出现过两个名字（Yan / MmlwrYan），统一显示为仓库名
+MmlwrYan <a18821657632@outlook.com>
+
+# Dependabot 的依赖升级提交：由机器人创建、经维护者审阅合并，
+# 归一显示为维护者，不再单列一个「撰稿人」
+MmlwrYan <a18821657632@outlook.com> <49699333+dependabot[bot]@users.noreply.github.com>
