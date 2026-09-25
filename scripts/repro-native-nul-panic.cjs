@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* eslint-disable @typescript-eslint/no-require-imports */
 /**
  * IMP-08 复现脚本：原生层 `CString::new(...).unwrap()` 在收到含内部 NUL 的字符串时是否 panic。
  *

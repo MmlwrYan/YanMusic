@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* eslint-disable @typescript-eslint/no-require-imports */
 /**
  * IMP-02 复现脚本：插件安装包解压路径穿越（zip-slip）。
  *

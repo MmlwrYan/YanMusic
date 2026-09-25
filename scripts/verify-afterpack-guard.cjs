@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* eslint-disable @typescript-eslint/no-require-imports */
 /**
  * IMP-06 验证脚本：afterPack 钩子在缺少关键资源时必须让构建失败。
  *
