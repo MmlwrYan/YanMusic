@@ -2,6 +2,41 @@
 >
 > 🤡 如果你是付费获取的，说明你被骗了。
 
+## [1.2.2]
+
+> 本次为**测试链路健壮性修复 + 依赖例行更新 + 发布流程文档化**的补丁版本，**不含任何新功能**：把「真实引擎实测」的断言全部移入子进程执行，消除了「原生崩溃导致整个测试文件失败且零输出」这一曾使 v1.2.1 标签构建失败的失败模式；合并 4 个 Dependabot 例行更新（2 个 Rust patch + 2 个 npm 分组，全部 patch/minor）；新增发布流程 SOP 并固定「Release 标题需手工修正」这一步。
+
+### 修复
+
+- **原生引擎崩溃会让整个测试文件失败且丢失全部输出**（`tests/native-engine-options.test.ts`，v1.2.1 标签构建失败的根因）：该文件原先把断言写在测试进程内，只用一个「子进程探测」决定是否跳过。**探测与断言是两次独立执行、两个不同进程**，各自独立掷骰子——探测侥幸通过并不能保证随后同进程内的断言安全。Windows CI 上实测到 addon 的 `destroy()` 以 `0xC0000005`（`STATUS_ACCESS_VIOLATION`）终止进程：探测这一次通过、断言随后崩溃，于是整个文件被判失败，且 705ms 的缓冲输出全部丢失（表现为「文件级失败、零个用例、零行输出」）。现改为**引擎调用与断言全部只在子进程中进行**，逐用例回传结构化结果（`TEST <i> done|error <json>`，打点用 `fs.writeSync` 同步写，崩溃时不丢）；`finish()` 在**断言跑完的那一刻**立刻回传，`destroy` 作为其后独立的清理步骤——因为崩溃点正是 `destroy`。父进程对已回传结果的用例**逐条真实断言**（数值/字符串比较口径与原断言完全一致），无结果的用例带完整诊断（退出码 + 十六进制 + 崩溃点步骤）跳过；JS 层 setup 抛错仍判该用例**失败**（与原语义一致）。
+
+### 新增
+
+- `docs/release-process.md`：发布流程 SOP（可复制执行的命令 + 每步验收标准），固化三条本项目实际踩过的纪律：①本地五项全量验证 → ②三平台 CI 全绿才打 tag（涉及 Windows 腿时连续 ≥3 次）→ ③打 tag 后**必做** `gh release edit vX.Y.Z --title "YanMusic vX.Y.Z Release"`。同时记录三个坑：`pnpm lint` 带 `--fix` 不可用于验证；PowerShell 会把 cargo 的 stderr 进度当错误（退出码须看 `$LASTEXITCODE`）；`concurrency: cancel-in-progress` 会让同 ref 的新 dispatch 取消正在跑的 run。README「编译发布」段加入指向该文档的链接。
+- `tests/native-engine-options.test.ts` 新增「结构自检」用例：本文件不得在测试进程内加载原生 addon（用拼接串做针 + 剥离块注释，避免用例自身文案命中自己）。用例总数 112 → **113**。
+
+### 变更
+
+- **依赖例行更新（Dependabot，全部为 patch/minor）**：
+  - `chore(deps): bump napi 3.12.0 -> 3.12.7`（PR #7，Rust，仅 lock；连带把 `napi-build` 解析到 2.5.0、`napi-sys` 到 3.3.2）
+  - `chore(deps): bump napi-derive 3.6.2 -> 3.6.8`（PR #9，Rust，仅 lock）
+  - `chore(deps): bump the npm-production group with 10 updates`（PR #12：`vue` 3.5.38→3.5.43、`axios` 1.18→1.20、`reka-ui` 2.9.10→2.10.4、`dompurify` 3.4.11→3.4.15、`marked` 18.0.5→18.0.13、`semver` 7.8.4→7.8.5、`@iconify/vue` 5.0.1→5.0.2、`@internationalized/date` 3.12.0→3.12.4、`@vue/runtime-core` 3.5.41→3.5.43、`yzs-keep-alive-v3` 0.1.2→0.1.4）
+  - `chore(deps-dev): bump the npm-development group with 16 updates`（PR #11：`electron` 43.1.1→43.7.3、`electron-builder` 26.8.1→26.15.3、`vite` 8.0.14→8.3.0、`eslint` 10.4.1→10.11.0、`prettier` 3.8.3→3.9.8、`vue-tsc` 3.3.3→3.3.11、`tailwindcss` 4.3.0→4.3.3、`@typescript-eslint/*` 8.60→8.70 等）
+  - **PR #10（`napi-build` 2.4.0→2.4.4）已关闭，未合并**：合并 #7 时 Dependabot 重建 lock 已把 `napi-build` 解析到 **2.5.0**（提交 `a3f18fe`），该 PR 的目标版本更低，落地只会把依赖**降级**，属已被取代。
+- **`eslint` 计数基线变化（80 → 101 errors，0 warnings）——由工具升级导致，非代码回归**：逐文件核对证实，v1.2.1 基线已报错的 16 个文件**计数逐一相同**；新增的约 21 条分散在**本版未改动**的既有文件上，且 101 条中 79 条为 `prettier/prettier`，其文案为 prettier 3.9.x 改变的**联合类型折行偏好**（如要求把 `| 'idle'` 与 `| 'ready'` 并到一行），其余 22 条为 `@typescript-eslint` 的 `no-unused-vars`（11）与 `no-require-imports`（11）。消除它们需要**全仓重排格式**，不在本补丁版本范围内；本版改动的文件均为 0 错误。
+- **`vite build` 产物数量变化（243 → 252 个文件）**：由 `vite` 8.0.14→8.3.0 与 `electron` 43.1.1→43.7.3 引起的 chunk 划分变化。产物完整性已校验：3 个 html 的 110 个本地引用中仅 1 处缺失，且为**历史遗留**的 Vite 模板 `/vite.svg`（v1.1.2 时代即存在，仓库无 `public/` 目录，与本版无关）；`MusicJournal` / `Settings` / `pluginWindow` / `main` 等关键 chunk 均正常产出。
+
+### 说明
+
+- 验证结果：`pnpm test` **113/113 通过**（0 失败 0 跳过，且引擎用例**真实执行而非跳过**）；`vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0；`cargo check --workspace --release` 退出码 0；`eslint` 101 errors / 0 warnings（归因见「变更」；本版改动文件 0 错误）。
+- **已知问题（重要，不夸大）：addon 的 `destroy()` 在 Windows CI 上触发 `0xC0000005`，本版未修复。** 该缺陷**早于本版**：v1.2.0 标签构建（2026-09-24 12:31）与同日 12:15 干跑的 Windows x64/arm64 腿均在同一位置崩溃并跳过；macOS-arm64 与本地 Windows 均正常。**本机无法复现**——5 种方法约 109 次执行 0 失败（原样探测脚本串行 30 次、改用 CI 同款 libmpv 后 20 次、4 并发 40 次、完整套件循环 15 次，以及定向调用序列与文件单独运行），并已排除 libmpv 版本差异（下载 CI 同款 `mpv-dev-x86_64-20260924-git-2a4eb8067c`，自报 `v0.41.0-1072-g2a4eb8067`，仍不崩）、addon 陈旧（本地 `.node` 晚于最新 Rust 源码且该 crate 自 09/22 无改动）、`@napi-rs/cli` 版本差异（crate 内有 `package-lock.json`，与本地同为 3.6.2）。**剩余主因判断为 CPU 微架构差异**：本机为 Intel i5-3230M（Ivy Bridge，仅 AVX1、无 AVX2/FMA），runner 为支持 AVX2/AVX-512 的现代 CPU，而 libmpv 有运行时 CPU 特性检测，本机不会执行 runner 上走到的 SIMD 路径。按「先复现再修复」的纪律**未做盲修**（未改动任何 Rust 代码）。本版消除的是「该崩溃导致构建失败」这一**失败模式**，并把崩溃转为可诊断的跳过：Windows 腿仍有真实覆盖（用例 1 的 9 条断言在崩溃前已回传并逐条断言），用例 2-5 在 Windows CI 上将持续跳过。**后续排查路径**：在具备现代 CPU 的 Windows 机器上用探针循环复现并抓崩溃转储（WER LocalDumps / procdump），或比对不同 mpv-winbuild 资产以判定是否为特定构建的回归。**计划修复版本：待定。**
+- **本轮跳过的依赖更新（6 项，逐条给出理由与前置条件）**：
+  - `actions/checkout` 4.4.0→7.0.1（#1）、`actions/upload-artifact` 4.6.2→7.0.1（#2）、`pnpm/action-setup` 4.3.0→6.1.0（#3）、`actions/setup-node` 4.4.0→7.0.0（#5）、`actions/github-script` 7.1.0→9.0.0（#6）：均为**主版本**跨越多代，可能改变输入语义，会直接影响 6 条构建腿与发布作业。**前置条件**：单独一轮专门处理，并借助可干跑或 fork 演练的方式验证——`build.yml` 的 `release` job 受 tag 守卫保护、无法 `workflow_dispatch` 验证，尤其需要谨慎。
+  - `mpris-server` 0.9.0→0.10.0（#4）、`cpal` 0.15.3→0.18.2（#8）：均为 **0.x 跨 minor**（semver 允许破坏性变更），且落在**原生音频采集 / 系统媒体控制**链路上（`cpal` 的 lock 依赖图变动较大）。本环境无法做**运行时**验证（无音频采集设备、无 D-Bus/MPRIS 环境），仅 `cargo check` 与 CI 编译不足以排除行为回归。**前置条件**：具备可做「系统音频捕获 + MPRIS」真机冒烟验证的环境。
+  - `vite-plugin-electron` 0.29.1→1.1.2（#13）、`vite-plugin-electron-renderer` 0.14.7→1.0.0（#14）、`pinia` 3.0.4→4.0.3（#15）：均为**主版本**（0.x→1.x 与 3→4），前者影响 Electron 构建管线、后者可能有 store API 破坏性变更。**前置条件**：单独立项评估破坏性变更清单。
+- **本版不改动的模块**：`src/main/runtime.ts`、`server/`、`cloudflare/` 仅只读审计，未产生任何改动；`.github/workflows/build.yml` **未改动**（发布标题问题按 SOP 处理，见「新增」）。
+- 已知的既有小瑕疵（非本版引入、未修）：`index.html` 引用了不存在的 `/vite.svg`（Vite 模板遗留，仓库无 `public/` 目录）；`native/yan-mpv-player/src/player.rs` 存在 1 条既有的 `dead_code` 警告。
+
 ## [1.2.1]
 
 > 本次为**主题可用性修复 + 无障碍补齐 + 供应链加固 + 审计收敛**的补丁版本，**不含任何新功能**：修复 1.2.0 新交付的「听歌档案」在浅色主题下不可读的问题，并把同一类缺陷在全渲染层扫干净（共 5 个未定义 CSS 令牌 / 18 处引用 / 7 个文件）；为 2 处装饰性背景图补上缺失的替代文本声明；把 3 个 workflow 中 14 处第三方 Action 引用固定到 commit SHA；更正 README 的 Node 版本要求并补记「听歌档案」。本轮同时完成一次全仓审计：新增 8 项发现（4 项已修——其中 `N-03` 为部分修复、2 项经复现判定**不成立**并给出反证、2 项跳过），上一轮遗留的 9 项跳过项逐条复核后维持跳过（理由与前置条件见「说明」）。
