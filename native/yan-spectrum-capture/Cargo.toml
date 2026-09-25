@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "yan-spectrum-capture"
 version = "0.1.0"
 edition = "2021"
@@ -15,7 +15,7 @@ rustfft = "6.4.1"
 napi-build = "2"
 
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
-cpal = "0.15.3"
+cpal = "0.18.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
