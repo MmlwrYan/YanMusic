@@ -20,14 +20,14 @@
 
 ### 变更
 
-- **GitHub Actions 升级到主版本**（Phase 5 批次 1，合并 Dependabot PR #1/#2/#3/#5/#6）：`actions/checkout` 4.4.0→7.0.1、`actions/upload-artifact` 4.6.2→7.0.1、`pnpm/action-setup` 4.3.0→6.1.0、`actions/setup-node` 4.4.0→7.0.0、`actions/github-script` 7.1.0→9.0.0。升级后**所有 `uses:` 仍固定到 40 位 commit SHA 并保留版本注释**（由 `tests/ci-supply-chain.test.ts` 持续校验）。
+- **GitHub Actions 升级到主版本**（合并 Dependabot PR #1/#2/#3/#5/#6）：`actions/checkout` 4.4.0→7.0.1、`actions/upload-artifact` 4.6.2→7.0.1、`pnpm/action-setup` 4.3.0→6.1.0、`actions/setup-node` 4.4.0→7.0.0、`actions/github-script` 7.1.0→9.0.0。升级后**所有 `uses:` 仍固定到 40 位 commit SHA 并保留版本注释**（由 `tests/ci-supply-chain.test.ts` 持续校验）。
 - **★ 连带修复：`actions/download-artifact` 4 → v8.0.1**。Dependabot 从未为该 action 提过 PR，于是合并 `upload-artifact@v7` 后出现跨大版本不兼容：二者共用 artifact 客户端库，`upload-artifact@7.0.1` 依赖 `@actions/artifact ^6.2.0`，而 `download-artifact@4.3.0` 仍是 `^2.3.2`。`release` 作业正是用 download-artifact 拉取全部产物来生成 Release，**若不修会在打 tag 之后才失败**（干跑时 release 作业被 tag 守卫跳过，测不到）。`download-artifact@8.0.1` 依赖 `^6.2.1`，与 v7 同线；已核对 inputs 仍含我们使用的 `path` 与 `merge-multiple`。
-- **清理 prettier 报告的 43 处格式偏差（独立提交 `f24a34e`，仅格式、无逻辑改动；27 `.ts` / 10 `.vue` / 2 `.cjs` / 2 `.json` / 1 `.js` / 1 `.mjs`）**：来源是 prettier 3.8.3→3.9.8 的两处风格改动（多行联合类型不再用行首竖线；实参按 printWidth 重新折行）。**零逻辑改动已自证**：用语义 AST 摘要逐文件比对，「纯空白 7 个 + 语义 AST 完全相同 36 个 + 语义不同 0 个」，并用变异自检（改一个字面量必被检出）证明该方法有鉴别力；10 个 `.vue` 另用 Vue 编译器比对 `<template>` 产出的渲染代码，**10/10 逐字相同**。格式化后 `dist` 文件数 252 与格式化前一致。回滚只需 revert 这一个提交。
+- **清理 prettier 报告的 43 处格式偏差（仅格式，无逻辑改动；27 `.ts` / 10 `.vue` / 2 `.cjs` / 2 `.json` / 1 `.js` / 1 `.mjs`）**：来源是 prettier 3.8.3→3.9.8 的两处风格改动（多行联合类型不再用行首竖线；实参按 printWidth 重新折行）。为确认没夹带逻辑改动，用语义 AST 摘要逐文件比对：「纯空白 7 个 + 语义 AST 完全相同 36 个 + 语义不同 0 个」，并先用变异样本（改一个字面量）验证过这套比对确实能检出差异；10 个 `.vue` 另用 Vue 编译器比对 `<template>` 产出的渲染代码，**10/10 逐字相同**。格式化前后 `dist` 文件数均为 252。
 - **行为变更说明：无。** 本版全部改动均为「配置/文档/测试/依赖升级/只观测不阻断」；`lint` 脚本去掉 `--fix` 与新增 CI 步骤只影响开发与 CI，不影响应用运行。
 
 ### 说明
 
-- 验证结果：`pnpm test` **131/131 通过**（0 失败 0 跳过）；`vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0（`dist` 252 文件）；`cargo check --workspace --release` 退出码 0；`eslint` 由基线 **101 errors** 降至 **0 error / 0 warning**（工具链见「修复」逐条归因）。
+- 验证结果：`pnpm test` **131/131 通过**（0 失败 0 跳过）；`vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0（`dist` 252 文件）；`cargo check --workspace --release` 退出码 0；`eslint` 由基线 **101 errors** 降至 **0 error / 0 warning**（归因见「修复」逐条说明）。
 - **观测数据样例（v1.3.0 的设计输入）**：
   - **CSP Report-Only**：在真实 Electron 中加载**真实的 `dist/index.html`**（`webSecurity: false`，与应用一致）并采用应用同一份策略源码，实测 **真实页面 0 条违规**；阳性对照（JS 注入内联 `<style>` 与 `setAttribute('style')`）立刻产生 **2 条**违规（`style-src-elem|inline`、`style-src-attr|inline`），证明观测链路确实生效、且「0」不是失效。
     **重要结论：N-02 当初担心的「154 处 `:style=` 绑定 + 24 处 `setProperty` 会导致强制 CSP 白屏」经实测不成立** —— 这些写法走 **CSSOM**，而 CSP 的 `style-src` 不覆盖 CSSOM。真实页面的内联 `<style>` 标签数为 0、`style=` 属性仅 1 个。
@@ -48,14 +48,13 @@
          "scope":["main"],"ambiguous":false,"webContentsId":1,"occurrences":1,"strictMode":false,"rejected":false,
          "note":"whitelist observation only; call was still executed","key":"app:get-info|desktop-lyric.html"}
 
-    **最重要的观测结论**：`index.html` 对任何通道都是 `ambiguous: true` —— mini 播放器加载的就是 `dist/index.html`（`miniPlayer.ts:231`），与主窗口同 bundle，仅凭发送方 URL 无法区分，因此这部分调用一律放行。这是上一轮审计所指出结构性障碍的**量化证据**：在现有窗口/产物结构下，白名单对「主窗口 vs mini 播放器」这一维度无能为力。
-- **本轮跳过的项（逐条给出理由与前置条件）**：
-  - **`IMP-11` 凭据加密**：现状为 `src/main/storage/kv.ts:17-19` 以 `JSON.stringify` 明文写入 SQLite；既有先例是 `src/main/networkSettings.ts:46-52` 的代理密码（`safeStorage` 不可用时**抛错拒绝保存**，而不是退化为明文）。降级方案三选一中，A（退化明文）与 C（静默丢弃 token）按任务规定排除；**唯一可行的 B（提示用户 + 拒绝保存）在本轮范围冻结下无法落地**：它需要新增 IPC 通道与渲染层提示 UI、需要持久化用户选择（**新增配置键**，被「不改配置键」禁止）、且「拒绝保存 token」本身会改变现有行为（Linux 无 keyring 的用户将失去登录持久化，属「改变现有行为的强制收紧」）；加密后凭据值的**存储格式**也会改变（被「不改文件格式」禁止，且旧版本将无法读取）。**前置条件**：单独一轮明确允许新增通道/配置键，并先做产品决策（Linux 无 keyring 时的用户可见降级交互）。可在该轮复用本版观测到的环境事实：Windows 上 `safeStorage.isEncryptionAvailable() === true` 且加解密往返正常（实测密文为 Chromium `v10` 前缀）。
-  - **`cpal` 0.15.3→0.18.2（#8）、`mpris-server` 0.9.0→0.10.0（#4）**：均为 **0.x 跨 minor**（semver 允许破坏性变更），且落在**原生音频采集 / Linux 系统媒体控制**链路上（`cpal` 的 lock 依赖图变动较大）。本环境**无法做运行时验证**（无音频采集设备、无 D-Bus/MPRIS），仅 `cargo check` 与 CI 编译不足以排除行为回归。**前置条件**：具备可做「系统音频捕获 + MPRIS」真机冒烟验证的环境。
-  - **`pinia` 3.0.4→4.0.3（#15）**：主版本，且本项目用自研 `sqlitePersist` 插件钩住 `pinia.use(...)`，持久化是全部 store 的底座；主版本可能改动插件 API / state 水合 / `$subscribe` 语义，影响面覆盖所有 store，而完整功能验证需要逐视图 GUI 交互（本环境不具备）。**前置条件**：单独立项，先读破坏性变更清单，并配合持久化兼容性用例。
-  - **`vite-plugin-electron` 0.29.1→1.1.2（#13）、`vite-plugin-electron-renderer` 0.14.7→1.0.0（#14）**：主版本（0.x→1.x），二者驱动 `vite.config.mts:3-4,54` 的 Electron 构建/开发集成。`vite build` 可验证，但 **dev 模式**（`VITE_DEV_SERVER_URL` 路径）不在 CI 覆盖内、本环境也无法验证，盲升有破坏开发工作流的风险。**前置条件**：单独立项，并在能验证 dev 模式的环境下进行。
-  - **`destroy()` 的 `0xC0000005` 排查（Phase 6）**：**环境不满足，无法复现**。本机 CPU 为 Intel Core i5-3230M（**Ivy Bridge 第 3 代**），**不支持 AVX2**（AVX2 自 Haswell 第 4 代起）。上一轮的判断是「CI runner 的现代 CPU 会走到本机走不到的 SIMD 路径」，故无 AVX2+ 真机即无法复现。**前置条件**：具备支持 AVX2/AVX-512 的 Windows 真机，用探针循环复现并抓崩溃转储（WER LocalDumps / procdump）。
-- **本版不改动的模块**：`src/main/runtime.ts`、`server/`、`cloudflare/` 仅只读；`release` 作业的工作流逻辑未改（Release 标题继续按 SOP 手工修正）。
+    **最重要的观测结论**：`index.html` 对任何通道都是 `ambiguous: true` —— mini 播放器加载的就是 `dist/index.html`（`miniPlayer.ts:231`），与主窗口同 bundle，仅凭发送方 URL 无法区分，因此这部分调用一律放行。这是此前审计指出的结构性障碍的**量化证据**：在现有窗口/产物结构下，白名单对「主窗口 vs mini 播放器」这一维度无能为力。
+- **本版暂未处理的事项（附原因与重启条件）**：
+  - **`IMP-11` 凭据加密**：现状为 `src/main/storage/kv.ts:17-19` 以 `JSON.stringify` 明文写入 SQLite；既有先例是 `src/main/networkSettings.ts:46-52` 的代理密码（`safeStorage` 不可用时**抛错拒绝保存**，而不是退化为明文）。三个方向里，退化为明文、静默丢弃 token 都不可接受，剩下的「提示用户并拒绝保存」不是补丁版本装得下的改动：它要新增 IPC 通道与渲染层提示 UI，要新增一个配置键记住用户选择，而且「拒绝保存 token」本身会改变现有行为——Linux 上无 keyring 的用户将失去登录持久化；加密后凭据值的**存储格式**也会变，旧版本读不了。**重启条件**：作为独立改动立项，并先定下「Linux 无 keyring 时给用户看什么」的交互。届时可复用本版测到的环境事实：Windows 上 `safeStorage.isEncryptionAvailable() === true` 且加解密往返正常（实测密文为 Chromium `v10` 前缀）。
+  - **`cpal` 0.15.3→0.18.2（#8）、`mpris-server` 0.9.0→0.10.0（#4）**：均为 **0.x 跨 minor**（semver 允许破坏性变更），且落在**原生音频采集 / Linux 系统媒体控制**链路上（`cpal` 的 lock 依赖图变动较大）。本机做不了**运行时**验证（无音频采集设备、无 D-Bus/MPRIS），仅 `cargo check` 与 CI 编译不足以排除行为回归，所以不盲升。**重启条件**：有能做「系统音频捕获 + MPRIS」真机冒烟的环境。
+  - **`pinia` 3.0.4→4.0.3（#15）**：主版本，且本项目用自研 `sqlitePersist` 插件钩住 `pinia.use(...)`，持久化是全部 store 的底座；主版本可能改动插件 API / state 水合 / `$subscribe` 语义，影响面覆盖所有 store，而完整功能验证需要逐视图 GUI 交互（本机不具备）。**重启条件**：单独立项，先读破坏性变更清单，并配持久化兼容性用例。
+  - **`vite-plugin-electron` 0.29.1→1.1.2（#13）、`vite-plugin-electron-renderer` 0.14.7→1.0.0（#14）**：主版本（0.x→1.x），二者驱动 `vite.config.mts:3-4,54` 的 Electron 构建/开发集成。`vite build` 可验证，但 **dev 模式**（`VITE_DEV_SERVER_URL` 路径）不在 CI 覆盖内、本机也验不了，盲升有破坏开发工作流的风险。**重启条件**：单独立项，并在能验证 dev 模式的环境下进行。
+  - **`destroy()` 的 `0xC0000005`**：**本机无法复现**。本机 CPU 为 Intel Core i5-3230M（**Ivy Bridge 第 3 代**），**不支持 AVX2**（AVX2 自 Haswell 第 4 代起）。此前的判断是「CI runner 的现代 CPU 会走到本机走不到的 SIMD 路径」，故无 AVX2+ 真机即无法复现。**重启条件**：支持 AVX2/AVX-512 的 Windows 真机，用探针循环复现并抓崩溃转储（WER LocalDumps / procdump）。
 - **本版仍然存在的已知问题**：`addon.destroy()` 在 Windows CI 上触发 `0xC0000005`（自 v1.2.0 起，v1.2.2 已改为「带诊断跳过」而不再阻塞构建）；`index.html` 引用了不存在的 `/vite.svg`（Vite 模板遗留）。
 
 ## [1.2.2]
