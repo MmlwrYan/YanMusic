@@ -5,7 +5,11 @@ import { Icon } from '@iconify/vue';
 import App from './App.vue';
 import { installPluginRuntime } from '@/plugins/runtime';
 import { sqlitePersistPlugin } from '@/stores/sqlitePersist';
+import { installCspViolationReporter } from '@/utils/cspViolationReporter';
 import '../renderer/style.css';
+
+// N-02 观测：与主窗口一致地收集 CSP 违规（仅报告，不阻断）。
+installCspViolationReporter();
 
 const app = createApp(App);
 const pinia = createPinia();

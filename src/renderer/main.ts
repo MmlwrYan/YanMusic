@@ -9,9 +9,14 @@ import { sqlitePersistPlugin } from '@/stores/sqlitePersist';
 import { installPluginRuntime } from '@/plugins/runtime';
 import { useSettingStore } from '@/stores/setting';
 import { installInputBehaviorGuard } from '@/utils/inputBehaviorGuard';
+import { installCspViolationReporter } from '@/utils/cspViolationReporter';
 import { registerContentBlacklistIntegration } from '@/services/contentBlacklistIntegration';
 import { startRendererMemoryDiagnostics } from '@/utils/rendererMemoryDiagnostics';
 import './style.css';
+
+// N-02 观测：尽早挂上 CSP 违规收集器（策略由主进程以 Report-Only 响应头下发），
+// 以便把窗口初始化阶段的内联样式/脚本违规也纳入观测。只记录，不改变任何行为。
+installCspViolationReporter();
 
 const app = createApp(App);
 const pinia = createPinia();

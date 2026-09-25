@@ -26,6 +26,7 @@ import { setupTaskbarThumbnail, destroyTaskbarThumbnail } from './taskbarThumbna
 import { refreshTaskbarProgress } from './taskbarProgress';
 import { configureApplicationMenu, configureWebContentsShortcuts } from './applicationMenu';
 import { isAllowedTopLevelNavigation } from '../shared/navigationPolicy';
+import { installCspObservation } from './cspObservation';
 import {
   flushPendingShareTargets,
   openShareUrl,
@@ -136,6 +137,11 @@ if (!gotTheLock) {
 
   app.whenReady().then(async () => {
     configureApplicationMenu();
+
+    // N-02 观测：为应用自身页面挂上「仅报告」的 CSP（只观测、不阻断）。
+    // 必须在任何窗口加载页面前安装，否则首个页面文档拿不到策略头。
+    // 详细约束（每 session 只能有一个 onHeadersReceived）见 cspObservation.ts。
+    installCspObservation();
 
     const trayContext = {
       getMainWindow,
