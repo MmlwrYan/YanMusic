@@ -22,7 +22,7 @@ gh auth status
 - [ ] `CHANGELOG.md` 新增 `## [X.Y.Z]` 段，标题格式必须与历史一致（CI 用 `index($0,"[X.Y.Z]")` 抽取发布说明）
 - [ ] **补丁版本不得包含 `### 新功能` 段**
 - [ ] 待发布的段落顺序：`修复` → `新增` → `变更` → `说明`
-- [ ] `说明` 段必须写明：验证结果、跳过项及其理由与前置条件、已知问题
+- [ ] `说明` 段必须写明：验证结果、暂未处理项及其原因与重启条件、已知问题
 
 ## 2. 本地全量验证（五项，任一失败即停止）
 
@@ -31,15 +31,21 @@ pnpm test                                      # 全部用例通过，fail 0
 pnpm exec vue-tsc --noEmit                     # exit 0
 pnpm exec vite build                           # exit 0
 cargo check --workspace --release              # 退出码 0（注意：PowerShell 会把 cargo 的 stderr 进度当错误，用 $LASTEXITCODE 判定）
-pnpm exec eslint . --ext .vue,.js,.ts,.jsx,.tsx  # 与上一版持平或更好
+pnpm lint                                      # 与 CI 同一条命令；须 0 error / 0 warning，且不得改写工作区
 ```
 
-> `pnpm lint` 带 `--fix`，会改写工作区文件，**不要**用它做验证。
+> `pnpm lint` 自 v1.2.3 起已不含 `--fix`，可直接用作验证，且 **CI 里跑的就是这条命令**。
+> 需要自动修复时显式执行：`pnpm exec eslint . --ext .vue,.js,.ts,.jsx,.tsx --fix`。
+> 验证前后各跑一次 `git status --porcelain`，计数必须不变——这是「lint 不改写工作区」的自证方式。
 
 ## 3. 本地模拟 Release Notes 抽取
 
 CI 从 CHANGELOG 抽取正文（见 `.github/workflows/build.yml` 的 `Extract changelog for current version`）。
 抽取逻辑为：取首个 `## [` 之前的内容作 header（去掉标题行与空行），再取 `[版本]` 段的正文。发布前应先确认抽取结果非空且不越界到上一个版本。
+
+> **v1.2.3 起 CHANGELOG 顶部不再有声明段**，因此 `HEADER` 恒为空串，走的是 `elif [ -n "$VERSION_BODY" ]`
+> 分支 → **Release 正文 = 该版本段本身**。这条分支本来就存在，工作流未改动。
+> 本地复刻抽取时若得到 `详见 CHANGELOG.md`，说明版本段标题写错了（必须是 `## [X.Y.Z]`）。
 
 ## 4. 推送 main 并干跑 CI
 
