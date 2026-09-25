@@ -153,11 +153,7 @@ const nextYear = (date: DateValue) => date.add({ years: 1 });
             <DatePickerNext class="yan-date-picker-nav-button" title="下个月">
               <Icon :icon="iconChevronRight" width="16" height="16" />
             </DatePickerNext>
-            <DatePickerNext
-              class="yan-date-picker-nav-button"
-              :next-page="nextYear"
-              title="下一年"
-            >
+            <DatePickerNext class="yan-date-picker-nav-button" :next-page="nextYear" title="下一年">
               <Icon :icon="iconChevronsRight" width="16" height="16" />
             </DatePickerNext>
           </div>

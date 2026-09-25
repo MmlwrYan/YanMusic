@@ -493,17 +493,14 @@ const parseMpegFrame = (buffer: Buffer, offset: number): MpegFrame | null => {
   if (versionBits === 1 || layerBits === 0) return null;
   if (bitrateIndex === 0 || bitrateIndex === 15 || sampleRateIndex === 3) return null;
 
-  const version: MpegFrame['version'] =
-    versionBits === 3 ? '1' : versionBits === 2 ? '2' : '2.5';
+  const version: MpegFrame['version'] = versionBits === 3 ? '1' : versionBits === 2 ? '2' : '2.5';
   const layer = (4 - layerBits) as 1 | 2 | 3;
-  const bitrate =
-    MPEG_BITRATES[`${version === '1' ? 1 : 2}-${layer}`]?.[bitrateIndex] ?? 0;
+  const bitrate = MPEG_BITRATES[`${version === '1' ? 1 : 2}-${layer}`]?.[bitrateIndex] ?? 0;
   const baseRate = version === '1' ? [44100, 48000, 32000] : [22050, 24000, 16000];
   const sampleRate = version === '2.5' ? baseRate[sampleRateIndex] / 2 : baseRate[sampleRateIndex];
   if (!bitrate || !sampleRate) return null;
 
-  const samplesPerFrame =
-    layer === 1 ? 384 : layer === 2 ? 1152 : version === '1' ? 1152 : 576;
+  const samplesPerFrame = layer === 1 ? 384 : layer === 2 ? 1152 : version === '1' ? 1152 : 576;
 
   return {
     version,
@@ -618,10 +615,7 @@ const MP4_TEXT_KEYS: Record<string, keyof PluginAudioMetadata> = {
   disk: 'disk',
 };
 
-const parseMp4 = async (
-  handle: FileHandle,
-  size: number,
-): Promise<PluginAudioMetadata> => {
+const parseMp4 = async (handle: FileHandle, size: number): Promise<PluginAudioMetadata> => {
   const metadata: PluginAudioMetadata = {};
 
   const moov = await findAtom(handle, 0, size, 'moov');
@@ -726,7 +720,10 @@ const parseWav = (buffer: Buffer): PluginAudioMetadata => {
       byteRate = buffer.readUInt32LE(bodyStart + 8);
     } else if (chunkId === 'data') {
       dataSize = chunkSize;
-    } else if (chunkId === 'LIST' && buffer.toString('latin1', bodyStart, bodyStart + 4) === 'INFO') {
+    } else if (
+      chunkId === 'LIST' &&
+      buffer.toString('latin1', bodyStart, bodyStart + 4) === 'INFO'
+    ) {
       let infoCursor = bodyStart + 4;
       while (infoCursor + 8 <= bodyEnd) {
         const infoId = buffer.toString('latin1', infoCursor, infoCursor + 4);

@@ -11,11 +11,7 @@ export interface PluginAudioSourceResolveContext {
 }
 
 export type PluginAudioSourceResolveResult =
-  | string
-  | Partial<ResolvedAudioSource>
-  | null
-  | undefined
-  | false;
+  string | Partial<ResolvedAudioSource> | null | undefined | false;
 
 export interface PluginAudioSourceResolverContribution {
   id?: string;

@@ -46,7 +46,14 @@ test('多段同时提升的补偿大于单段最大值（频带叠加）', () =>
   const all = computeEqHeadroomGainDb(new Array(10).fill(12), SAMPLE_RATE, EQ_WIDTH_Q);
   assert.ok(all < -12, `全段 +12 dB 的补偿应超过 -12 dB（叠加），实际 ${all}`);
 
-  const neighbors = computeEqHeadroomGainDb(gainsWith([[8, 12], [9, 12]]), SAMPLE_RATE, EQ_WIDTH_Q);
+  const neighbors = computeEqHeadroomGainDb(
+    gainsWith([
+      [8, 12],
+      [9, 12],
+    ]),
+    SAMPLE_RATE,
+    EQ_WIDTH_Q,
+  );
   assert.ok(neighbors < -12, `相邻两段 +12 dB 的补偿应超过 -12 dB，实际 ${neighbors}`);
 });
 
@@ -54,9 +61,23 @@ test('补偿后的级联峰值不超过 0 dB（对数网格上）', () => {
   const cases: number[][] = [
     new Array(10).fill(12),
     gainsWith([[4, 12]]),
-    gainsWith([[0, 12], [1, 12], [2, 12]]),
-    gainsWith([[5, 9], [6, 9], [7, 9], [8, 9], [9, 9]]),
-    gainsWith([[0, -12], [4, 12], [9, 6]]),
+    gainsWith([
+      [0, 12],
+      [1, 12],
+      [2, 12],
+    ]),
+    gainsWith([
+      [5, 9],
+      [6, 9],
+      [7, 9],
+      [8, 9],
+      [9, 9],
+    ]),
+    gainsWith([
+      [0, -12],
+      [4, 12],
+      [9, 6],
+    ]),
   ];
 
   for (const gains of cases) {
@@ -95,10 +116,23 @@ test('对数网格估计与高密度参考网格的偏差 < 0.1 dB', () => {
 
   const cases: Array<{ gains: number[]; rate: number }> = [
     { gains: gainsWith([[0, 12]]), rate: SAMPLE_RATE },
-    { gains: gainsWith([[0, 12], [1, 12]]), rate: SAMPLE_RATE },
+    {
+      gains: gainsWith([
+        [0, 12],
+        [1, 12],
+      ]),
+      rate: SAMPLE_RATE,
+    },
     { gains: new Array(10).fill(12), rate: SAMPLE_RATE },
     { gains: gainsWith([[0, 12]]), rate: 192_000 },
-    { gains: gainsWith([[1, 12], [2, 12], [3, 12]]), rate: 44_100 },
+    {
+      gains: gainsWith([
+        [1, 12],
+        [2, 12],
+        [3, 12],
+      ]),
+      rate: 44_100,
+    },
   ];
 
   for (const { gains, rate } of cases) {
@@ -115,9 +149,11 @@ test('对数网格估计与高密度参考网格的偏差 < 0.1 dB', () => {
 test('DC 与 Nyquist 处 peaking 响应为 0 dB', () => {
   const coefficients = peakingBiquad(1000, 12, EQ_WIDTH_Q, SAMPLE_RATE);
   // 直接用 z = ±1 计算
-  const dcGain = (coefficients.b0 + coefficients.b1 + coefficients.b2) /
+  const dcGain =
+    (coefficients.b0 + coefficients.b1 + coefficients.b2) /
     (coefficients.a0 + coefficients.a1 + coefficients.a2);
-  const nyquistGain = (coefficients.b0 - coefficients.b1 + coefficients.b2) /
+  const nyquistGain =
+    (coefficients.b0 - coefficients.b1 + coefficients.b2) /
     (coefficients.a0 - coefficients.a1 + coefficients.a2);
   assert.ok(Math.abs(20 * Math.log10(Math.abs(dcGain))) < 1e-9);
   assert.ok(Math.abs(20 * Math.log10(Math.abs(nyquistGain))) < 1e-9);
@@ -143,8 +179,7 @@ test('闭式幅度响应与脉冲响应 DFT 一致', () => {
   for (let n = 0; n < length; n += 1) {
     const y1 = n >= 1 ? response[n - 1] : 0;
     const y2 = n >= 2 ? response[n - 2] : 0;
-    response[n] =
-      nb0 * input(n) + nb1 * input(n - 1) + nb2 * input(n - 2) - na1 * y1 - na2 * y2;
+    response[n] = nb0 * input(n) + nb1 * input(n - 1) + nb2 * input(n - 2) - na1 * y1 - na2 * y2;
   }
 
   for (const bin of [1, 16, 64, 171, 512, 1024, 2048]) {

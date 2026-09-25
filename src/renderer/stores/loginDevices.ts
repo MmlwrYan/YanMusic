@@ -57,10 +57,7 @@ const sortableTime = (device: LoginDeviceSession): number => {
   return Number.isFinite(value) ? value : 0;
 };
 
-const normalizeSession = (
-  raw: LoginDeviceApiRecord,
-  index: number,
-): LoginDeviceSession => {
+const normalizeSession = (raw: LoginDeviceApiRecord, index: number): LoginDeviceSession => {
   const mid = readText(raw.mid);
   const tMid = mid;
   const dfid = readText(raw.mt);

@@ -113,7 +113,10 @@ test('audioSamplerate 的 auto / 数值映射', () => {
   assert.equal(normalizeNativeAudioOptions({ audioSamplerate: 'auto' }).audioSamplerate, 'auto');
   assert.equal(normalizeNativeAudioOptions({ audioSamplerate: 'AUTO' }).audioSamplerate, 'auto');
   assert.equal(normalizeNativeAudioOptions({ audioSamplerate: '44100' }).audioSamplerate, '44100');
-  assert.equal(normalizeNativeAudioOptions({ audioSamplerate: '192000' }).audioSamplerate, '192000');
+  assert.equal(
+    normalizeNativeAudioOptions({ audioSamplerate: '192000' }).audioSamplerate,
+    '192000',
+  );
   // 超出 mpv 支持范围 → 回 auto，而不是把非法值透传
   assert.equal(normalizeNativeAudioOptions({ audioSamplerate: '1' }).audioSamplerate, 'auto');
   assert.equal(normalizeNativeAudioOptions({ audioSamplerate: '9999999' }).audioSamplerate, 'auto');
@@ -238,10 +241,7 @@ test('迁移后存量用户与新装用户得到同一份引擎配置', () => {
     gaplessAudio: 'weak',
   };
 
-  assert.deepEqual(
-    normalizeNativeAudioOptions(migrated),
-    normalizeNativeAudioOptions(freshState),
-  );
+  assert.deepEqual(normalizeNativeAudioOptions(migrated), normalizeNativeAudioOptions(freshState));
 });
 
 /**
@@ -327,6 +327,9 @@ test('applyLegacyAudioOptionDefaultMigration：迁移后存量与新装得到逐
   // 新装用户：库里只有迁移标记，其余全是 store 新默认值
   const freshPersisted = { [NATIVE_AUDIO_OPTIONS_MIGRATION_FLAG]: true };
 
-  assert.deepEqual(normalizeNativeAudioOptions(migrated), normalizeNativeAudioOptions(freshPersisted));
+  assert.deepEqual(
+    normalizeNativeAudioOptions(migrated),
+    normalizeNativeAudioOptions(freshPersisted),
+  );
   assert.deepEqual(normalizeNativeAudioOptions(migrated), DEFAULT_NATIVE_AUDIO_OPTIONS);
 });

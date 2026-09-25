@@ -161,9 +161,11 @@ export const applyKugouApiNetworkSettings = (
         log.warn('[Network] Failed to apply Kugou API proxy override:', error);
       });
   } else {
-    void updateNetworkPolicy(currentNetworkSettings, currentProxyPassword).catch((error: unknown) => {
-      log.warn('[Network] Failed to restore global proxy for Kugou API partition:', error);
-    });
+    void updateNetworkPolicy(currentNetworkSettings, currentProxyPassword).catch(
+      (error: unknown) => {
+        log.warn('[Network] Failed to restore global proxy for Kugou API partition:', error);
+      },
+    );
   }
 
   const targetServerPath = serverPath ?? apiServerPath;

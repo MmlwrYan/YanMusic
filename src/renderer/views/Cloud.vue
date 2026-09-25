@@ -291,9 +291,7 @@ type CloudSongExtras = Song & { cloudFileId?: string | number };
 
 const canDeleteCloudSong = (song: Song) => {
   const extras = song as CloudSongExtras;
-  return Boolean(
-    String(extras.cloudFileId ?? '').trim() || String(song.hash ?? '').trim(),
-  );
+  return Boolean(String(extras.cloudFileId ?? '').trim() || String(song.hash ?? '').trim());
 };
 
 const openDeleteCloudSongDialog = (song: Song) => {

@@ -81,7 +81,9 @@ const sourceAddressLabel = (source: PluginMarketplaceSource) =>
               <strong>{{ source.name }}</strong>
               <span v-if="source.official">官方</span>
             </div>
-            <p :title="source.official ? undefined : source.url">{{ sourceAddressLabel(source) }}</p>
+            <p :title="source.official ? undefined : source.url">
+              {{ sourceAddressLabel(source) }}
+            </p>
             <small>
               {{ source.pluginCount }} 个插件
               <template v-if="source.lastFetchedAt">

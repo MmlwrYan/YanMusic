@@ -262,9 +262,7 @@ const validateManifestCapabilities = (manifest: EchoPluginManifest) => {
   return '';
 };
 
-export const getyanmusicCompatibility = (
-  manifest: EchoPluginManifest,
-): EchoPluginCompatibility => {
+export const getyanmusicCompatibility = (manifest: EchoPluginManifest): EchoPluginCompatibility => {
   const requirement = String(getVersionRequirement(manifest) ?? '').trim();
   const hostVersion = getHostVersion();
 
@@ -292,9 +290,7 @@ export const getyanmusicCompatibility = (
     compatible,
     currentyanmusicVersion: hostVersion,
     requiredyanmusicVersion: range,
-    message: compatible
-      ? ''
-      : `版本不兼容：需要 YanMusic 主程序 ${range}，当前版本 ${hostVersion}`,
+    message: compatible ? '' : `版本不兼容：需要 YanMusic 主程序 ${range}，当前版本 ${hostVersion}`,
   };
 };
 

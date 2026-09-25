@@ -18,9 +18,8 @@ export const registerSettingsBackupHandlers = () => {
     (_event, request: SettingsBackupExportRequest): Promise<SettingsBackupExportResult> =>
       exportSettingsBackup(request),
   );
-  ipcRegistry.registerHandler(
-    'settings-backup:inspect',
-    (): Promise<SettingsBackupInspectResult> => inspectSettingsBackup(),
+  ipcRegistry.registerHandler('settings-backup:inspect', (): Promise<SettingsBackupInspectResult> =>
+    inspectSettingsBackup(),
   );
   ipcRegistry.registerHandler(
     'settings-backup:import',

@@ -25,7 +25,12 @@ exports.default = async function afterPack(context) {
   const projectDir = context.packager.projectDir;
   const resourcesDir =
     context.electronPlatformName === 'darwin'
-      ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources')
+      ? path.join(
+          context.appOutDir,
+          `${context.packager.appInfo.productFilename}.app`,
+          'Contents',
+          'Resources',
+        )
       : path.join(context.appOutDir, 'resources');
 
   log(`platform=${context.electronPlatformName} arch=${context.arch} resources=${resourcesDir}`);
@@ -87,7 +92,11 @@ exports.default = async function afterPack(context) {
 
   // 图标为非关键项：缺失只告警，不阻断构建。
   const iconsDir = path.join(resourcesDir, 'icons');
-  log(fs.existsSync(iconsDir) ? `ok icons/ (${fs.readdirSync(iconsDir).length} entries)` : 'WARN 缺少 resources/icons');
+  log(
+    fs.existsSync(iconsDir)
+      ? `ok icons/ (${fs.readdirSync(iconsDir).length} entries)`
+      : 'WARN 缺少 resources/icons',
+  );
 
   if (problems.length > 0) {
     throw new Error(

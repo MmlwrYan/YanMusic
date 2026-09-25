@@ -13,12 +13,7 @@ export const SHARE_WEB_BASE_URL = 'https://mmlwryan.github.io/YanMusic/share/';
 export const LEGACY_SHARE_WEB_BASE_URLS = ['https://hoowhoami.github.io/yanmusic/share/'] as const;
 
 export type ShareResourceType =
-  | 'song'
-  | 'playlist'
-  | 'artist'
-  | 'album'
-  | 'plugin'
-  | 'listen-together';
+  'song' | 'playlist' | 'artist' | 'album' | 'plugin' | 'listen-together';
 export type ShareTargetQuery = Record<string, string>;
 
 export interface ShareTarget {

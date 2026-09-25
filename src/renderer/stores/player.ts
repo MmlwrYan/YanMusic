@@ -42,7 +42,7 @@ export const usePlayerStore = defineStore(
 
     const resolver = createResolver(state, playlistStore, settingStore);
     const historyManager = createHistoryManager(state);
-const listeningTimeManager = createListeningTimeManager(state);
+    const listeningTimeManager = createListeningTimeManager(state);
 
     // 播放生命周期事件总线：随 store 单例创建，全程存活，供插件等订阅方感知播放事件
     const playerEvents = createPlayerEventBus();

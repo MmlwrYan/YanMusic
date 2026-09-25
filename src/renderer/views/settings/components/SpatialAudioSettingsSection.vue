@@ -52,8 +52,7 @@ const mixPercent = computed({
   set: (value: number) => settingStore.setImpulseResponseMix(Number(value) / 100),
 });
 
-const getEffectDisplayName = (name: string) =>
-  normalizeImpulseResponseName(name) || '未命名音效';
+const getEffectDisplayName = (name: string) => normalizeImpulseResponseName(name) || '未命名音效';
 
 const handleImpulseResponseEnabledChange = (enabled: boolean) => {
   if (enabled && !selectedEffect.value) {
@@ -213,9 +212,19 @@ const commitRenameEffect = (id: string) => {
       </Button>
     </div>
 
-    <Dialog v-model:open="showFileDialog" title="音效管理" showClose :content-style="{ width: '480px' }">
+    <Dialog
+      v-model:open="showFileDialog"
+      title="音效管理"
+      showClose
+      :content-style="{ width: '480px' }"
+    >
       <div v-if="files.length > 0" class="effect-groups">
-        <section v-for="group in fileGroups" v-show="group.files.length > 0" :key="group.id" class="effect-group">
+        <section
+          v-for="group in fileGroups"
+          v-show="group.files.length > 0"
+          :key="group.id"
+          class="effect-group"
+        >
           <header class="effect-group-head">
             <h4 class="effect-group-title">{{ group.label }}</h4>
             <span class="effect-group-count">{{ group.files.length }}</span>
@@ -243,15 +252,30 @@ const commitRenameEffect = (id: string) => {
                 </span>
               </span>
               <template v-if="editingFileId === file.id">
-                <button type="button" class="effect-row-btn" title="保存名称" @click.stop="commitRenameEffect(file.id)">
+                <button
+                  type="button"
+                  class="effect-row-btn"
+                  title="保存名称"
+                  @click.stop="commitRenameEffect(file.id)"
+                >
                   <Icon :icon="iconCheckMark" width="14" height="14" />
                 </button>
-                <button type="button" class="effect-row-btn" title="取消重命名" @click.stop="cancelRenameEffect">
+                <button
+                  type="button"
+                  class="effect-row-btn"
+                  title="取消重命名"
+                  @click.stop="cancelRenameEffect"
+                >
                   <Icon :icon="iconX" width="14" height="14" />
                 </button>
               </template>
               <template v-else>
-                <button type="button" class="effect-row-btn" title="重命名" @click.stop="beginRenameEffect(file)">
+                <button
+                  type="button"
+                  class="effect-row-btn"
+                  title="重命名"
+                  @click.stop="beginRenameEffect(file)"
+                >
                   <Icon :icon="iconPencil" width="14" height="14" />
                 </button>
                 <button

@@ -9,7 +9,11 @@ import Select from '@/components/ui/Select.vue';
 import Scrollbar from '@/components/ui/Scrollbar.vue';
 import { CheckboxIndicator, CheckboxRoot } from 'reka-ui';
 import { iconCheckMark, iconChevronLeft, iconPlaylistAdd, iconTriangleAlert } from '@/icons';
-import { createScreenshotImportTask, submitImportScreenshot, type NativeImportTask } from '@/api/importPlaylist';
+import {
+  createScreenshotImportTask,
+  submitImportScreenshot,
+  type NativeImportTask,
+} from '@/api/importPlaylist';
 import {
   SCREENSHOT_IMPORT_ACCEPT,
   SCREENSHOT_IMPORT_MAX_FILES,
@@ -158,7 +162,9 @@ const activeProgressItem = computed(() => {
 const progressLabel = computed(() => {
   if (summary.value) return `已处理 ${summary.value.total} 首`;
   const target = activeProgressItem.value?.external.title;
-  return target ? `正在导入 · ${target}` : `正在导入 · ${progressDone.value} / ${progressTotal.value}`;
+  return target
+    ? `正在导入 · ${target}`
+    : `正在导入 · ${progressDone.value} / ${progressTotal.value}`;
 });
 
 const reset = () => {
@@ -238,8 +244,7 @@ const updateNativeProgress = (run: ImportTaskRun, task: NativeImportTask) => {
   const total = Math.max(1, songs, imported + missed);
 
   nativeStageTracks.submitted.artist = '已提交';
-  nativeStageTracks.parsing.artist =
-    status === 3 || songs > 0 ? `${songs} 首` : '正在识别截图';
+  nativeStageTracks.parsing.artist = status === 3 || songs > 0 ? `${songs} 首` : '正在识别截图';
   nativeStageTracks.playlist.artist = hasPlaylist ? '歌单已创建' : '等待创建歌单';
   nativeStageTracks.importing.artist = songs > 0 ? `已导入 ${imported} / ${songs}` : '等待歌曲信息';
 
@@ -499,7 +504,13 @@ const itemStatusLabel = (status: ImportItemResult['status']) => {
 
     <div v-if="step === 'input'" class="flex flex-col gap-3">
       <label class="screenshot-dropzone">
-        <input type="file" :accept="SCREENSHOT_IMPORT_ACCEPT" multiple hidden @change="handleFiles" />
+        <input
+          type="file"
+          :accept="SCREENSHOT_IMPORT_ACCEPT"
+          multiple
+          hidden
+          @change="handleFiles"
+        />
         <Icon :icon="iconPlaylistAdd" width="24" height="24" />
         <strong>{{
           selectedFiles.length ? `已选择 ${selectedFiles.length} 张截图` : '选择歌单截图'

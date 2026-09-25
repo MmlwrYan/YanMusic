@@ -64,9 +64,7 @@ const getUniqueImpulseResponseName = (name: string, existingNames: string[]): st
   }
 };
 
-const toImpulseResponseFilePayload = (
-  file: SpatialAudioEffectEntry,
-): SpatialAudioEffectEntry => ({
+const toImpulseResponseFilePayload = (file: SpatialAudioEffectEntry): SpatialAudioEffectEntry => ({
   id: String(file.id || ''),
   name: String(file.name || ''),
   size: Number(file.size) || 0,

@@ -36,7 +36,8 @@ const electronExe = path.join(repoRoot, 'node_modules', 'electron', 'dist', 'ele
 const storageAddon = path.join(repoRoot, 'native', 'yan-storage', 'yan-storage.node');
 
 const profileArgIndex = process.argv.indexOf('--profile');
-const profile = profileArgIndex >= 0 ? String(process.argv[profileArgIndex + 1] ?? 'legacy') : 'legacy';
+const profile =
+  profileArgIndex >= 0 ? String(process.argv[profileArgIndex + 1] ?? 'legacy') : 'legacy';
 
 const userData = path.join(os.tmpdir(), `yanmusic-migration-verify-${profile}`);
 const dbPath = path.join(userData, 'YanMusic.sqlite');
@@ -176,7 +177,9 @@ const readAppLogMigrationLines = () => {
   for (const line of lines) {
     const isHeader = /^\[[^\]]+\]/.test(line);
     const matched =
-      line.includes('[AudioOptions]') || line.includes('[迁移]') || line.includes('[MpvController] Native audio options applied');
+      line.includes('[AudioOptions]') ||
+      line.includes('[迁移]') ||
+      line.includes('[MpvController] Native audio options applied');
     if (isHeader) {
       if (current) blocks.push(current);
       current = matched ? [line] : null;
@@ -271,7 +274,9 @@ const readAppLogMigrationLines = () => {
   console.log(
     killedByScript
       ? `应用退出：由验证脚本 taskkill /T /F 终止（正常路径：应用会一直运行到用户关闭）` +
-          (exitedEarly ? `，终止后落定为 status=${exitedEarly.code} signal=${exitedEarly.signal ?? 'none'}` : '')
+          (exitedEarly
+            ? `，终止后落定为 status=${exitedEarly.code} signal=${exitedEarly.signal ?? 'none'}`
+            : '')
       : `应用自行退出：status=${exitedEarly.code} signal=${exitedEarly.signal ?? 'none'}`,
   );
   if (!killedByScript && exitedEarly && exitedEarly.code !== 0) {

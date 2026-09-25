@@ -235,7 +235,10 @@ const handleBackgroundRun = () => {
   open.value = false;
 };
 
-const normalizeExtension = (value: string) => String(value || '').replace(/^\./, '').toLowerCase();
+const normalizeExtension = (value: string) =>
+  String(value || '')
+    .replace(/^\./, '')
+    .toLowerCase();
 
 const isUploadAudioName = (name: string) => {
   const extension = normalizeExtension(name.split('.').pop() || '');
@@ -591,7 +594,9 @@ const handleManualPickerChange = async (event: Event) => {
     return;
   }
   if (file.size <= 0 || file.size > CLOUD_UPLOAD_MAX_SIZE) {
-    toastStore.warning(`${file.name}: 文件为空或超过 ${CLOUD_UPLOAD_MAX_SIZE / 1024 / 1024}MB 限制`);
+    toastStore.warning(
+      `${file.name}: 文件为空或超过 ${CLOUD_UPLOAD_MAX_SIZE / 1024 / 1024}MB 限制`,
+    );
     return;
   }
   clearPickedUploadFiles();

@@ -20,15 +20,7 @@ export interface KugouVerificationInfo {
 }
 
 export type KugouCaptchaProvider =
-  | 'TX'
-  | 'GT'
-  | 'KG'
-  | 'KG2'
-  | 'SM'
-  | 'YD'
-  | 'SMS'
-  | 'LOGIN'
-  | 'UNKNOWN';
+  'TX' | 'GT' | 'KG' | 'KG2' | 'SM' | 'YD' | 'SMS' | 'LOGIN' | 'UNKNOWN';
 
 export const KUGOU_CAPTCHA_PROVIDER_NAMES: Record<KugouCaptchaProvider, string> = {
   TX: '腾讯验证码',
@@ -58,13 +50,7 @@ export const kugouVerificationState = reactive({
   eventId: '',
   verifyInfo: null as KugouVerificationInfo | null,
   status: 'idle' as
-    | 'idle'
-    | 'loading'
-    | 'ready'
-    | 'awaiting-login'
-    | 'verifying'
-    | 'success'
-    | 'error',
+    'idle' | 'loading' | 'ready' | 'awaiting-login' | 'verifying' | 'success' | 'error',
   error: '',
 });
 

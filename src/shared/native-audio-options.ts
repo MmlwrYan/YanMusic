@@ -88,10 +88,7 @@ export const LEGACY_RENDERER_AUDIO_OPTION_DEFAULTS = {
 } as const;
 
 export type MigratableAudioOptionKey =
-  | 'demuxerReadaheadSecs'
-  | 'cache'
-  | 'cachePauseWaitSecs'
-  | 'audioChannels';
+  'demuxerReadaheadSecs' | 'cache' | 'cachePauseWaitSecs' | 'audioChannels';
 
 /**
  * 计算「存量设置对齐」补丁：把**仍然等于旧默认值**的字段改成引擎接线前的实际行为，
@@ -203,18 +200,8 @@ export const normalizeNativeAudioOptions = (
   const defaults = DEFAULT_NATIVE_AUDIO_OPTIONS;
   return {
     cacheSecs: readNumber(source.audioCacheSecs, defaults.cacheSecs, 0, MAX_CACHE_SECS),
-    demuxerMaxMb: readNumber(
-      source.audioDemuxerMaxMB,
-      defaults.demuxerMaxMb,
-      0,
-      MAX_DEMUXER_MB,
-    ),
-    demuxerBackMb: readNumber(
-      source.audioDemuxerBackMB,
-      defaults.demuxerBackMb,
-      0,
-      MAX_DEMUXER_MB,
-    ),
+    demuxerMaxMb: readNumber(source.audioDemuxerMaxMB, defaults.demuxerMaxMb, 0, MAX_DEMUXER_MB),
+    demuxerBackMb: readNumber(source.audioDemuxerBackMB, defaults.demuxerBackMb, 0, MAX_DEMUXER_MB),
     audioBufferSecs: readNumber(
       source.audioBufferSecs,
       defaults.audioBufferSecs,

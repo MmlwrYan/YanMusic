@@ -1,8 +1,7 @@
 import { getNativeStorage } from './native';
 
 type KvBatchMutation =
-  | { key: string; value: unknown; delete?: never }
-  | { key: string; delete: true; value?: never };
+  { key: string; value: unknown; delete?: never } | { key: string; delete: true; value?: never };
 
 export class KvStorage {
   get<T>(key: string): T | null {

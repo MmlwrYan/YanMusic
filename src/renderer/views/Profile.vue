@@ -12,7 +12,16 @@ import Popover from '@/components/ui/Popover.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 
 import logger from '@/utils/logger';
-import { iconLogOut, iconUser, iconGift, iconHome, iconScan, iconCheck, iconInfo, iconChevronRight } from '@/icons';
+import {
+  iconLogOut,
+  iconUser,
+  iconGift,
+  iconHome,
+  iconScan,
+  iconCheck,
+  iconInfo,
+  iconChevronRight,
+} from '@/icons';
 import PageScrollContainer from '@/components/ui/PageScrollContainer.vue';
 import { claimDayVip, upgradeDayVip, getVipMonthRecord } from '@/api/user';
 

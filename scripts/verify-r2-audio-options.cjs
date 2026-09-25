@@ -118,7 +118,12 @@ const CASES = [
     expected: (o) => (o.audioSamplerate === 'auto' ? 0 : o.audioSamplerate),
     note: 'mpv 用整数表示，0 == auto',
   },
-  { option: 'audioChannels', property: 'audio-channels', expected: (o) => o.audioChannels, note: '' },
+  {
+    option: 'audioChannels',
+    property: 'audio-channels',
+    expected: (o) => o.audioChannels,
+    note: '',
+  },
   {
     option: 'audioFormat',
     property: 'audio-format',
@@ -190,9 +195,7 @@ const matches = (actual, expected) => {
   });
 
   console.log('libmpv 回读（证明设置真的到达引擎）：');
-  console.log(
-    `  ${'mpv 属性'.padEnd(24)} ${'期望'.padEnd(12)} ${'实际'.padEnd(12)} 判定`,
-  );
+  console.log(`  ${'mpv 属性'.padEnd(24)} ${'期望'.padEnd(12)} ${'实际'.padEnd(12)} 判定`);
 
   let mismatch = 0;
   for (const item of CASES) {

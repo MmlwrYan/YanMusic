@@ -213,7 +213,10 @@ function assemble(pngDir, outDir) {
     encodeIco(APP_ICO_SIZES.map((size) => ({ size, png: readPng(pngDir, 'app', size) }))),
   );
   // macOS 应用图标（PNG 型块）
-  emit('icon.icns', encodeIcns(ICNS_BLOCKS.map(([type, size]) => ({ type, png: readPng(pngDir, 'app', size) }))));
+  emit(
+    'icon.icns',
+    encodeIcns(ICNS_BLOCKS.map(([type, size]) => ({ type, png: readPng(pngDir, 'app', size) }))),
+  );
   emitCopy('icon.png', 'app', 1024);
   emitCopy('icon_macos.png', 'appMacos', 1024);
   emitCopy(join('references', 'icon_macos.png'), 'appMacos', 1024);
@@ -237,7 +240,9 @@ function assemble(pngDir, outDir) {
   );
   emit(
     join('references', 'win_tray_icon_light.ico'),
-    encodeIco(WINDOWS_TRAY_SIZES.map((size) => ({ size, png: readPng(pngDir, 'trayLight', size) }))),
+    encodeIco(
+      WINDOWS_TRAY_SIZES.map((size) => ({ size, png: readPng(pngDir, 'trayLight', size) })),
+    ),
   );
 
   return results;

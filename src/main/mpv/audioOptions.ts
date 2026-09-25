@@ -51,8 +51,7 @@ export const readNativeAudioOptions = (): NativeAudioOptions => {
   } else {
     log.info('[AudioOptions] 存量音频/缓存设置对齐：无需执行（标记已为 true）', {
       ...pickMigratable(persisted),
-      [NATIVE_AUDIO_OPTIONS_MIGRATION_FLAG]:
-        persisted[NATIVE_AUDIO_OPTIONS_MIGRATION_FLAG] ?? null,
+      [NATIVE_AUDIO_OPTIONS_MIGRATION_FLAG]: persisted[NATIVE_AUDIO_OPTIONS_MIGRATION_FLAG] ?? null,
     });
   }
 

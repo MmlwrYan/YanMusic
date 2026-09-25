@@ -301,7 +301,14 @@ const filteredAlbumCards = computed(() => {
 const handleSongDoubleTapPlay = async (song: Song) => {
   const queueSongs = displayedSongs.value.slice() as Song[];
   if (queueSongs.length === 0) return;
-  await replaceQueueAndPlay(playlistStore, playerStore, queueSongs, 0, song, PURCHASED_QUEUE_OPTIONS);
+  await replaceQueueAndPlay(
+    playlistStore,
+    playerStore,
+    queueSongs,
+    0,
+    song,
+    PURCHASED_QUEUE_OPTIONS,
+  );
 };
 
 const handlePlayAll = async () => {

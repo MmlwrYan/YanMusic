@@ -295,10 +295,7 @@ const applyImportedSettings = (importedSettings: Record<string, unknown>) => {
     if (typeof importedSettings[settingKey] !== 'boolean') continue;
     setMainAppSetting(settingKey, importedSettings[settingKey]);
   }
-  if (
-    typeof importedSettings.dpiScale === 'number' &&
-    Number.isFinite(importedSettings.dpiScale)
-  ) {
+  if (typeof importedSettings.dpiScale === 'number' && Number.isFinite(importedSettings.dpiScale)) {
     setMainAppSetting('dpiScale', Math.min(2, Math.max(0.5, importedSettings.dpiScale)));
   }
   setPersistedLogSettings(
