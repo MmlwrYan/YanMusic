@@ -69,17 +69,40 @@ interface TestReport {
  *
  * 打点一律用 `fs.writeSync(1, ...)`：进程被原生崩溃带走时 `console.log` 的
  * 缓冲输出会丢失，同步写不会 —— 这正是能定位到「崩在哪一步」的关键。
+ *
+ * 判定规则（关键）：**JS 可见的失败一律判失败，只有原生崩溃才跳过。**
+ * 原生访问违例（`0xC0000005` 等）不会触发 `uncaughtException`，因此下面的处理器
+ * 不会把崩溃误判为失败；而 addon 加载失败、未捕获异常等 JS 层故障必须判失败 ——
+ * 否则「文件存在但无法加载」这类真实故障会被静默降级为跳过。
  */
 const buildEngineScript = (): string =>
   [
     `const fs = require('node:fs');`,
     `const write = (s) => fs.writeSync(1, s + '\\n');`,
-    `const addon = require(${JSON.stringify(addonPath)});`,
     `const LIB = ${JSON.stringify(libmpvPath)};`,
-    ``,
+    `const TOTAL_TESTS = 5;`,
+    `const reported = new Set();`,
     `const report = (index, status, checks, message) => {`,
+    `  reported.add(index);`,
     `  write('TEST ' + index + ' ' + status + ' ' + JSON.stringify({ checks: checks || [], message: message || '' }));`,
     `};`,
+    `/** 把尚未回传的用例一律标记为 error —— JS 可见的失败必须判失败，不得被当作「引擎崩溃」跳过 */`,
+    `const failAllPending = (message) => {`,
+    `  for (let i = 0; i < TOTAL_TESTS; i++) if (!reported.has(i)) report(i, 'error', [], message);`,
+    `};`,
+    `// 原生访问违例不会触发 uncaughtException，所以本处理器只覆盖 JS 层故障`,
+    `process.on('uncaughtException', (error) => {`,
+    `  failAllPending('子进程抛出未捕获异常：' + (error && error.message ? error.message : String(error)));`,
+    `  process.exit(0);`,
+    `});`,
+    `let addon;`,
+    `try {`,
+    `  addon = require(${JSON.stringify(addonPath)});`,
+    `} catch (error) {`,
+    `  // 文件存在但加载失败（架构不符 / 损坏 / 依赖缺失）是真实故障，必须判失败而非跳过`,
+    `  failAllPending('加载原生 addon 失败：' + (error && error.message ? error.message : String(error)));`,
+    `  process.exit(0);`,
+    `}`,
     `/** 引擎调用步骤：抛错说明引擎可加载但无法驱动 → 回传 error，由父进程判失败 */`,
     `const step = (label, fn) => {`,
     `  write('STEP_BEGIN ' + label);`,
@@ -386,7 +409,9 @@ const skipReason = baseSkipReason ?? engineRun?.failureReason ?? null;
 if (skipReason) {
   // 显式打印，避免「静默跳过」掩盖真实问题（CI 日志里能直接看到原因）。
   // 该崩溃为 v1.2.2 已知问题（见 CHANGELOG「说明」），本轮未修复。
-  console.log(`[native-engine-options] SKIP: ${skipReason}`);
+  // 措辞保持中性：本行只是诊断，**没有**结果的用例才据此跳过；子进程若回传了
+  // error 结果（JS 可见的失败），对应用例仍会判失败。
+  console.log(`[native-engine-options] 引擎诊断：${skipReason}`);
 }
 
 /** 父进程断言：把子进程回传的结果当作真实证据逐条核对。 */
