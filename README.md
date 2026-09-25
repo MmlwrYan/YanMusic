@@ -192,6 +192,8 @@ export async function activate(ctx) {
 
 项目使用 GitHub Actions 进行自动化构建。每当推送 `v*` 格式的 Tag 时，会自动触发多平台构建并将二进制包上传至 Releases。
 
+维护者发布新版本的完整步骤（含三条纪律：本地全量验证 → 三平台 CI 全绿才打 tag → 打 tag 后需手工修正 Release 标题）见 [docs/release-process.md](docs/release-process.md)。
+
 **手动编译：**
 
 ```bash
