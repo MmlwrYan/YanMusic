@@ -1,7 +1,3 @@
-> ⚠️ 本软件完全免费且开源，请勿通过任何付费渠道下载。
->
-> 🤡 如果你是付费获取的，说明你被骗了。
-
 ## [1.2.3]
 
 > 本次为**工程债清理 + 观测机制落地 + 依赖升级**的补丁版本，**不含任何新功能**：把 lint 接入 CI（基线由 101 errors 清到 **0 error / 0 warning**）；新增两项**只观测、不阻断**的机制（CSP Report-Only、IPC 通道白名单报告式检查），为 v1.3.0 的强制化提供真实数据；升级 5 个 GitHub Actions 到主版本并修掉一处会让发布路径断裂的连带问题。
@@ -54,7 +50,7 @@
   - **`cpal` 0.15.3→0.18.2（#8）、`mpris-server` 0.9.0→0.10.0（#4）**：均为 **0.x 跨 minor**（semver 允许破坏性变更），且落在**原生音频采集 / Linux 系统媒体控制**链路上（`cpal` 的 lock 依赖图变动较大）。本机做不了**运行时**验证（无音频采集设备、无 D-Bus/MPRIS），仅 `cargo check` 与 CI 编译不足以排除行为回归，所以不盲升。**重启条件**：有能做「系统音频捕获 + MPRIS」真机冒烟的环境。
   - **`pinia` 3.0.4→4.0.3（#15）**：主版本，且本项目用自研 `sqlitePersist` 插件钩住 `pinia.use(...)`，持久化是全部 store 的底座；主版本可能改动插件 API / state 水合 / `$subscribe` 语义，影响面覆盖所有 store，而完整功能验证需要逐视图 GUI 交互（本机不具备）。**重启条件**：单独立项，先读破坏性变更清单，并配持久化兼容性用例。
   - **`vite-plugin-electron` 0.29.1→1.1.2（#13）、`vite-plugin-electron-renderer` 0.14.7→1.0.0（#14）**：主版本（0.x→1.x），二者驱动 `vite.config.mts:3-4,54` 的 Electron 构建/开发集成。`vite build` 可验证，但 **dev 模式**（`VITE_DEV_SERVER_URL` 路径）不在 CI 覆盖内、本机也验不了，盲升有破坏开发工作流的风险。**重启条件**：单独立项，并在能验证 dev 模式的环境下进行。
-  - **`destroy()` 的 `0xC0000005`**：**本机无法复现**。本机 CPU 为 Intel Core i5-3230M（**Ivy Bridge 第 3 代**），**不支持 AVX2**（AVX2 自 Haswell 第 4 代起）。此前的判断是「CI runner 的现代 CPU 会走到本机走不到的 SIMD 路径」，故无 AVX2+ 真机即无法复现。**已排除「上游 napi 缺 unload-safety 修复」这一解释**：查锁定的 `napi 3.12.7` 源码，`bindgen_runtime/module_register.rs:1049` 的 `retain_current_module_for_unload_safety()` 已在六个构造点被调用（`error.rs:110`、`threadsafe_function.rs:64`、`tokio_runtime.rs:571/950/1039`、`js_values/deferred.rs:586`），而我们两个 addon 走的正是 `ThreadsafeFunction` 与 `tokio_rt` 两条路径，即「镜像被卸载时其中仍有原生代码存活」这一类崩溃在 3.12.7 上已有防护——**所以不要在下一轮把"升级 napi"当成修复手段**。**剩余嫌疑点**：`native/yan-mpv-player/src/lib.rs:125-161` 的 `destroy_locked()` 先清 `EVENT_CALLBACK`、后 `join()` 事件线程，而事件线程自己持有一份 `ThreadsafeFunction` 克隆，其 drop 发生在事件线程上、晚于 `terminate_destroy()`。**重启条件**：支持 AVX2/AVX-512 的 Windows 真机，用探针循环复现并抓崩溃转储（WER LocalDumps / procdump）。
+  - **`destroy()` 的 `0xC0000005`**：**本机无法复现**。本机 CPU 为 Intel Core i5-3230M（**Ivy Bridge 第 3 代**），**不支持 AVX2**（AVX2 自 Haswell 第 4 代起）。此前的判断是「CI runner 的现代 CPU 会走到本机走不到的 SIMD 路径」，故无 AVX2+ 真机即无法复现。**已排除「上游 napi 缺 unload-safety 修复」这一解释**：查锁定的 `napi 3.12.7` 源码，`bindgen_runtime/module_register.rs:1049` 的 `retain_current_module_for_unload_safety()` 已在六个构造点被调用（`error.rs:110`、`threadsafe_function.rs:64`、`tokio_runtime.rs:571/950/1039`、`js_values/deferred.rs:586`），而我们两个 addon 走的正是 `ThreadsafeFunction` 与 `tokio_rt` 两条路径，即「镜像被卸载时其中仍有原生代码存活」这一类崩溃在 3.12.7 上已有防护——**所以不要把「升级 napi」当成修复手段**。**剩余嫌疑点**：`native/yan-mpv-player/src/lib.rs:125-161` 的 `destroy_locked()` 先清 `EVENT_CALLBACK`、后 `join()` 事件线程，而事件线程自己持有一份 `ThreadsafeFunction` 克隆，其 drop 发生在事件线程上、晚于 `terminate_destroy()`。**重启条件**：支持 AVX2/AVX-512 的 Windows 真机，用探针循环复现并抓崩溃转储（WER LocalDumps / procdump）。
 - **本版仍然存在的已知问题**：`addon.destroy()` 在 Windows CI 上触发 `0xC0000005`（自 v1.2.0 起，v1.2.2 已改为「带诊断跳过」而不再阻塞构建）；`index.html` 引用了不存在的 `/vite.svg`（Vite 模板遗留）。
 
 ## [1.2.2]
@@ -67,7 +63,7 @@
 
 ### 新增
 
-- `docs/release-process.md`：发布流程 SOP（可复制执行的命令 + 每步验收标准），固化三条本项目实际踩过的纪律：①本地五项全量验证 → ②三平台 CI 全绿才打 tag（涉及 Windows 腿时连续 ≥3 次）→ ③打 tag 后**必做** `gh release edit vX.Y.Z --title "YanMusic vX.Y.Z Release"`。同时记录三个坑：`pnpm lint` 带 `--fix` 不可用于验证；PowerShell 会把 cargo 的 stderr 进度当错误（退出码须看 `$LASTEXITCODE`）；`concurrency: cancel-in-progress` 会让同 ref 的新 dispatch 取消正在跑的 run。README「编译发布」段加入指向该文档的链接。
+- `docs/release-process.md`：发布流程 SOP（可复制执行的命令 + 每步验收标准），固化三条本项目实际踩过的做法：①本地五项全量验证 → ②三平台 CI 全绿才打 tag（涉及 Windows 腿时连续 ≥3 次）→ ③打 tag 后**必做** `gh release edit vX.Y.Z --title "YanMusic vX.Y.Z Release"`。同时记录三个坑：`pnpm lint` 带 `--fix` 不可用于验证；PowerShell 会把 cargo 的 stderr 进度当错误（退出码须看 `$LASTEXITCODE`）；`concurrency: cancel-in-progress` 会让同 ref 的新 dispatch 取消正在跑的 run。README「编译发布」段加入指向该文档的链接。
 - `tests/native-engine-options.test.ts` 新增「结构自检」用例：本文件不得在测试进程内加载原生 addon（用拼接串做针 + 剥离块注释，避免用例自身文案命中自己）。用例总数 112 → **113**。
 
 ### 变更
@@ -84,17 +80,16 @@
 ### 说明
 
 - 验证结果：`pnpm test` **113/113 通过**（0 失败 0 跳过，且引擎用例**真实执行而非跳过**）；`vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0；`cargo check --workspace --release` 退出码 0；`eslint` 101 errors / 0 warnings（归因见「变更」；本版改动文件 0 错误）。
-- **已知问题（重要，不夸大）：addon 的 `destroy()` 在 Windows CI 上触发 `0xC0000005`，本版未修复。** 该缺陷**早于本版**：v1.2.0 标签构建（2026-09-24 12:31）与同日 12:15 干跑的 Windows x64/arm64 腿均在同一位置崩溃并跳过；macOS-arm64 与本地 Windows 均正常。**本机无法复现**——5 种方法约 109 次执行 0 失败（原样探测脚本串行 30 次、改用 CI 同款 libmpv 后 20 次、4 并发 40 次、完整套件循环 15 次，以及定向调用序列与文件单独运行），并已排除 libmpv 版本差异（下载 CI 同款 `mpv-dev-x86_64-20260924-git-2a4eb8067c`，自报 `v0.41.0-1072-g2a4eb8067`，仍不崩）、addon 陈旧（本地 `.node` 晚于最新 Rust 源码且该 crate 自 09/22 无改动）、`@napi-rs/cli` 版本差异（crate 内有 `package-lock.json`，与本地同为 3.6.2）。**剩余主因判断为 CPU 微架构差异**：本机为 Intel i5-3230M（Ivy Bridge，仅 AVX1、无 AVX2/FMA），runner 为支持 AVX2/AVX-512 的现代 CPU，而 libmpv 有运行时 CPU 特性检测，本机不会执行 runner 上走到的 SIMD 路径。按「先复现再修复」的纪律**未做盲修**（未改动任何 Rust 代码）。本版消除的是「该崩溃导致构建失败」这一**失败模式**，并把崩溃转为可诊断的跳过：Windows 腿仍有真实覆盖（用例 1 的 9 条断言在崩溃前已回传并逐条断言），用例 2-5 在 Windows CI 上将持续跳过。**后续排查路径**：在具备现代 CPU 的 Windows 机器上用探针循环复现并抓崩溃转储（WER LocalDumps / procdump），或比对不同 mpv-winbuild 资产以判定是否为特定构建的回归。**计划修复版本：待定。**
-- **本轮跳过的依赖更新（6 项，逐条给出理由与前置条件）**：
-  - `actions/checkout` 4.4.0→7.0.1（#1）、`actions/upload-artifact` 4.6.2→7.0.1（#2）、`pnpm/action-setup` 4.3.0→6.1.0（#3）、`actions/setup-node` 4.4.0→7.0.0（#5）、`actions/github-script` 7.1.0→9.0.0（#6）：均为**主版本**跨越多代，可能改变输入语义，会直接影响 6 条构建腿与发布作业。**前置条件**：单独一轮专门处理，并借助可干跑或 fork 演练的方式验证——`build.yml` 的 `release` job 受 tag 守卫保护、无法 `workflow_dispatch` 验证，尤其需要谨慎。
-  - `mpris-server` 0.9.0→0.10.0（#4）、`cpal` 0.15.3→0.18.2（#8）：均为 **0.x 跨 minor**（semver 允许破坏性变更），且落在**原生音频采集 / 系统媒体控制**链路上（`cpal` 的 lock 依赖图变动较大）。本环境无法做**运行时**验证（无音频采集设备、无 D-Bus/MPRIS 环境），仅 `cargo check` 与 CI 编译不足以排除行为回归。**前置条件**：具备可做「系统音频捕获 + MPRIS」真机冒烟验证的环境。
-  - `vite-plugin-electron` 0.29.1→1.1.2（#13）、`vite-plugin-electron-renderer` 0.14.7→1.0.0（#14）、`pinia` 3.0.4→4.0.3（#15）：均为**主版本**（0.x→1.x 与 3→4），前者影响 Electron 构建管线、后者可能有 store API 破坏性变更。**前置条件**：单独立项评估破坏性变更清单。
-- **本版不改动的模块**：`src/main/runtime.ts`、`server/`、`cloudflare/` 仅只读审计，未产生任何改动；`.github/workflows/build.yml` **未改动**（发布标题问题按 SOP 处理，见「新增」）。
+- **已知问题（重要，不夸大）：addon 的 `destroy()` 在 Windows CI 上触发 `0xC0000005`，本版未修复。** 该缺陷**早于本版**：v1.2.0 标签构建（2026-09-24 12:31）与同日 12:15 干跑的 Windows x64/arm64 腿均在同一位置崩溃并跳过；macOS-arm64 与本地 Windows 均正常。**本机无法复现**——5 种方法约 109 次执行 0 失败（原样探测脚本串行 30 次、改用 CI 同款 libmpv 后 20 次、4 并发 40 次、完整套件循环 15 次，以及定向调用序列与文件单独运行），并已排除 libmpv 版本差异（下载 CI 同款 `mpv-dev-x86_64-20260924-git-2a4eb8067c`，自报 `v0.41.0-1072-g2a4eb8067`，仍不崩）、addon 陈旧（本地 `.node` 晚于最新 Rust 源码且该 crate 自 09/22 无改动）、`@napi-rs/cli` 版本差异（crate 内有 `package-lock.json`，与本地同为 3.6.2）。**剩余主因判断为 CPU 微架构差异**：本机为 Intel i5-3230M（Ivy Bridge，仅 AVX1、无 AVX2/FMA），runner 为支持 AVX2/AVX-512 的现代 CPU，而 libmpv 有运行时 CPU 特性检测，本机不会执行 runner 上走到的 SIMD 路径。按「先复现再修复」的原则**未做盲修**（未改动任何 Rust 代码）。本版消除的是「该崩溃导致构建失败」这一**失败模式**，并把崩溃转为可诊断的跳过：Windows 腿仍有真实覆盖（用例 1 的 9 条断言在崩溃前已回传并逐条断言），用例 2-5 在 Windows CI 上将持续跳过。**后续排查路径**：在具备现代 CPU 的 Windows 机器上用探针循环复现并抓崩溃转储（WER LocalDumps / procdump），或比对不同 mpv-winbuild 资产以判定是否为特定构建的回归。**计划修复版本：待定。**
+- **暂未升级的依赖（6 项，附原因与重启条件）**：
+  - `actions/checkout` 4.4.0→7.0.1（#1）、`actions/upload-artifact` 4.6.2→7.0.1（#2）、`pnpm/action-setup` 4.3.0→6.1.0（#3）、`actions/setup-node` 4.4.0→7.0.0（#5）、`actions/github-script` 7.1.0→9.0.0（#6）：均为**主版本**跨越多代，可能改变输入语义，会直接影响 6 条构建腿与发布作业。**重启条件**：单独处理，并借助可干跑或 fork 演练的方式验证——`build.yml` 的 `release` job 受 tag 守卫保护、无法 `workflow_dispatch` 验证，尤其需要谨慎。
+  - `mpris-server` 0.9.0→0.10.0（#4）、`cpal` 0.15.3→0.18.2（#8）：均为 **0.x 跨 minor**（semver 允许破坏性变更），且落在**原生音频采集 / 系统媒体控制**链路上（`cpal` 的 lock 依赖图变动较大）。本机无法做**运行时**验证（无音频采集设备、无 D-Bus/MPRIS 环境），仅 `cargo check` 与 CI 编译不足以排除行为回归。**重启条件**：具备可做「系统音频捕获 + MPRIS」真机冒烟验证的环境。
+  - `vite-plugin-electron` 0.29.1→1.1.2（#13）、`vite-plugin-electron-renderer` 0.14.7→1.0.0（#14）、`pinia` 3.0.4→4.0.3（#15）：均为**主版本**（0.x→1.x 与 3→4），前者影响 Electron 构建管线、后者可能有 store API 破坏性变更。**重启条件**：单独立项评估破坏性变更清单。
 - 已知的既有小瑕疵（非本版引入、未修）：`index.html` 引用了不存在的 `/vite.svg`（Vite 模板遗留，仓库无 `public/` 目录）；`native/yan-mpv-player/src/player.rs` 存在 1 条既有的 `dead_code` 警告。
 
 ## [1.2.1]
 
-> 本次为**主题可用性修复 + 无障碍补齐 + 供应链加固 + 审计收敛**的补丁版本，**不含任何新功能**：修复 1.2.0 新交付的「听歌档案」在浅色主题下不可读的问题，并把同一类缺陷在全渲染层扫干净（共 5 个未定义 CSS 令牌 / 18 处引用 / 7 个文件）；为 2 处装饰性背景图补上缺失的替代文本声明；把 3 个 workflow 中 14 处第三方 Action 引用固定到 commit SHA；更正 README 的 Node 版本要求并补记「听歌档案」。本轮同时完成一次全仓审计：新增 8 项发现（4 项已修——其中 `N-03` 为部分修复、2 项经复现判定**不成立**并给出反证、2 项跳过），上一轮遗留的 9 项跳过项逐条复核后维持跳过（理由与前置条件见「说明」）。
+> 本次为**主题可用性修复 + 无障碍补齐 + 供应链加固 + 审计收敛**的补丁版本，**不含任何新功能**：修复 1.2.0 新交付的「听歌档案」在浅色主题下不可读的问题，并把同一类缺陷在全渲染层扫干净（共 5 个未定义 CSS 令牌 / 18 处引用 / 7 个文件）；为 2 处装饰性背景图补上缺失的替代文本声明；把 3 个 workflow 中 14 处第三方 Action 引用固定到 commit SHA；更正 README 的 Node 版本要求并补记「听歌档案」。顺便做了一次全仓审计：新增 8 项发现（4 项已修——其中 `N-03` 为部分修复、2 项经复现判定**不成立**并给出反证、2 项暂不处理），1.2.0 遗留的 9 项逐条复核后维持原判（理由见「说明」）。
 
 ### 修复
 
@@ -111,26 +106,24 @@
 
 ### 变更
 
-- **CI 第三方 Action 引用方式变更（`IMP-17`，上一轮跳过项本轮落地）**：`build.yml` / `issue-ai-labeler.yml` / `issue-closer.yml` 共 **14 处** `uses:` 由 tag/branch 引用改为 commit SHA，并保留 `# vX` 版本注释。**影响**：Dependabot 的 `github-actions` 更新将改为提交 SHA 升级（注释同步），这是本次加固的预期行为；已核验 `# vX` 注释格式可被 `tests/ci-supply-chain.test.ts` 持续校验。
+- **CI 第三方 Action 引用方式变更（`IMP-17`，1.2.0 遗留项）**：`build.yml` / `issue-ai-labeler.yml` / `issue-closer.yml` 共 **14 处** `uses:` 由 tag/branch 引用改为 commit SHA，并保留 `# vX` 版本注释。**影响**：Dependabot 的 `github-actions` 更新将改为提交 SHA 升级（注释同步），这是本次加固的预期行为；已核验 `# vX` 注释格式可被 `tests/ci-supply-chain.test.ts` 持续校验。
 - **README 前置要求更正**：`Node.js 18+` → `20.19+ 或 22.12+`。原表述与依赖实际要求矛盾——`vite@8.0.14` 的 `engines` 为 `^20.19.0 || >=22.12.0`，按原文用 Node 18 执行 `pnpm dev` / `pnpm build` 会直接失败；同时标注 `pnpm test` 需 22.18+（依赖 Node 原生 TS 剥离），CI 打包用 20、测试用 24。
 - **README 核心特性补记「听歌档案」**：该功能已在 1.2.0 上线（`src/renderer/router/index.ts:76-79`，路由 `/main/journal`）但未记入特性列表，现按实际能力补记（时间轴 / 周汇总 / 7-14-30-90 天窗口 / 情绪标注）。属文档一致性补正，**非新功能**。
 
 ### 说明
 
-- 验证结果：`pnpm test` **112/112 通过**（1.2.0 为 97/97，本轮新增 15 例且原有用例无回归）；`vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0（`dist/` 产出 243 个文件，仍含 `MusicJournal` 独立懒加载 chunk）；`cargo check --workspace --release` 退出码 0（仅 1 条既有 `dead_code` 警告）；`eslint` 全量 **80 errors / 0 warnings**——与基线逐位持平（7 个「有改动且可 lint」的文件在基线与本版下单文件错误数完全相同，本轮新增的 4 个测试文件 0 错误）。
-- **本轮新增审计发现中经复现判定「不成立」的 2 项（不修改代码）**：
+- 验证结果：`pnpm test` **112/112 通过**（1.2.0 为 97/97，本版新增 15 例且原有用例无回归）；`vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0（`dist/` 产出 243 个文件，仍含 `MusicJournal` 独立懒加载 chunk）；`cargo check --workspace --release` 退出码 0（仅 1 条既有 `dead_code` 警告）；`eslint` 全量 **80 errors / 0 warnings**——与基线逐位持平（7 个「有改动且可 lint」的文件在基线与本版下单文件错误数完全相同，本版新增的 4 个测试文件 0 错误）。
+- **审计发现中经复现判定「不成立」的 2 项（不修改代码）**：
   - `N-04`「macOS 系统音频捕获 `try_into().unwrap()` 存在 panic 风险」：`native/yan-spectrum-capture/src/backend/macos_sck.rs:802/816/830/845` 的 4 处 `try_into().unwrap()` **各自紧跟在显式长度检查之后**（`:799/813/827/842`），切片长度可证为 `N`，`unwrap` 不可达。**判定不成立**。
   - `N-05`「主进程 `fetch(` 调用缺少超时，可能永久挂起」：3 处调用**均已带中止机制**——`src/main/mediaControls.ts:79-80` 与 `src/main/plugins.ts:1124-1134` 均传入 `signal: controller.signal` 并在 `finally` 中 `clearTimeout`（后者还把 `AbortError` 映射为超时错误信息），`src/main/networkPolicy.ts:161` 为透传包装，超时由调用方的 `init` 决定。**判定不成立**。
-- **本轮跳过的审计发现（2 项完全跳过，另 1 项部分跳过；逐条给出理由与前置条件）**：
-  - `N-02` **`index.html` / `desktop-lyric.html` 缺少 CSP**（仅 `plugin-window.html` 有）：**跳过理由**：二者均以 `webSecurity: false` 运行，且渲染层存在大量内联样式与运行时注入（主题色 `<style>`、`style-src 'unsafe-inline'` 需求），本环境无 GUI 无法验证收紧后是否造成回归，盲改有「白屏」风险且无法自证。**前置条件**：可在本地 GUI 环境逐窗口验证 CSP 收紧（先 `Content-Security-Policy-Report-Only` 观测）。
-  - `N-03` **无障碍属性缺失**（**`<img>` 部分已在本版修复**，见「修复」）：全渲染层 13 个 `<img>` 中缺 `alt` 的 2 处已补 `alt=""` 并加了守卫；**仍跳过的是 `aria-*` / `role` 的批量补齐**——`src/renderer` 下 144 个 `.vue` 文件中仅 33 个使用了 `aria-*` / `role`。**跳过理由**：与 `alt` 不同，`aria-*` / `role` 的正确性与具体组件的可访问性语义强绑定（列表/表格/对话框/树形控件的角色、焦点管理与键盘交互需成体系设计），本环境无法用屏幕阅读器验证，批量添加属性属于无法自证的高风险盲改。**前置条件**：引入可自动化的 a11y 检查（如 axe）纳入 CI 守卫，再按组件逐类补齐。
-  - `N-07` **巨型文件拆分**（`src/` 下 **38** 个源文件超过 800 行，其中 5 个超过 2000 行，最大 `src/main/plugins.ts` 3362 行）：同上轮 `IMP-07` 判断，属重构而非修复，与本轮「补丁版本」目标不符。**前置条件**：单独立项并配套回归测试。
-- **上一轮 9 项跳过项复核结论**：`IMP-01`（4 类窗口共用同一 preload，且 mini 播放器与主窗口加载同一份 bundle，白名单收口会误伤）、`IMP-03`（本环境无法核实插件索引 `checksum` 覆盖率）、`IMP-05`（`webSecurity` 关闭属产品级取舍）、`IMP-07`、`IMP-09`（`server` 子模块无 `package-lock.json`，mpv 资产需联网核实 SHA-256）、`IMP-10`（代码签名证书为外部采购条件）、`IMP-11`（无 keyring 时的降级交互需产品决策）、`IMP-16` 的 husky/lint-staged 部分（需新增依赖，与本轮纪律冲突）——**逐条复核后维持跳过**，理由与前置条件不变。本轮已落地的只有 `IMP-17`（见「变更」）。
-- **本轮不改动的模块**：`src/main/runtime.ts`、`server/`、`cloudflare/` 仅做只读审计，未产生任何改动。
-
+- **暂不处理的审计发现（2 项完全搁置，另 1 项部分搁置；附原因与重启条件）**：
+  - `N-02` **`index.html` / `desktop-lyric.html` 缺少 CSP**（仅 `plugin-window.html` 有）：**原因**：二者均以 `webSecurity: false` 运行，且渲染层存在大量内联样式与运行时注入（主题色 `<style>`、`style-src 'unsafe-inline'` 需求），本机无 GUI 无法验证收紧后是否造成回归，盲改有「白屏」风险且无法验证。**重启条件**：可在本地 GUI 环境逐窗口验证 CSP 收紧（先 `Content-Security-Policy-Report-Only` 观测）。
+  - `N-03` **无障碍属性缺失**（**`<img>` 部分已在本版修复**，见「修复」）：全渲染层 13 个 `<img>` 中缺 `alt` 的 2 处已补 `alt=""` 并加了守卫；**仍搁置的是 `aria-*` / `role` 的批量补齐**——`src/renderer` 下 144 个 `.vue` 文件中仅 33 个使用了 `aria-*` / `role`。**原因**：与 `alt` 不同，`aria-*` / `role` 的正确性与具体组件的可访问性语义强绑定（列表/表格/对话框/树形控件的角色、焦点管理与键盘交互需成体系设计），本机无法用屏幕阅读器验证，批量添加属性属于无法验证的高风险盲改。**重启条件**：引入可自动化的 a11y 检查（如 axe）纳入 CI 守卫，再按组件逐类补齐。
+  - `N-07` **巨型文件拆分**（`src/` 下 **38** 个源文件超过 800 行，其中 5 个超过 2000 行，最大 `src/main/plugins.ts` 3362 行）：同 1.2.0 的 `IMP-07` 判断，属重构而非修复，不适合放进补丁版本。**重启条件**：单独立项并配套回归测试。
+- **1.2.0 遗留 9 项的复核结论**：`IMP-01`（4 类窗口共用同一 preload，且 mini 播放器与主窗口加载同一份 bundle，白名单收口会误伤）、`IMP-03`（当时无法核实插件索引 `checksum` 覆盖率）、`IMP-05`（`webSecurity` 关闭属产品级取舍）、`IMP-07`、`IMP-09`（`server` 子模块无 `package-lock.json`，mpv 资产需联网核实 SHA-256）、`IMP-10`（代码签名证书为外部采购条件）、`IMP-11`（无 keyring 时的降级交互需产品决策）、`IMP-16` 的 husky/lint-staged 部分（需新增依赖）——**逐条复核后维持原判**，理由不变。本版落地的只有 `IMP-17`（见「变更」）。
 ## [1.2.0]
 
-> 本次为**安全审计复核 + 原生层健壮性修复 + 新功能**版本：按「先复现、再修复」的纪律对上一轮审计的 P0/P1 结论逐条复核，**其中一条 P0 结论经复现后被判定不成立并已更正**；修复了 4 个可复现的原生层 / 构建链 / 安全策略缺陷；把单元测试接入 CI；并交付**新功能「听歌档案」的完整版**（本地时间轴 / 年度回顾 / 时段与情绪聚类 / 导出分享）。本轮同时对原本冻结的审计项做「能修就修」的收敛，实际修复 6 项、跳过 8 项（跳过项及理由见「说明」）。
+> 本次为**安全审计复核 + 原生层健壮性修复 + 新功能**版本：按「先复现、再修复」的原则对此前审计的 P0/P1 结论逐条复核，**其中一条 P0 结论经复现后被判定不成立并已更正**；修复了 4 个可复现的原生层 / 构建链 / 安全策略缺陷；把单元测试接入 CI；并交付**新功能「听歌档案」的完整版**（本地时间轴 / 年度回顾 / 时段与情绪聚类 / 导出分享）。同时对上一版未处理的审计项做了「能修就修」的收敛，实际修复 6 项、搁置 8 项（理由见「说明」）。
 
 ### 新功能
 
@@ -157,35 +150,35 @@
 - CI 新增 `Run unit tests` 步骤（`pnpm test`），位置在原生模块与 libmpv 就位之后、打包之前——只有在此处运行，`tests/native-engine-options.test.ts` 的「选项真实到达 libmpv」端到端断言才会真正执行而非自动跳过。
 - `src/shared/archiveEntry.ts`：第一方 entry 名安全校验（与 `node-stream-zip` 同规则，额外拒绝含 NUL 的名称），并在 `src/main/plugins.ts` 解压前做兜底——依赖被降级 / 替换 / 误开跳过名校验时仍有防护。
 - `.github/dependabot.yml`：Dependabot 覆盖 npm / cargo / github-actions 三生态（`IMP-16`）。未添加 `server/` 条目（该目录是 git submodule，Dependabot 不支持）。
-- `tests/plugin-tls-policy.test.ts`（5 例）、`tests/share-web-endpoint.test.ts`（7 例）、`tests/navigation-policy.test.ts`（6 例）、`tests/ipc-channel-contract.test.ts`（5 例）、`tests/plugin-archive-entry.test.ts`（8 例）：本轮新增的 31 个纯逻辑 / 契约用例，其中 IPC 通道契约测试覆盖通道命名约定、handler 无重复注册、关键通道存在、preload 调用的通道在主进程均有注册（无断链）、外部注册清单不腐烂。
+- `tests/plugin-tls-policy.test.ts`（5 例）、`tests/share-web-endpoint.test.ts`（7 例）、`tests/navigation-policy.test.ts`（6 例）、`tests/ipc-channel-contract.test.ts`（5 例）、`tests/plugin-archive-entry.test.ts`（8 例）：本版新增的 31 个纯逻辑 / 契约用例，其中 IPC 通道契约测试覆盖通道命名约定、handler 无重复注册、关键通道存在、preload 调用的通道在主进程均有注册（无断链）、外部注册清单不腐烂。
 
 ### 变更
 
 - **新增对外项（听歌档案）**：新增 KV 持久化键 `pinia:musicJournal`（复用既有 `storage:kv` 通道与 `sqlitePersist` 机制）；新增路由 `/main/journal`（name `journal`）与侧边栏「听歌档案」入口。**未新增 IPC 通道、未新增存储表、未改动任何既有键名或文件格式、未引入任何新依赖**。
-- **审计结论更正（重要）**：上一轮审计把「插件包解压存在 zip-slip 路径穿越」列为 P0。经复现，该结论**不成立**：所用 `node-stream-zip@1.16.0` 在读取中央目录时默认调用 `ZipEntry.validateName()`（`node_stream_zip.js:900-904`），其正则 `/\\|^\w+:|^\/|(^|\/)\.\.(\/|$)/` 会拒绝反斜杠、盘符前缀、绝对路径与 `..` 段；应用未设置 `skipEntryNameValidation`，防护处于生效状态。8 个逃逸变体实测全部被 `Malicious entry` 拒绝，仅 `....//` 与 `%2e%2e/` 被接受，而它们是**普通文件名**（不构成逃逸）。本版不修改解压逻辑，改为把这一「已核实为安全」的性质固化为回归测试。
+- **审计结论更正（重要）**：此前审计把「插件包解压存在 zip-slip 路径穿越」列为 P0。经复现，该结论**不成立**：所用 `node-stream-zip@1.16.0` 在读取中央目录时默认调用 `ZipEntry.validateName()`（`node_stream_zip.js:900-904`），其正则 `/\\|^\w+:|^\/|(^|\/)\.\.(\/|$)/` 会拒绝反斜杠、盘符前缀、绝对路径与 `..` 段；应用未设置 `skipEntryNameValidation`，防护处于生效状态。8 个逃逸变体实测全部被 `Malicious entry` 拒绝，仅 `....//` 与 `%2e%2e/` 被接受，而它们是**普通文件名**（不构成逃逸）。本版不修改解压逻辑，改为把这一「已核实为安全」的性质固化为回归测试。
 - **构建行为变更**：`afterPack` 现在会在关键资源缺失时让构建失败。此前「缺资源也能出包」的构建结果将不再出现——这是本次修复的目的，但会改变 CI 的失败面。
 - **错误语义变更**：向播放引擎下发含 `\0` 的字符串，行为由「进程崩溃」变为「抛出可捕获的 JS 错误」。合法输入的行为完全不变（已由 `tests/native-engine-options.test.ts` 的真实引擎回读用例覆盖）。
-- **分享落地页域名切换（行为变更，`IMP-14`）**：`SHARE_WEB_BASE_URL` 由上游 Pages（`hoowhoami.github.io/yanmusic/share/`）改为自有 Pages（`mmlwryan.github.io/YanMusic/share/`）；新增 `LEGACY_SHARE_WEB_BASE_URLS`，**旧域名仍可解析**，已分发出去的旧分享链接不会失效。**前置条件：GitHub Pages 必须配置为从 `docs/` 目录发布**（仓库内已有 `docs/share/index.html` 与 `docs/.nojekyll`）；若该地址不可用，新生成的分享链接将无法打开。
+- **分享落地页域名切换（行为变更，`IMP-14`）**：`SHARE_WEB_BASE_URL` 由上游 Pages（`hoowhoami.github.io/yanmusic/share/`）改为自有 Pages（`mmlwryan.github.io/YanMusic/share/`）；新增 `LEGACY_SHARE_WEB_BASE_URLS`，**旧域名仍可解析**，已分发出去的旧分享链接不会失效。**使用前提：GitHub Pages 需配置为从 `docs/` 目录发布**（仓库内已有 `docs/share/index.html` 与 `docs/.nojekyll`）；若该地址不可用，新生成的分享链接将无法打开。
 - **插件 TLS 行为变更（`IMP-13`）**：插件声明 `tls.rejectUnauthorized: false` 在**打包版本**中会被拒绝并抛出错误；未打包的开发模式下仍可用于调试。
 - **顶层导航行为变更（`IMP-12`）**：应用各窗口的顶层导航被限制为 `file:` / `about:` / dev server 同源，其余一律阻止并记录日志。`webContents.loadURL()` / `loadFile()` 不触发该事件，窗口创建期加载与 SPA 路由切换不受影响。
 
 ### 说明
 
-- 验证结果：`pnpm test` **97/97 通过**（原 30 个用例无回归 + zip-slip 守卫 3 例 + 听歌档案 33 例 + 本轮新增 31 例）；`vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0（`dist/` 产出 243 个文件，含 `MusicJournal` 独立懒加载 chunk）；`cargo check --manifest-path native/yan-mpv-player/Cargo.toml --release` 退出码 0，addon 已重编译；`eslint` 全量 **214 errors / 5 warnings**（与 `HEAD` 基线逐位相同，本轮新增文件 0 错误）。
+- 验证结果：`pnpm test` **97/97 通过**（原 30 个用例无回归 + zip-slip 守卫 3 例 + 听歌档案 33 例 + 本版新增 31 例）；`vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0（`dist/` 产出 243 个文件，含 `MusicJournal` 独立懒加载 chunk）；`cargo check --manifest-path native/yan-mpv-player/Cargo.toml --release` 退出码 0，addon 已重编译；`eslint` 全量 **214 errors / 5 warnings**（与 `HEAD` 基线逐位相同，本版新增文件 0 错误）。
 - **听歌档案的数据可用性说明（重要，不夸大）**：逐次播放事件**从本版起才开始精确采集**。升级前的播放只能以「近似基线」呈现（每曲一条、时间取最后一次播放、次数按历史累计），因此**首次打开档案时的时间轴分布是近似的**，随时间推移会逐步被精确事件取代。含近似数据的日子在视图中以虚线柱与文字说明标识。
 - `scripts/verify-afterpack-guard.cjs` 采用对照实验取证：HEAD 版本的 `afterPack` 在缺少全部关键资源时**不抛错**（复现原缺陷），修复后同一场景抛错并列出 6 项缺失、资源齐备时不误报。
-- **本轮跳过的审计项（已知问题，逐条给出理由与前置条件）**：
-  - **`IMP-01` IPC 通道无白名单且不校验发送方**：`src/preload/index.ts:283-296` 向渲染层暴露通用 `ipcRenderer.send/invoke/on/off`，`src/main/ipc/registry.ts:26,79` 不校验 `event.senderFrame`。**跳过理由**：前置审计（只读）发现两个结构性障碍——① 4 类窗口共用**同一个 preload**（`window.ts:360`、`desktopLyric/window.ts:142`、`pluginWindows.ts:230`、`miniPlayer.ts:473`），typed helper 面对所有窗口完全相同；② **mini 播放器加载的是 `dist/index.html`（`miniPlayer.ts:231`），与主窗口（`window.ts:362`）是同一份 bundle**，二者在「可用通道集合」上不可区分。因此「窗口 × 通道」矩阵中存在大量无法判定的等价格，按白名单收口会误伤现有调用。**前置条件**：把 mini 播放器拆成独立入口（或按 `webContents.id` + 路由显式声明允许集），并迁移渲染层 22 处裸 `ipcRenderer` 调用点。
-  - **`IMP-03` 插件包完整性校验为可选**：`src/main/plugins.ts` 仅在市场索引提供 `checksum` 时才校验。**跳过理由**：本环境无法访问索引（`web_fetch` 报 hostname 解析到非公网 IP），无法核实真实索引是否已提供该字段；若强制必填而索引未提供，会导致该插件源**所有插件无法安装**。**前置条件**：联网核实 `echo-plugins.json` 的 `checksum` 覆盖率（或推动插件源补齐该字段）。
-  - **`IMP-05` `webSecurity: false` / `allowRunningInsecureContent: true` / Windows `no-sandbox`**：`src/main/window.ts:400-401`、`src/main/index.ts:22`。**跳过理由**：属产品级取舍——`window.ts:400` 注释自述为「禁用 CORS 限制」，关闭它还影响封面图/媒体资源的跨域加载路径，收敛需先明确哪些请求可改走主进程 `api:request`，属产品决策而非缺陷修复。**前置条件**：维护者确认 `webSecurity` 关闭的真实业务依赖清单。
-  - **`IMP-07` 巨型文件拆分**（`src/main/plugins.ts` 3027 行、`runtime.ts` 2665 行、`listenTogether.ts` 2541 行等）：**跳过理由**：属重构而非修复，改动面大且无行为收益，与本轮「修复」目标不符。**前置条件**：单独立项并配套回归测试。
-  - **`IMP-09` 构建可复现性**：mpv 二进制从第三方最新 release 下载且无校验；`server` 依赖用 `npm install --legacy-peer-deps`。**跳过理由**：① `server/package-lock.json` **不存在**（该子模块只有 `pnpm-lock.yaml`），`npm ci` 会直接失败，而上游 lockfile 同步需在子模块仓库修复；② mpv 固定到具体 release tag + SHA-256 需联网核实，伪造会导致 Windows 构建腿失败。**前置条件**：联网核实 mpv release tag 与资产 SHA-256；在 `server` 子模块补齐 `package-lock.json`。
-  - **`IMP-10` 代码签名 / 公证**：`build.yml:500` 显式 `CSC_IDENTITY_AUTO_DISCOVERY: 'false'`。**跳过理由**：需要 Windows 代码签名证书与 Apple 开发者账号（外部采购条件）。**前置条件**：具备证书与公证凭据。
-  - **`IMP-11` 用户凭据加密落盘**：`src/main/storage/kv.ts:19` 明文 JSON 写入 SQLite；`safeStorage` 目前仅用于代理密码（`src/main/networkSettings.ts:46-52`）。**跳过理由**：合规的降级路径要求「提示用户 + 拒绝保存 token」，而「提示」需要新增 IPC 通道与设置页 UI（本轮纪律禁止新增通道）；若改为静默丢弃 token，会导致无 keyring 的 Linux 用户重启后静默掉登录，属未确认的 UX 退化。**前置条件**：确定 Linux 无 keyring 时的用户可见降级交互（需产品决策 + 允许新增通道）。
-  - **`IMP-16` 的 husky / lint-staged 部分**：**跳过理由**：`husky` 与 `lint-staged` 均需新增 devDependency，与本轮「不引入新依赖」纪律冲突，且本环境无网络无法安装。已交付的部分是 `.github/dependabot.yml`（纯配置，无依赖）。**前置条件**：允许新增这两个 devDependency 并联网安装。
-  - **`IMP-17` CI 第三方 Action 未固定 commit SHA**：`build.yml` 共 10 处 `uses:` 全部为 tag/branch 引用（含 `dtolnay/rust-toolchain@stable`）。**跳过理由**：固定 SHA 需要各 Action 对应 tag 的真实 commit SHA，本环境无法访问 GitHub（`git ls-remote https://github.com/actions/checkout` 报 SSL 证书校验失败，exit 128）且无本地缓存；**伪造 SHA 会导致 CI 无法解析 action、6 个构建腿全部失败**。**前置条件**：联网查询各 Action 对应 tag 的 commit SHA。
-  - **仓库 lint 基线为红**：`HEAD` 上即有 **214 errors / 5 warnings**（集中在 `tests/native-engine-options.test.ts` 134 项等）。本版未引入新的 lint 错误（总数逐位持平，新增文件 0 错误），但因此**未把 lint 接入 CI**。**前置条件**：先做一次独立的仓库级格式化批次。
-  - **跨平台 CI 预验证未执行**：本环境无法访问 GitHub（`git ls-remote` 报 SSL 证书校验失败）且无 `gh` CLI 与发布凭据，三平台 `workflow_dispatch` 预验证与 tag 触发发布均未执行，需人工在有网络的环境完成。**注意**：本地仅能验证 Windows，Linux / macOS 必须由真实 runner 验证。
+- **暂未处理的审计项（已知问题，附原因与重启条件）**：
+  - **`IMP-01` IPC 通道无白名单且不校验发送方**：`src/preload/index.ts:283-296` 向渲染层暴露通用 `ipcRenderer.send/invoke/on/off`，`src/main/ipc/registry.ts:26,79` 不校验 `event.senderFrame`。**原因**：只读审计发现两个结构性障碍——① 4 类窗口共用**同一个 preload**（`window.ts:360`、`desktopLyric/window.ts:142`、`pluginWindows.ts:230`、`miniPlayer.ts:473`），typed helper 面对所有窗口完全相同；② **mini 播放器加载的是 `dist/index.html`（`miniPlayer.ts:231`），与主窗口（`window.ts:362`）是同一份 bundle**，二者在「可用通道集合」上不可区分。因此「窗口 × 通道」矩阵中存在大量无法判定的等价格，按白名单收口会误伤现有调用。**重启条件**：把 mini 播放器拆成独立入口（或按 `webContents.id` + 路由显式声明允许集），并迁移渲染层 22 处裸 `ipcRenderer` 调用点。
+  - **`IMP-03` 插件包完整性校验为可选**：`src/main/plugins.ts` 仅在市场索引提供 `checksum` 时才校验。**原因**：本机无法访问索引（`web_fetch` 报 hostname 解析到非公网 IP），无法核实真实索引是否已提供该字段；若强制必填而索引未提供，会导致该插件源**所有插件无法安装**。**重启条件**：联网核实 `echo-plugins.json` 的 `checksum` 覆盖率（或推动插件源补齐该字段）。
+  - **`IMP-05` `webSecurity: false` / `allowRunningInsecureContent: true` / Windows `no-sandbox`**：`src/main/window.ts:400-401`、`src/main/index.ts:22`。**原因**：属产品级取舍——`window.ts:400` 注释自述为「禁用 CORS 限制」，关闭它还影响封面图/媒体资源的跨域加载路径，收敛需先明确哪些请求可改走主进程 `api:request`，属产品决策而非缺陷修复。**重启条件**：维护者确认 `webSecurity` 关闭的真实业务依赖清单。
+  - **`IMP-07` 巨型文件拆分**（`src/main/plugins.ts` 3027 行、`runtime.ts` 2665 行、`listenTogether.ts` 2541 行等）：**原因**：属重构而非修复，改动面大且无行为收益，不适合放进补丁版本。**重启条件**：单独立项并配套回归测试。
+  - **`IMP-09` 构建可复现性**：mpv 二进制从第三方最新 release 下载且无校验；`server` 依赖用 `npm install --legacy-peer-deps`。**原因**：① `server/package-lock.json` **不存在**（该子模块只有 `pnpm-lock.yaml`），`npm ci` 会直接失败，而上游 lockfile 同步需在子模块仓库修复；② mpv 固定到具体 release tag + SHA-256 需联网核实，伪造会导致 Windows 构建腿失败。**重启条件**：联网核实 mpv release tag 与资产 SHA-256；在 `server` 子模块补齐 `package-lock.json`。
+  - **`IMP-10` 代码签名 / 公证**：`build.yml:500` 显式 `CSC_IDENTITY_AUTO_DISCOVERY: 'false'`。**原因**：需要 Windows 代码签名证书与 Apple 开发者账号（外部采购条件）。**重启条件**：具备证书与公证凭据。
+  - **`IMP-11` 用户凭据加密落盘**：`src/main/storage/kv.ts:19` 明文 JSON 写入 SQLite；`safeStorage` 目前仅用于代理密码（`src/main/networkSettings.ts:46-52`）。**原因**：合规的降级路径要求「提示用户 + 拒绝保存 token」，而「提示」需要新增 IPC 通道与设置页 UI（补丁版本不宜新增通道）；若改为静默丢弃 token，会导致无 keyring 的 Linux 用户重启后静默掉登录，属未确认的 UX 退化。**重启条件**：确定 Linux 无 keyring 时的用户可见降级交互（需产品决策 + 允许新增通道）。
+  - **`IMP-16` 的 husky / lint-staged 部分**：**原因**：`husky` 与 `lint-staged` 均需新增 devDependency，且本机当时无网络无法安装。已交付的部分是 `.github/dependabot.yml`（纯配置，无依赖）。**重启条件**：允许新增这两个 devDependency 并联网安装。
+  - **`IMP-17` CI 第三方 Action 未固定 commit SHA**：`build.yml` 共 10 处 `uses:` 全部为 tag/branch 引用（含 `dtolnay/rust-toolchain@stable`）。**原因**：固定 SHA 需要各 Action 对应 tag 的真实 commit SHA，本机当时无法访问 GitHub（`git ls-remote https://github.com/actions/checkout` 报 SSL 证书校验失败，exit 128）且无本地缓存；**伪造 SHA 会导致 CI 无法解析 action、6 个构建腿全部失败**。**重启条件**：联网查询各 Action 对应 tag 的 commit SHA。
+  - **仓库 lint 基线为红**：`HEAD` 上即有 **214 errors / 5 warnings**（集中在 `tests/native-engine-options.test.ts` 134 项等）。本版未引入新的 lint 错误（总数逐位持平，新增文件 0 错误），但因此**未把 lint 接入 CI**。**重启条件**：先做一次独立的仓库级格式化。**已在 1.2.3 完成**——lint 已接入 CI，基线 0 error / 0 warning。
+  - **跨平台 CI 预验证未执行**：当时无法访问 GitHub（`git ls-remote` 报 SSL 证书校验失败）且无 `gh` CLI 与发布凭据，三平台 `workflow_dispatch` 预验证与 tag 触发发布均未执行。**后续版本已由真实 runner 验证**。**注意**：本地仅能验证 Windows，Linux / macOS 必须由真实 runner 验证。
 
 ## [1.1.2]
 
@@ -251,7 +244,7 @@
 ### 说明
 
 - 本次改动后 `vue-tsc --noEmit` 退出码 0（零报错），`vite build` 退出码 0，4 个 Rust 原生模块全部编译成功。
-- 按既有裁定继续保留：插件市场索引文件名 `echo-plugins.json`、上游插件源仓库地址与统计 Worker 域名、Cloudflare 已部署资源名，以及应用内 GPL 致谢与修改声明（`src/renderer/constants/legal.ts`）。
+- 继续保留：插件市场索引文件名 `echo-plugins.json`、上游插件源仓库地址与统计 Worker 域名、Cloudflare 已部署资源名，以及应用内 GPL 致谢与修改声明（`src/renderer/constants/legal.ts`）。
 
 ## [1.1.0] - 2026-09-13
 
