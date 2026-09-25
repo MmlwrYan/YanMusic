@@ -28,6 +28,12 @@ import { configureApplicationMenu, configureWebContentsShortcuts } from './appli
 import { isAllowedTopLevelNavigation } from '../shared/navigationPolicy';
 import { installCspObservation } from './cspObservation';
 import {
+  configureIpcPermissionLog,
+  IPC_PERMISSION_STRICT_ENV,
+  IPC_VIOLATION_LOG_FILENAME,
+  isStrictModeEnabled,
+} from './ipc/permissions';
+import {
   flushPendingShareTargets,
   openShareUrl,
   openShareUrlFromArgv,
@@ -142,6 +148,16 @@ if (!gotTheLock) {
     // 必须在任何窗口加载页面前安装，否则首个页面文档拿不到策略头。
     // 详细约束（每 session 只能有一个 onHeadersReceived）见 cspObservation.ts。
     installCspObservation();
+
+    // IMP-01 观测：IPC 通道白名单的「只记录不拒绝」版本。
+    // 违规样本写入 <logs>/ipc-permission-violations.log（JSON lines），供 v1.3.0 设计强制
+    // 白名单时使用。默认不拒绝任何调用；仅当显式设置 IPC_PERMISSION_STRICT 时才抛错。
+    configureIpcPermissionLog(app.getPath('logs'));
+    log.info('[IPC-Observe] permission whitelist observation enabled (record-only)', {
+      strictMode: isStrictModeEnabled(),
+      strictModeEnv: IPC_PERMISSION_STRICT_ENV,
+      logFile: IPC_VIOLATION_LOG_FILENAME,
+    });
 
     const trayContext = {
       getMainWindow,

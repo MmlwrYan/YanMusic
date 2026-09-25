@@ -1,5 +1,6 @@
 import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import log, { isDiagnosticModeActive } from '../logger';
+import { observeIpcCall } from './permissions';
 
 type IpcHandler = (event: IpcMainInvokeEvent, ...args: any[]) => Promise<any> | any;
 type IpcListener = (event: IpcMainEvent, ...args: any[]) => void;
@@ -24,6 +25,18 @@ class IpcRegistry {
     }
     this.handlers.set(channel, handler);
     ipcMain.handle(channel, async (event, ...args) => {
+      // IMP-01 观测（只记录不拒绝）：判定「该窗口是否应有权调用该通道」并采样写日志。
+      // 默认永不拒绝；只有显式设置 IPC_PERMISSION_STRICT 时才会抛错（本轮不得开启）。
+      const observation = observeIpcCall({
+        channel,
+        url: event.senderFrame?.url,
+        webContentsId: event.sender?.id,
+      });
+      if (observation.rejected) {
+        throw new Error(
+          `[IPC] channel "${channel}" is not permitted for page ${observation.page} (strict mode)`,
+        );
+      }
       // 计时仅在诊断模式开启时进行（平时一次布尔判断，近乎零开销）。
       // 测的是 handler 同步执行（返回前/首个 await 让出前）占用主线程的时长；
       // 异步等待（网络/工作线程）不计入，因为那不阻塞主线程。
@@ -62,6 +75,17 @@ class IpcRegistry {
     }
     // 包裹计时：listener 是同步执行的，整段都占用主线程。仅诊断模式开启时计时。
     const wrapped: IpcListener = (event, ...args) => {
+      // IMP-01 观测（只记录不拒绝），与 handler 路径一致
+      const observation = observeIpcCall({
+        channel,
+        url: event.senderFrame?.url,
+        webContentsId: event.sender?.id,
+      });
+      if (observation.rejected) {
+        // 严格模式（默认关闭）：listener 路径无法向调用方抛错，只记录并丢弃本次调用
+        log.error('[IPC] listener blocked by strict permission mode', { channel });
+        return;
+      }
       const profiling = isDiagnosticModeActive();
       const start = profiling ? performance.now() : 0;
       try {
