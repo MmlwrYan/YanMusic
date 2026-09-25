@@ -12,7 +12,6 @@ import { usePlayerStore } from '@/stores/player';
 import { useUserStore } from '@/stores/user';
 import { useToastStore } from '@/stores/toast';
 import type { Song } from '@/models/song';
-import { isPlayableSong } from '@/utils/song';
 import {
   iconTrash,
   iconX,
@@ -450,8 +449,6 @@ const handlePointerCaptureLost = (event: PointerEvent) => {
   if (dragPointerId.value !== event.pointerId) return;
   finishPointerInteraction(event.pointerId);
 };
-
-const isSongPlayable = (song: Song) => isPlayableSong(song);
 
 const handlePlay = async (song: Song) => {
   if (isPreviewReadonly.value) {

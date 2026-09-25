@@ -38,6 +38,21 @@ export default [
       ],
       'vue/multi-word-component-names': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
+      // 采用 typescript-eslint 官方推荐的「下划线前缀 = 刻意未使用」约定：
+      //   - argsIgnorePattern / varsIgnorePattern：`_x` 明确表示「我故意不读它」；
+      //   - ignoreRestSiblings：`const { a: _a, ...rest } = obj` 是「剔除某属性」
+      //     的惯用写法，`_a` 的存在本身就是目的，删掉会改变 rest 的内容。
+      // 例：src/renderer/utils/rendererMemoryDiagnostics.ts 用该写法把
+      // naturalPixels / backingPixels 从对外返回的对象里剔除。
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          ignoreRestSiblings: true,
+        },
+      ],
     },
   },
   {

@@ -7,7 +7,6 @@ import type { AccentMode } from '@/stores/theme';
 import Select from '@/components/ui/Select.vue';
 import Switch from '@/components/ui/Switch.vue';
 import ColorPickerDialog from '@/components/ui/ColorPickerDialog.vue';
-import FontIcon from '@/components/ui/FontIcon.vue';
 import { ACCENT_PRESETS } from '@/utils/color';
 import { iconPalette } from '@/icons';
 import { Icon } from '@iconify/vue';

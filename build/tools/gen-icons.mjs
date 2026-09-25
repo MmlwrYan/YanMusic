@@ -20,7 +20,7 @@
 // 说明：本文件不再自带几何渲染器（旧的紫色占位方块画法已废弃），
 // 所有位图均来自 references/ 下的矢量稿经 Chromium 栅格化的结果。
 import { deflateSync } from 'node:zlib';
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 

@@ -75,7 +75,6 @@ import type {
   PluginMarketplaceSourceListResult,
   PluginMarketplaceSourceMutationResult,
   PluginMarketplaceSourcePatch,
-  PluginNetworkRequestBody,
   PluginNetworkRequestOptions,
   PluginNetworkResponse,
   PluginOpenDialogOptions,

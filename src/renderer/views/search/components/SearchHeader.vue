@@ -7,7 +7,8 @@ import Scrollbar from '@/components/ui/Scrollbar.vue';
 import { iconChevronRight, iconSearch, iconX } from '@/icons';
 import type { SearchSuggestionCategory } from '../types';
 
-const props = defineProps<{
+// props 仅在模板中使用（模板引用由 vue-eslint-parser 统计），脚本侧不需要绑定
+defineProps<{
   activeTabIndex: number;
   defaultKeyword: string;
   hasSearched: boolean;

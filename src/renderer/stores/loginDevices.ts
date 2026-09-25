@@ -1,5 +1,4 @@
 import { defineStore } from 'pinia';
-import { useUserStore } from '@/stores/user';
 import request from '@/utils/request';
 import logger from '@/utils/logger';
 

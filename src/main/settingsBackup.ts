@@ -1,7 +1,6 @@
 import { app, BrowserWindow, dialog, type OpenDialogOptions } from 'electron';
 import { createHash, randomUUID } from 'crypto';
 import fs from 'fs/promises';
-import { join } from 'path';
 import { promisify } from 'util';
 import { gunzip, gzip } from 'zlib';
 import log from './logger';
