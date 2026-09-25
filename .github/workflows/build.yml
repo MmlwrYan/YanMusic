@@ -508,6 +508,14 @@ jobs:
         shell: bash
         run: pnpm test
 
+      - name: Run lint
+        # lint 接入 CI（v1.2.3）：此前 lint 只在本地手工跑，且 `lint` 脚本带 --fix
+        # 会自动改写工作区，不适合 CI。现脚本已去掉 --fix，本步骤只做「检查」：
+        # 一旦有 error/warning 即失败。基线已固定为 0 error / 0 warning。
+        # 本地需要自动修复时用：pnpm exec eslint . --ext .vue,.js,.ts,.jsx,.tsx --fix
+        shell: bash
+        run: pnpm lint
+
       - name: Restore Node.js for packaging
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:

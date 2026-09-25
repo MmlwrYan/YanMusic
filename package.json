@@ -16,7 +16,7 @@
     "build:linux": "cd server && npm install --omit=dev && cd .. && vue-tsc --noEmit && vite build && electron-builder --linux",
     "preview": "vite preview",
     "test": "node --test tests/*.test.ts",
-    "lint": "eslint . --ext .vue,.js,.ts,.jsx,.tsx --fix",
+    "lint": "eslint . --ext .vue,.js,.ts,.jsx,.tsx",
     "analyze": "ANALYZE_BUNDLE=1 vite build",
     "format": "prettier --write \"src/**/*.{vue,ts,js,json}\" \"vite.config.mts\" \"tsconfig*.json\""
   },
