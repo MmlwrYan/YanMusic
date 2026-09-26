@@ -167,7 +167,7 @@
 
 ## 插件系统
 
-yanmusic 支持在线插件源浏览安装与本地插件扩展。插件可以提供高自由度的扩展能力，包括自定义页面、音源解析、歌词解析、音频频谱、插件浮窗、本地 Web 服务，以及由 `ctx.lyricEffects.register()` 提供的页面歌词/桌面歌词动效扩展点。
+YanMusic 支持在线插件源浏览安装与本地插件扩展。插件可以提供高自由度的扩展能力，包括自定义页面、音源解析、歌词解析、音频频谱、插件浮窗、本地 Web 服务，以及由 `ctx.lyricEffects.register()` 提供的页面歌词/桌面歌词动效扩展点。
 
 插件声明 `capabilities.webServer: true` 后，可以通过 `ctx.webServer.listen()` 创建仅监听 `127.0.0.1` 的本地 HTTP 服务，供 Wallpaper Engine 等外部软件访问；插件停用、卸载、进入安全模式或应用退出时会自动释放端口。
 
@@ -240,4 +240,4 @@ xattr -cr /Applications/yanmusic.app && codesign --force --deep --sign - /Applic
 
 ### 上游项目与修改声明
 
-本项目是基于 [EchoMusic](https://github.com/hoowhoami/EchoMusic)（参考版本 `2.3.1-beta.24`，作者 [hoowhoami](https://github.com/hoowhoami)）二次开发的修改版本，同样以 GPL-3.0 发布。原始版权归 EchoMusic 项目及其开发者所有，沿用自上游的代码与资源版权仍归原作者。本项目相对上游的修改包括：适配 libmpv 播放引擎与一体化打包、调整界面文案与品牌标识（YanMusic）、修复若干缺陷，以及内部标识符的品牌化清理。差异说明见 [CHANGELOG.md](CHANGELOG.md) 与各版本发行说明；应用内「关于 → 致谢」亦载有完整声明。
+本项目是基于 [EchoMusic](https://github.com/hoowhoami/EchoMusic)（YanMusic v1.0.0 参考版本 `2.3.1-beta.24`，作者 [hoowhoami](https://github.com/hoowhoami)）二次开发的修改版本，同样以 GPL-3.0 发布。本项目相对上游的修改包括：适配 libmpv 播放引擎与一体化打包、调整界面文案与品牌标识（YanMusic）、修复若干缺陷，**独立于 EchoMusic **进行更新，而不是持续跟进。差异说明见 [CHANGELOG.md](CHANGELOG.md) 与各版本发行说明；应用内「关于 → 致谢」亦载有完整声明。
