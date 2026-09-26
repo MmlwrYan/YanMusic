@@ -240,4 +240,4 @@ xattr -cr /Applications/yanmusic.app && codesign --force --deep --sign - /Applic
 
 ### 上游项目与修改声明
 
-本项目是基于 [EchoMusic](https://github.com/hoowhoami/EchoMusic)（YanMusic v1.0.0 参考版本 `2.3.1-beta.24`，作者 [hoowhoami](https://github.com/hoowhoami)）二次开发的修改版本，同样以 GPL-3.0 发布。本项目相对上游的修改包括：适配 libmpv 播放引擎与一体化打包、调整界面文案与品牌标识（YanMusic）、修复若干缺陷，**独立于 EchoMusic **进行更新，而不是持续跟进。差异说明见 [CHANGELOG.md](CHANGELOG.md) 与各版本发行说明；应用内「关于 → 致谢」亦载有完整声明。
+本项目是基于 [EchoMusic](https://github.com/hoowhoami/EchoMusic)（YanMusic v1.0.0 参考版本 `2.3.1-beta.24`，作者 [hoowhoami](https://github.com/hoowhoami)）二次开发的修改版本，同样以 GPL-3.0 发布。本项目相对上游的修改包括：适配 libmpv 播放引擎与一体化打包、调整界面文案与品牌标识（YanMusic）、修复若干缺陷，独立于 **EchoMusic** 进行更新，而不是持续跟进。差异说明见 [CHANGELOG.md](CHANGELOG.md) 与各版本发行说明；应用内「关于 → 致谢」亦载有完整声明。
