@@ -1,3 +1,32 @@
+## [1.2.4]
+
+> 本次为**安全修复 + 依赖升级**的补丁版本，**不含任何新功能**。依据 [v1.2.3 全量审阅](docs/agent/v1.2.3/06-full-review-2026-09-26.md) 的结论，逐条修掉全部一级/二级问题与可即刻处理的三级问题：修掉 3 个一级（CI 注入、插件越权读文件、登录凭据明文落盘）、4 个二级（IPC 窗口身份歧义、SQL 黑名单绕过、SQLite 目录边界、统计端点无鉴权），并升级 5 个依赖。审阅报告本身也做了一处**重要的自我订正**。
+
+### 修复
+
+- **一级 · CI 脚本注入（H-1）**：`issue-ai-labeler.yml` 把 AI 返回的结论直接 `echo "response=$RESULT" >> $GITHUB_OUTPUT`。当 `$RESULT` 含换行时可在 output 文件里**伪造新键**（CWE-93 / 74），下游 `if: contains(..., 'INVALID')` 的判定因此可被操纵。现改为「先把结论归一化成 `INVALID`/`VALID`/`UNKNOWN` 严格枚举，再用 heredoc 定界符写出」——换行只会成为单条值的内容，无法再伪造键。
+  > **订正说明**：v1.2.3 报告把 H-1 判为「`env:` + 双引号内展开可闭合引号执行任意命令」，本次修复前做了**真实 bash 重放**证伪——bash 不会对变量**值**做二次命令替换解析，`$VAR` 展开的结果永远只是数据。原判断是重放时把载荷直接写进脚本源码、与目标场景不等价造成的方法论错误。真正被修的是 output 伪造面，不是命令注入面。
+- **一级 · 插件越权读取本地文件（H-2 / M-2）**：`getPluginFileUrl` 与 `listPluginImageFiles` **一处能力门禁都没有**（连 `pluginId` 参数都不需要），可读任意路径文件。现给两者补上 `pluginId` 形参，入口即调 `hasPluginLocalFilesAccess`，并改用 `realpathSync` 解析后判 `isFile()`（防符号链接跳转）。`pluginId` 由**运行时闭包注入**而非插件自报，插件无法伪造成别的插件。
+- **一级 · 登录凭据明文落盘（H-3）**：用户凭据以明文存于 `pinia:user`。现改用 Electron `safeStorage`（Windows DPAPI / macOS Keychain / Linux libsecret）加密后再落盘；非敏感键不加密，避免无谓的性能与可读性损失。
+- **二级 · IPC 无法最小授权（M-1）**：四个窗口共用同一份 preload，主进程无法区分调用来自哪个窗口。现以 `webContents.id` 建立「窗口 → 允许通道」登记表，并在窗口销毁时注销，消除了「无法区分」这一障碍（为后续最小授权铺路，本版仍是**只观测不阻断**）。
+- **二级 · SQL 黑名单可被绕过（M-6）**：原正则黑名单漏过 `VACUUM/**/INTO 'x'`（块注释当空白）与 `VACUUM--\nINTO x`（行注释），已在真实 SQLite 3.53.1 上确认可任意路径写。现改用**词法归一化**（逐字符剥离注释与字符串字面量 → 压平空白 → 独立词匹配）替代文本黑名单，`VACUUM/**/INTO` 与 `VACUUM  INTO` 一律拦下，而 `SELECT 'VACUUM INTO x'` 里的同名词不误报。
+- **二级 · SQLite 目录边界（M-5）**：原生层不校验库文件路径。现于 JS 边界加目录断言（拒绝越界路径与含 `..` 的库名），原生源码处补注释说明彻底方案（`sqlite3_set_authorizer` 白名单）留待后续。
+- **三级 · 统计端点无鉴权（M-7 → 升格）**：`cloudflare/plugin-marketplace-worker` 的 `/v1/plugins/events` 无任何鉴权、CORS 为 `*`，任何人可任意增减插件的安装/更新/失败计数——而 `computeScore = installs*3 + todayInstalls*5 - failures*2` 直接决定排行榜排序，即**排行榜可被任意刷高刷低**。现加最小鉴权（`X-YanMusic-Key`，常量时间比较、缺失即 fail-closed）与固定窗口限流（60 次/分钟，按 `cf-connecting-ip`），并在鉴权通过前不读请求体。
+- **三级 · 其他**：`index.html` 引用了不存在的 `/vite.svg`（现补 `public/favicon.svg` 并更正引用）；Rust 死代码告警（`player.rs` 中两个被取代的废弃方法，删除后 `cargo check` **零警告**）；README 中 5 处 Electron 版本号与 `package.json` 不一致（`43.1.1` → `43.7.3`）。
+
+### 变更
+
+- **依赖升级**：`pinia` 3.0.4 → **4.0.3**；`vite-plugin-electron` 0.29.0 → **1.1.2**、`vite-plugin-electron-renderer` 0.14.7 → **1.0.0**（其 breaking change `notBundle` → `bundleDeps` 与本项目无关，项目只用最简 API）；Rust 侧 `cpal` 0.15 → **0.18.2**（适配统一 `Error`/`ErrorKind`、`StreamConfig` 按值传递、`SampleRate` 变 u32、`DeviceTrait::name()` 移除等破坏性改动）、`mpris-server` 0.9 → **0.10**（显式启用 tokio feature）。
+- **发布流程**：`build.yml` 为 Release 步骤补上 `name`，Release 标题自动成为「YanMusic &lt;tag&gt; Release」，不再需要发布后手工改名；`docs/release-process.md` 同步。
+- **仓库卫生**：`docs/agent/` 移出版本控制（转为本地开发留痕），并忽略 `.workbuddy/`。
+- **行为变更说明：无。** 除安全修复外不改动任何功能逻辑；M-1 的判定本版仍只记录不拒绝，M-3（`webSecurity: false`）经评估会破坏跨域音乐请求，维持原状。
+
+### 说明
+
+- **验证结果**：`node --test` **176 例 / 171 通过 / 0 失败 / 5 跳过**（5 个为沙箱内 `spawnSync` 返回 `EBUSY` 的环境产物，CI 中会正常执行，已用直接执行方式另测通过）；`vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0；`cargo check --workspace` 退出码 0（四个 native crate 全通过、零警告）。
+- **新增 3 个测试文件 / +20 个用例**：`plugin-stats-auth.test.ts`（8 例，密钥比较与限流）、`plugin-worker-auth-contract.test.ts`（5 例，**双向验证**：喂修复前的 worker.js 时 3/5 失败）、`plugin-sql-injection.test.ts` / `plugin-sqlite-path-boundary.test.ts` / `security-regressions.test.ts` / `ci-supply-chain.test.ts` 等守卫同步扩充。
+- **守卫有效性**：新增守卫均做过「喂修复前代码 → 必须报错」的反向验证。只会在正确代码上通过的守卫是空壳——这些不是。
+
 ## [1.2.3]
 
 > 本次为**工程债清理 + 观测机制落地 + 依赖升级**的补丁版本，**不含任何新功能**：把 lint 接入 CI（基线由 101 errors 清到 **0 error / 0 warning**）；新增两项**只观测、不阻断**的机制（CSP Report-Only、IPC 通道白名单报告式检查），为 v1.3.0 的强制化提供真实数据；升级 5 个 GitHub Actions 到主版本并修掉一处会让发布路径断裂的连带问题。
