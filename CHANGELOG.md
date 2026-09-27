@@ -28,6 +28,7 @@
 - **定位过程**：先按报错文案怀疑压缩混淆，用 sourcemap 把崩溃点反查回源码——`settings-*.js:18683 → src/main/logger.ts:19`，调用的是 `storage/settings.ts:170` 定义的 `getPersistedLogSettings`，**调用点在定义点之前**。再用非压缩构建在本机复现出真实符号名（`Ot is not a function`），确认与混淆无关，是真实的源码/构建缺陷。
 - **验证**：新增 `tests/main-bundle-no-splitting.test.ts`（5 例），对源码层与构建层各设闸门并校验产物形态；该测试已做**反向验证**——喂回修复前代码时 A、B 两项**如预期失败**，证明守卫非空壳。主进程产物用 stub 过的 Electron 加载，模块顶层**完整通过**（修复前正是在此步抛出）。
 - **验证结果**：`vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0；主进程产物为**单文件**；`node --test` **181 例 / 176 通过 / 0 失败 / 5 跳过**。
+- **CI 验证**：run `36323143311`（ref `v1.2.5`）**六腿全绿**，且六腿均执行了新增的「Smoke test main process bundle」步骤并输出「冒烟测试通过」——即新防线已在真实 CI 上生效，不再是只在本机跑得通的守卫。Release 标题自动生成为 `YanMusic v1.2.5 Release`，22 个产物齐全。
 - **影响范围**：仅 v1.2.4 一个版本受影响。v1.2.3 及更早使用 `vite-plugin-electron` 0.29，产物是单文件，无此问题。**v1.2.4 的安装包建议作废，直接安装 v1.2.5。**
 
 ## [1.2.4]
