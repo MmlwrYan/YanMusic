@@ -1,5 +1,43 @@
 const MAX_STATS_BATCH = 200;
 
+// ── M7-AUTH：写入端点最小鉴权 + 限流 ──
+// 写入端点不再公开：需 `X-YanMusic-Key` 命中 secret `PLUGIN_STATS_WRITE_KEY`。
+// 策略为 fail closed——未配置 secret 时一律拒绝写入（否则「忘记配置」= 写入口重新敞开）。
+// 纯函数口径与 src/shared/pluginStatsAuth.ts 保持一致，由 tests/plugin-stats-auth.test.ts 守护。
+const STATS_KEY_HEADER = 'x-yanmusic-key';
+const WRITE_WINDOW_MS = 60000;
+const WRITE_MAX_PER_WINDOW = 60;
+
+/** 常时比较，避免响应时间侧信道。 */
+const safeEqual = (a, b) => {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+};
+
+const isWriteAuthorized = (provided, expected) => {
+  const want = String(expected ?? '');
+  if (!want) return false;
+  const got = String(provided ?? '').trim();
+  if (!got) return false;
+  return safeEqual(got, want);
+};
+
+// 固定窗口限流。Workers 实例间不共享内存，故这是「单实例尽力而为」的限流，
+// 用于抬高脚本刷量的成本；强一致限流需改用 Durable Object / KV，属后续可选强化。
+const rateBuckets = new Map();
+const checkRateLimit = (ip, now) => {
+  const entry = rateBuckets.get(ip);
+  if (!entry || now - entry.windowStart >= WRITE_WINDOW_MS) {
+    rateBuckets.set(ip, { count: 1, windowStart: now });
+    return true;
+  }
+  entry.count += 1;
+  return entry.count <= WRITE_MAX_PER_WINDOW;
+};
+
 const json = (body, init = {}) =>
   new Response(JSON.stringify(body), {
     ...init,
@@ -14,7 +52,7 @@ const json = (body, init = {}) =>
 const corsHeaders = () => ({
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET,POST,OPTIONS',
-  'access-control-allow-headers': 'content-type,user-agent',
+  'access-control-allow-headers': 'content-type,user-agent,x-yanmusic-key',
 });
 
 const normalizePluginId = (value) =>
@@ -253,6 +291,16 @@ const handleStats = async (request, env) => {
 };
 
 const handleEvents = async (request, env) => {
+  // M7-AUTH：先鉴权（fail closed），再限流，最后才读 body 与写库。
+  const providedKey = request.headers.get(STATS_KEY_HEADER) || '';
+  if (!isWriteAuthorized(providedKey, env.PLUGIN_STATS_WRITE_KEY)) {
+    return json({ ok: false, error: 'unauthorized' }, { status: 401 });
+  }
+  const clientIp = request.headers.get('cf-connecting-ip') || 'unknown';
+  if (!checkRateLimit(clientIp, Date.now())) {
+    return json({ ok: false, error: 'rate limited' }, { status: 429 });
+  }
+
   const body = await readJsonBody(request);
   const event = String(body?.event || '').trim();
   const plugin = body?.plugin || {};

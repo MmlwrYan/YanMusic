@@ -7,10 +7,13 @@
 - `POST /v1/plugins/stats`
   - 请求：`{ "plugins": [{ "sourceId": "...", "pluginId": "..." }] }`
   - 响应：每个插件的 `installCount/updateCount/failureCount/score`
+  - **公开**（排行榜要公开展示），无需鉴权。
 
 - `POST /v1/plugins/events`
+  - 请求头：`X-YanMusic-Key: <共享密钥>`
   - 请求：`{ "event": "install" | "update" | "failure", "plugin": { ... } }`
   - 行为：安装成功、更新成功、安装失败分别累计对应计数
+  - **需鉴权**（见「安全边界」）。密钥缺失或错误返回 `401`；同一 IP 每分钟超过 60 次返回 `429`。
 
 ## 部署
 
@@ -23,8 +26,12 @@ pnpm dlx wrangler@latest d1 create echomusic-plugin-stats
 
 ```bash
 pnpm dlx wrangler@latest d1 execute echomusic-plugin-stats --remote --file schema.sql
+pnpm dlx wrangler@latest secret put PLUGIN_STATS_WRITE_KEY   # 设置写入密钥（自动安全存储）
 pnpm dlx wrangler@latest deploy
 ```
+
+> `PLUGIN_STATS_WRITE_KEY` 是写入端点唯一的准入凭据。**未设置时 `/v1/plugins/events` 一律 401**
+> （fail closed：宁可拒绝全部写入，也不因「忘记配置」而重新敞开写入口）。
 
 注意要带 `--remote`，否则表可能只创建在本地预览数据库里，自定义域名访问线上 Worker 时会因为远程 D1 没有表而返回 500。
 
@@ -35,11 +42,15 @@ pnpm dlx wrangler@latest deploy
 部署完成后，把客户端常量 `DEFAULT_PLUGIN_MARKETPLACE_STATS_API_URL` 改为你的 Worker 域名，或在构建主进程时设置：
 
 ```bash
-yanmusic_PLUGIN_STATS_API_URL=https://your-worker.example.com pnpm run build
+yanmusic_PLUGIN_STATS_API_URL=https://your-worker.example.com \
+yanmusic_PLUGIN_STATS_API_KEY=<与 PLUGIN_STATS_WRITE_KEY 相同的密钥> \
+pnpm run build
 ```
 
-> 环境变量名与主进程实现一致（`src/main/plugins.ts` 读取 `process.env.yanmusic_PLUGIN_STATS_API_URL`）。
+> 环境变量名与主进程实现一致（`src/main/plugins.ts` 分别读取 `process.env.yanmusic_PLUGIN_STATS_API_URL`
+> 与 `process.env.yanmusic_PLUGIN_STATS_API_KEY`）。
 > 旧文档中的 `ECHOMUSIC_PLUGIN_STATS_API_URL` 从未被代码读取，已更正。
+> 未注入密钥时客户端仍可正常读排行榜，但安装/更新事件上报会被服务端拒绝（仅告警，不影响安装）。
 
 可以用下面的请求快速验证线上 D1 是否可用：
 
@@ -60,3 +71,22 @@ curl -X POST https://your-worker.example.com/v1/plugins/stats \
 ## 安全边界
 
 Worker 不代理安装包，也不参与插件下载决策；它只接收客户端上报的插件标识和版本等统计元数据。
+
+**写入端点（M-7 修复后）**：
+
+- **准入**：`/v1/plugins/events` 需请求头 `X-YanMusic-Key` 命中 `PLUGIN_STATS_WRITE_KEY`；
+  比较为**常时比较**，避免响应时间侧信道逐字节爆破密钥。
+- **fail closed**：`PLUGIN_STATS_WRITE_KEY` 未配置时写入一律 `401`。这是有意为之——
+  若「忘记配置 secret」就放行，等于把修复前「任何人可刷榜」的状态原样恢复。
+- **限流**：以 `cf-connecting-ip` 做每 IP 固定窗口限流（60 次/分钟）。
+  注意：Workers 实例间不共享内存，此限流为**单实例尽力而为**，用于抬高脚本刷量成本；
+  强一致限流需迁移到 Durable Object 或 KV，本次未做。
+
+**读取端点** `/v1/plugins/stats` 保持公开（排行榜需要公开展示），**不参与写入**，
+因此无法通过它篡改计数。CORS 的 `access-control-allow-origin: *` 仅影响浏览器端跨域读取，
+不构成写入口——写入口由上述密钥把守。
+
+> 已知残余风险：密钥由客户端二进制携带，**有能力的攻击者可逆向提取客户端内的密钥后继续刷量**。
+> 共享密钥只能拦住「随手写个 curl 就刷榜」；要真正根治需引入服务端可验证的凭据
+> （如 GitHub OAuth 校验上报者身份、或对上报做服务端二次核验），属产品决策，未在本版本实施。
+
