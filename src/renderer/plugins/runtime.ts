@@ -1434,8 +1434,7 @@ const createPluginFsApi = (pluginId: string) => {
         directoryPath,
         serializeForIpc(options) as typeof options,
       ) ?? unavailable(),
-    getFileUrl: (filePath: string) =>
-      getFsApi()?.getFileUrl(pluginId, filePath) ?? unavailable(),
+    getFileUrl: (filePath: string) => getFsApi()?.getFileUrl(pluginId, filePath) ?? unavailable(),
     readTextFile: (
       filePath: string,
       options?: Parameters<NonNullable<Window['electron']['plugins']>['fs']['readTextFile']>[2],

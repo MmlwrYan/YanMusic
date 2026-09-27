@@ -48,8 +48,15 @@ const windowKinds = new Map<number, WindowKind>();
 /**
  * 登记某个 webContents 的窗口类型（主进程创建窗口后调用）。
  * 返回一个注销函数；同时自动挂到 `destroyed` 上，避免 id 复用造成误判。
+ *
+ * `once` 只用于挂 `destroyed`；测试传入的是最小 stub，故为可选。
  */
-export const registerWindowKind = (webContents: { id: number; once?: Function }, kind: WindowKind): void => {
+type MinimalWebContents = {
+  id: number;
+  once?: (event: string, listener: () => void) => unknown;
+};
+
+export const registerWindowKind = (webContents: MinimalWebContents, kind: WindowKind): void => {
   windowKinds.set(webContents.id, kind);
   const dispose = () => windowKinds.delete(webContents.id);
   // 仅在有 once 的完整 Electron webContents 上挂事件（测试里传入的是最小 stub）

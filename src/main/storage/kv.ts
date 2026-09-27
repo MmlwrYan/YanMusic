@@ -3,8 +3,7 @@ import log from '../logger';
 import { getNativeStorage } from './native';
 
 type KvBatchMutation =
-  | { key: string; value: unknown; delete?: never }
-  | { key: string; delete: true; value?: never };
+  { key: string; value: unknown; delete?: never } | { key: string; delete: true; value?: never };
 
 /**
  * 需要**加密落盘**的 KV 键。

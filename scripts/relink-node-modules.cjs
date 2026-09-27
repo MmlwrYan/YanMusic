@@ -56,26 +56,6 @@ function loadPackageMap() {
   return raw.packages || {};
 }
 
-/**
- * 把 pnpm 的包标识（可能含 peer 后缀，如
- *   @iconify/vue@5.0.3(vue@3.5.43(typescript@5.9.3))）
- * 规范化成用于查找的 key 候选列表。
- * package-map 的 key 与 dependencies 的 value 是同一种格式，直接查即可。
- */
-function resolveEntry(packages, key) {
-  return packages[key] || null;
-}
-
-/** 由实体路径推出「包名」——用于决定链接放置位置 */
-function packageNameOf(entry) {
-  // entry.dependencies 里恰好有一条形如 name -> key，取它最稳
-  if (entry && entry.dependencies) {
-    const names = Object.keys(entry.dependencies);
-    if (names.length === 1) return names[0];
-  }
-  return null;
-}
-
 let created = 0;
 let ok = 0;
 let failed = 0;
@@ -147,7 +127,10 @@ function ensureLink(targetPath, linkPath, label, base) {
 
 function main() {
   const packages = loadPackageMap();
-  const entries = Object.entries(packages);
+  // 根包条目（key = "."，url = ".."）代表项目自身，不参与链接：
+  // 它的依赖由下面「顶层提升」统一处理，若也当普通包会把项目根
+  // 反向链接成 node_modules/<项目名>，徒增自引用。
+  const entries = Object.entries(packages).filter(([key]) => key !== '.');
   log(`[relink] package-map 条目数：${entries.length}`);
 
   // 预扫：包标识 -> 实体目录（绝对）
@@ -175,7 +158,11 @@ function main() {
         continue;
       }
       // 相对基准的写法交给 ensureLink
-      ensureLink(path.relative(URL_BASE, depDirAbs), path.relative(URL_BASE, linkAbs), `${key}::${depName}`);
+      ensureLink(
+        path.relative(URL_BASE, depDirAbs),
+        path.relative(URL_BASE, linkAbs),
+        `${key}::${depName}`,
+      );
     }
   }
 
@@ -183,7 +170,7 @@ function main() {
   //    pnpm 的规则：优先选择「被最多包依赖」的版本；这里用 package-map
   //    里该包名下第一个出现的条目作为候选（顺序即 pnpm 的解析顺序）。
   const byName = new Map(); // name -> {key, count}
-  for (const [key, entry] of entries) {
+  for (const entry of Object.values(entries)) {
     if (!entry || !entry.dependencies) continue;
     const names = Object.keys(entry.dependencies);
     for (const n of names) {
@@ -209,7 +196,7 @@ function main() {
   const binDir = path.join(NM, '.bin');
   if (!CHECK_ONLY) fs.mkdirSync(binDir, { recursive: true });
 
-  for (const [key, entry] of entries) {
+  for (const entry of Object.values(entries)) {
     if (!entry || !entry.url) continue;
     const pkgDirAbs = path.resolve(URL_BASE, entry.url);
     const pj = path.join(pkgDirAbs, 'package.json');
@@ -245,9 +232,7 @@ function main() {
     }
   }
 
-  console.log(
-    `[relink] 完成：新建 ${created}，已正确 ${ok}，跳过 ${skipped}，失败/缺失 ${failed}`
-  );
+  console.log(`[relink] 完成：新建 ${created}，已正确 ${ok}，跳过 ${skipped}，失败/缺失 ${failed}`);
   if (CHECK_ONLY && failed > 0) process.exit(1);
 }
 

@@ -16,7 +16,9 @@
  * 只做**字符串层面**处理，不访问文件系统。
  */
 export const normalizePath = (input: string, caseInsensitive = true): string => {
-  const value = String(input ?? '').trim().replace(/\\/g, '/');
+  const value = String(input ?? '')
+    .trim()
+    .replace(/\\/g, '/');
   if (!value) return '';
 
   // 记录前缀（POSIX 根 / Windows 盘符）；盘符要从分段里剔除，避免重复拼接
