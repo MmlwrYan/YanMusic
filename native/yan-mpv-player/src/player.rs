@@ -133,12 +133,7 @@ unsafe impl Send for MpvPlayer {}
 unsafe impl Sync for MpvPlayer {}
 
 impl MpvPlayer {
-    /// 创建并初始化 libmpv 播放器
-    pub unsafe fn new(lib: Arc<MpvLib>) -> Result<Self, String> {
-        Self::new_with_config(lib, MpvPlayerConfig::default())
-    }
-
-    /// 使用自定义配置创建播放器
+    /// 使用配置创建播放器
     pub unsafe fn new_with_config(
         lib: Arc<MpvLib>,
         config: MpvPlayerConfig,
@@ -960,10 +955,6 @@ impl MpvPlayer {
     }
 
     // ============ 音频滤镜链管理 ============
-
-    pub fn set_property(&self, name: &str, value: &str) -> Result<(), String> {
-        self.set_property_string(name, value)
-    }
 
     /// 设置响度归一增益（dB）。走 mpv 的 volume-gain 属性，作为独立输出增益，
     /// 不重建音频滤镜链（区别于在 af 串尾部追加 volume 滤镜）。老版 mpv 不支持时返回 Err。
