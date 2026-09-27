@@ -76,8 +76,13 @@ interface YanPluginWindowContext {
       directoryPath: string,
       options?: Parameters<NonNullable<Window['electron']['plugins']>['fs']['listFiles']>[2],
     ) => ReturnType<NonNullable<Window['electron']['plugins']>['fs']['listFiles']>;
-    listImageFiles: NonNullable<Window['electron']['plugins']>['fs']['listImageFiles'];
-    getFileUrl: NonNullable<Window['electron']['plugins']>['fs']['getFileUrl'];
+    listImageFiles: (
+      directoryPath: string,
+      options?: Parameters<NonNullable<Window['electron']['plugins']>['fs']['listImageFiles']>[2],
+    ) => ReturnType<NonNullable<Window['electron']['plugins']>['fs']['listImageFiles']>;
+    getFileUrl: (
+      filePath: string,
+    ) => ReturnType<NonNullable<Window['electron']['plugins']>['fs']['getFileUrl']>;
     readTextFile: (
       filePath: string,
       options?: Parameters<NonNullable<Window['electron']['plugins']>['fs']['readTextFile']>[2],
@@ -558,10 +563,10 @@ const buildContext = (
       window.electron.plugins?.fs.listFiles(descriptor.id, directoryPath, options) ??
       Promise.resolve({ ok: false, error: '插件文件 API 不可用' }),
     listImageFiles: (directoryPath, options) =>
-      window.electron.plugins?.fs.listImageFiles(directoryPath, options) ??
+      window.electron.plugins?.fs.listImageFiles(descriptor.id, directoryPath, options) ??
       Promise.resolve({ ok: false, error: '插件文件 API 不可用' }),
     getFileUrl: (filePath) =>
-      window.electron.plugins?.fs.getFileUrl(filePath) ??
+      window.electron.plugins?.fs.getFileUrl(descriptor.id, filePath) ??
       Promise.resolve({ ok: false, error: '插件文件 API 不可用' }),
     readTextFile: (filePath, options) =>
       window.electron.plugins?.fs.readTextFile(descriptor.id, filePath, options) ??

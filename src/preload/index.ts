@@ -878,14 +878,23 @@ contextBridge.exposeInMainWorld('electron', {
           directoryPath,
           options,
         ),
-      listImageFiles: (directoryPath: string, options?: PluginListImageFilesOptions) =>
+      listImageFiles: (
+        pluginId: string,
+        directoryPath: string,
+        options?: PluginListImageFilesOptions,
+      ) =>
         invokeWithPlainPayload<PluginListImageFilesResult>(
           'plugins:fs:list-image-files',
+          pluginId,
           directoryPath,
           options,
         ),
-      getFileUrl: (filePath: string) =>
-        ipcRenderer.invoke('plugins:fs:get-file-url', filePath) as Promise<PluginFileUrlResult>,
+      getFileUrl: (pluginId: string, filePath: string) =>
+        ipcRenderer.invoke(
+          'plugins:fs:get-file-url',
+          pluginId,
+          filePath,
+        ) as Promise<PluginFileUrlResult>,
       readTextFile: (pluginId: string, filePath: string, options?: PluginReadTextFileOptions) =>
         invokeWithPlainPayload<PluginReadTextFileResult>(
           'plugins:fs:read-text-file',

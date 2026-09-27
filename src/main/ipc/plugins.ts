@@ -311,9 +311,10 @@ export const registerPluginHandlers = (context: IpcContext) => {
     'plugins:fs:list-image-files',
     (
       _event,
+      pluginId: string,
       directoryPath: string,
       options?: PluginListImageFilesOptions,
-    ): PluginListImageFilesResult => listPluginImageFiles(directoryPath, options),
+    ): PluginListImageFilesResult => listPluginImageFiles(pluginId, directoryPath, options),
   );
   ipcRegistry.registerHandler(
     'plugins:fs:list-files',
@@ -326,7 +327,8 @@ export const registerPluginHandlers = (context: IpcContext) => {
   );
   ipcRegistry.registerHandler(
     'plugins:fs:get-file-url',
-    (_event, filePath: string): PluginFileUrlResult => getPluginFileUrl(filePath),
+    (_event, pluginId: string, filePath: string): PluginFileUrlResult =>
+      getPluginFileUrl(pluginId, filePath),
   );
   ipcRegistry.registerHandler(
     'plugins:fs:read-text-file',

@@ -1427,11 +1427,15 @@ const createPluginFsApi = (pluginId: string) => {
       unavailable(),
     listImageFiles: (
       directoryPath: string,
-      options?: Parameters<NonNullable<Window['electron']['plugins']>['fs']['listImageFiles']>[1],
+      options?: Parameters<NonNullable<Window['electron']['plugins']>['fs']['listImageFiles']>[2],
     ) =>
-      getFsApi()?.listImageFiles(directoryPath, serializeForIpc(options) as typeof options) ??
-      unavailable(),
-    getFileUrl: (filePath: string) => getFsApi()?.getFileUrl(filePath) ?? unavailable(),
+      getFsApi()?.listImageFiles(
+        pluginId,
+        directoryPath,
+        serializeForIpc(options) as typeof options,
+      ) ?? unavailable(),
+    getFileUrl: (filePath: string) =>
+      getFsApi()?.getFileUrl(pluginId, filePath) ?? unavailable(),
     readTextFile: (
       filePath: string,
       options?: Parameters<NonNullable<Window['electron']['plugins']>['fs']['readTextFile']>[2],

@@ -1062,15 +1062,20 @@ const reportMarketplacePluginInstallEvent = async (
     let lastError: unknown = null;
     for (const url of urlCandidates) {
       try {
+        const headers: Record<string, string> = {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'User-Agent': 'YanMusic-Plugin-Marketplace',
+        };
+        // M-7：写入端点需带共享密钥（构建期经 yanmusic_PLUGIN_STATS_API_KEY 注入）。
+        // 未配置时不发该头，服务端会以 401 拒绝——客户端仅记录告警，不影响安装流程。
+        const statsKey = String(process.env.yanmusic_PLUGIN_STATS_API_KEY || '').trim();
+        if (statsKey) headers['X-YanMusic-Key'] = statsKey;
         const response = await fetchWithTimeout(
           url,
           {
             method: 'POST',
-            headers: {
-              Accept: 'application/json',
-              'Content-Type': 'application/json',
-              'User-Agent': 'YanMusic-Plugin-Marketplace',
-            },
+            headers,
             body: JSON.stringify({
               event,
               plugin: {
@@ -2907,12 +2912,17 @@ export const listPluginFiles = (
 };
 
 export const listPluginImageFiles = (
+  pluginId: string,
   directoryPath: string,
   options: PluginListImageFilesOptions = {},
 ): PluginListImageFilesResult => {
+  // SECURITY（H-2，v1.2.4）：与 listPluginFiles 对齐，先过 capability 闸门。
+  // 修复前本函数没有 pluginId 参数，任何插件都能枚举任意目录下的图片并拿到 file:// URL。
+  const access = hasPluginLocalFilesAccess(pluginId);
+  if (!access.ok) return { ok: false, error: access.error };
+
   try {
-    const root = resolve(String(directoryPath || '').trim());
-    if (!root || !existsSync(root)) return { ok: false, error: '图片文件夹不存在' };
+    const root = realpathSync(resolve(String(directoryPath || '').trim()));
     const rootStat = statSync(root);
     if (!rootStat.isDirectory()) return { ok: false, error: '路径不是文件夹' };
 
@@ -2954,10 +2964,26 @@ export const listPluginImageFiles = (
   }
 };
 
-export const getPluginFileUrl = (filePath: string): PluginFileUrlResult => {
+/**
+ * 把本地绝对路径转成 `file://` URL 返回给插件。
+ *
+ * SECURITY（H-2，v1.2.4）：本函数**必须**携带 `pluginId` 并做与
+ * `readPluginTextFile` / `writePluginFile` 同级的 capability 校验。
+ *
+ * 修复前签名是 `getPluginFileUrl(filePath: string)`，既没有 pluginId、
+ * 也不查 `plugin.manifest.capabilities.localFiles` 与安全模式。任何插件都能借此
+ * 把任意绝对路径（如 `C:\Users\…\AppData\Roaming\…\Login Data`）转成 `file://` URL，
+ * 再配合 `<img src>` / `<video src>` 等渲染手段把本地文件内容外带 ——
+ * 绕过 `localFiles` 能力声明与「插件安全模式」，形成任意本地文件读取（CWE-22/CWE-200）。
+ */
+export const getPluginFileUrl = (pluginId: string, filePath: string): PluginFileUrlResult => {
+  const access = hasPluginLocalFilesAccess(pluginId);
+  if (!access.ok) return { ok: false, error: access.error };
+
   try {
-    const resolvedPath = resolve(String(filePath || '').trim());
-    if (!resolvedPath || !existsSync(resolvedPath)) return { ok: false, error: '文件不存在' };
+    // 与 readPluginFileChunk 对齐：先 realpath 解析（消解符号链接/软链接跳转），
+    // 再确认目标是常规文件，避免通过链接指向目录或设备节点。
+    const resolvedPath = realpathSync(resolve(String(filePath || '').trim()));
     const stats = statSync(resolvedPath);
     if (!stats.isFile()) return { ok: false, error: '路径不是文件' };
     return { ok: true, url: pathToFileURL(resolvedPath).toString() };

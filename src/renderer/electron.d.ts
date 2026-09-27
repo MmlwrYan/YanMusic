@@ -407,10 +407,11 @@ export interface IElectronAPI {
         options?: PluginListFilesOptions,
       ) => Promise<PluginListFilesResult>;
       listImageFiles: (
+        pluginId: string,
         directoryPath: string,
         options?: PluginListImageFilesOptions,
       ) => Promise<PluginListImageFilesResult>;
-      getFileUrl: (filePath: string) => Promise<PluginFileUrlResult>;
+      getFileUrl: (pluginId: string, filePath: string) => Promise<PluginFileUrlResult>;
       readTextFile: (
         pluginId: string,
         filePath: string,
