@@ -16,7 +16,21 @@ const MAX_LOG_SIZE = 5 * 1024 * 1024;
 /** 日志保留天数 */
 const LOG_RETENTION_DAYS = 7;
 
-let currentLogSettings = normalizeLogSettings(getPersistedLogSettings());
+// 注意：这里刻意「延迟」到首次读取时再取持久化设置，不要在模块顶层直接调用
+// getPersistedLogSettings()。原因是 logger 与 storage 之间存在循环依赖：
+//   logger -> storage/settings -> storage/kv -> logger
+// 而打包器（rolldown）会把各模块体包成惰性初始化 thunk。若在 logger 模块体里
+// 立即求值 getPersistedLogSettings，该 thunk 可能在 storage/settings 的 thunk
+// 之前被触发，此时 getPersistedLogSettings 尚未赋值，运行时抛
+// 「<minified> is not a function」并导致主进程启动即崩（v1.2.4 回归）。
+// 改为惰性求值后，循环依赖不再影响求值顺序。
+let currentLogSettingsCache: LogSettings | null = null;
+
+function currentLogSettingsValue(): LogSettings {
+  currentLogSettingsCache ??= normalizeLogSettings(getPersistedLogSettings());
+  return currentLogSettingsCache;
+}
+
 let loggerInitialized = false;
 let diagnosticTimer: NodeJS.Timeout | null = null;
 
@@ -68,7 +82,7 @@ export function initLogger() {
   // 按日期命名，同一天追加到同一个文件
   log.transports.file.fileName = getDailyLogFileName();
   log.transports.file.maxSize = MAX_LOG_SIZE;
-  applyLogSettings(currentLogSettings);
+  applyLogSettings(currentLogSettingsValue());
 
   // 自动注入 console，这样代码里直接用 console.log 也能输出到日志
   Object.assign(console, log.functions);
@@ -77,7 +91,7 @@ export function initLogger() {
 }
 
 export function getLogSettings(): LogSettings {
-  return currentLogSettings;
+  return currentLogSettingsValue();
 }
 
 /**
@@ -86,7 +100,7 @@ export function getLogSettings(): LogSettings {
  * 平时（非诊断模式）不产生日志、近乎零开销。
  */
 export function isDiagnosticModeActive(): boolean {
-  return isDiagnosticActive(currentLogSettings);
+  return isDiagnosticActive(currentLogSettingsValue());
 }
 
 // 诊断状态变更监听：用于让性能哨兵（事件循环卡顿探测器）仅在诊断模式期间启停其定时器，
@@ -96,13 +110,13 @@ let diagnosticStateListener: ((active: boolean) => void) | null = null;
 export function setDiagnosticStateListener(listener: ((active: boolean) => void) | null): void {
   diagnosticStateListener = listener;
   // 注册即用当前状态触发一次，保证启动时若已处于诊断窗口期能立即生效
-  if (listener) listener(isDiagnosticActive(currentLogSettings));
+  if (listener) listener(isDiagnosticActive(currentLogSettingsValue()));
 }
 
 export function applyLogSettings(settings?: Partial<LogSettings> | null, persist = false) {
-  currentLogSettings = normalizeLogSettings(settings);
+  currentLogSettingsCache = normalizeLogSettings(settings);
   if (persist) {
-    setPersistedLogSettings(currentLogSettings);
+    setPersistedLogSettings(currentLogSettingsCache);
   }
 
   if (diagnosticTimer) {
@@ -110,21 +124,21 @@ export function applyLogSettings(settings?: Partial<LogSettings> | null, persist
     diagnosticTimer = null;
   }
 
-  if (!loggerInitialized) return currentLogSettings;
+  if (!loggerInitialized) return currentLogSettingsCache;
 
-  const effectiveLevel = getEffectiveLogLevel(currentLogSettings);
+  const effectiveLevel = getEffectiveLogLevel(currentLogSettingsCache);
   log.transports.file.level = effectiveLevel;
   log.transports.console.level = app.isPackaged ? 'warn' : effectiveLevel;
 
-  const remainingMs = currentLogSettings.diagnosticUntil - Date.now();
+  const remainingMs = currentLogSettingsCache.diagnosticUntil - Date.now();
   if (remainingMs > 0) {
     diagnosticTimer = setTimeout(
       () => {
         diagnosticTimer = null;
-        if (isDiagnosticActive(currentLogSettings)) {
-          applyLogSettings(currentLogSettings);
+        if (isDiagnosticActive(currentLogSettingsValue())) {
+          applyLogSettings(currentLogSettingsValue());
         } else {
-          applyLogSettings({ ...currentLogSettings, diagnosticUntil: 0 }, true);
+          applyLogSettings({ ...currentLogSettingsValue(), diagnosticUntil: 0 }, true);
         }
       },
       Math.min(remainingMs, 2 ** 31 - 1),
@@ -133,9 +147,9 @@ export function applyLogSettings(settings?: Partial<LogSettings> | null, persist
   }
 
   // 通知监听者当前诊断状态，驱动性能哨兵启停
-  diagnosticStateListener?.(isDiagnosticActive(currentLogSettings));
+  diagnosticStateListener?.(isDiagnosticActive(currentLogSettingsCache));
 
-  return currentLogSettings;
+  return currentLogSettingsCache;
 }
 
 /**

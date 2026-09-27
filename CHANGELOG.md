@@ -1,3 +1,27 @@
+## [1.2.5]
+
+> **紧急修复**：v1.2.4 的安装包安装后主进程启动即崩（弹窗 `A JavaScript error occurred in the main process / TypeError: Be is not a function`），应用完全无法打开。本次定位到根因并修复，**无任何新功能**。
+
+### 修复
+
+- **一级 · v1.2.4 主进程启动即崩（`TypeError: Be is not a function`）**。根因是三层叠加，缺一不可：
+  1. `logger.ts` 与 `storage` 之间存在**循环依赖**：`logger → storage/settings → storage/kv → logger`；
+  2. `logger.ts` 在**模块顶层**就求值持久化设置——`let currentLogSettings = normalizeLogSettings(getPersistedLogSettings())`；
+  3. v1.2.4 把 `vite-plugin-electron` 从 0.29 升到 1.1.2。该版本在 Vite 8（rolldown 引擎）分支下**不再把 `codeSplitting` 转译成 `inlineDynamicImports`**（源码见 `dist/utils.cjs`：`if (viteVersion < 8) { ...转换... } else { ...直接赋值，不做转换... }`），于是主进程被切成 `index` / `settings` / `app` 三个 chunk。rolldown 把每个模块体包成惰性初始化 thunk，切分后 thunk 的求值顺序与源码顺序不再一致——`logger` 的 thunk 先于 `storage/settings` 求值，那次顶层调用拿到 `undefined`，抛出 `TypeError: <minified> is not a function`。
+
+   修复分两层：
+  - **源码层（治本）**：`logger.ts` 改为**惰性求值**——缓存初值置 `null`，首次读取时才调用 `getPersistedLogSettings()`（`currentLogSettingsCache ??= normalizeLogSettings(getPersistedLogSettings())`）。循环依赖不再影响求值顺序。
+  - **构建层（纵深防御）**：`vite.config.mts` 为主进程显式设 `codeSplitting: false`（Vite 8 用 `rolldownOptions.output`，同时在 `rollupOptions.output` 保留 `inlineDynamicImports` 以兼容未来版本切换），恢复单文件产物——产物由 **3 个 chunk 变回 1 个**（811 KB `app-*.js` + 43 KB `settings-*.js` → 863 KB 单 `index.js`）。
+
+- **二级 · 顺带修复：主进程 `external` 配置在 Vite 8 下被静默丢弃**。排查过程中发现 `vite-plugin-electron` 1.x 在 Vite ≥8 分支会 `delete build.rollupOptions` 并改用 `rolldownOptions`，导致项目写在 `rollupOptions.external` 的列表**整体失效** —— `electron-audio-loopback` 被误打进 bundle（它依赖原生模块，不应内联）。改到 `rolldownOptions.external` 后恢复正常外部化。（`../../native/yan-storage` 与 `yan-mpv-player` 的「未外部化」是**误报**：源码本就用 `require(运行时计算的 .node 绝对路径)`，不依赖 bundler 的 external，v1.2.3 起即如此。）
+
+### 说明
+
+- **定位过程**：先按报错文案怀疑压缩混淆，用 sourcemap 把崩溃点反查回源码——`settings-*.js:18683 → src/main/logger.ts:19`，调用的是 `storage/settings.ts:170` 定义的 `getPersistedLogSettings`，**调用点在定义点之前**。再用非压缩构建在本机复现出真实符号名（`Ot is not a function`），确认与混淆无关，是真实的源码/构建缺陷。
+- **验证**：新增 `tests/main-bundle-no-splitting.test.ts`（4 例），对源码层与构建层各设闸门并校验产物形态；该测试已做**反向验证**——喂回修复前代码时 A、B 两项**如预期失败**，证明守卫非空壳。主进程产物用 stub 过的 Electron 加载，模块顶层**完整通过**（修复前正是在此步抛出）。
+- **验证结果**：`vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0；主进程产物为**单文件**；`node --test` 全量通过。
+- **影响范围**：仅 v1.2.4 一个版本受影响。v1.2.3 及更早使用 `vite-plugin-electron` 0.29，产物是单文件，无此问题。**v1.2.4 的安装包建议作废，直接安装 v1.2.5。**
+
 ## [1.2.4]
 
 > 本次为**安全修复 + 依赖升级**的补丁版本，**不含任何新功能**。依据 v1.2.3 全量审阅报告（`docs/agent/v1.2.3/06-full-review-2026-09-26.md`，随 v1.2.4 起为本地开发留痕、不入库）的结论，逐条修掉全部一级/二级问题与可即刻处理的三级问题：修掉 3 个一级（CI 注入、插件越权读文件、登录凭据明文落盘）、4 个二级（IPC 窗口身份歧义、SQL 黑名单绕过、SQLite 目录边界、统计端点无鉴权），并升级 5 个依赖。审阅报告本身也做了一处**重要的自我订正**。
