@@ -40,10 +40,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# 例外：过程留痕目录下的原始日志随文档一并入库（见 docs/agent/v1.1.1/run-log.md）
-# 注意：docs/agent/ 现按版本分层（v1.1.1 / v1.1.2 / v1.2.3），日志位于各版本目录的 logs/ 下，
-# 因此必须用 ** 递归匹配，写成 !docs/agent/logs/*.log 会因路径已变更而失效。
-!docs/agent/**/logs/*.log
+# 过程留痕目录：docs/agent/ 仅作本地开发留痕，**不入库**（2026-09-27 决策）
+# 如需让它入库，请删除下面这条规则并执行 `git add -f docs/agent/`。
+docs/agent/
 
 # pnpm
 .pnpm-store/
