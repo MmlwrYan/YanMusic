@@ -6,6 +6,8 @@ allowBuilds:
   esbuild: true
   vue-demi: true
 
+confirmModulesPurge: false
+
 ignoredBuiltDependencies:
   - electron
   - electron-winstaller
