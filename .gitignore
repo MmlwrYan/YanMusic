@@ -40,8 +40,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# 例外：过程留痕目录下的原始日志随文档一并入库（见 docs/agent/run-log.md）
-!docs/agent/logs/*.log
+# 例外：过程留痕目录下的原始日志随文档一并入库（见 docs/agent/v1.1.1/run-log.md）
+# 注意：docs/agent/ 现按版本分层（v1.1.1 / v1.1.2 / v1.2.3），日志位于各版本目录的 logs/ 下，
+# 因此必须用 ** 递归匹配，写成 !docs/agent/logs/*.log 会因路径已变更而失效。
+!docs/agent/**/logs/*.log
 
 # pnpm
 .pnpm-store/
@@ -52,4 +54,6 @@ yarn-error.log*
 *.bak
 
 # Development notes (not deliverables)
+# 注：原 dev-notes/ 已于 2026-09-27 合并入 docs/agent/<版本>/ 并撤销本目录。
+# 保留此规则以防将来临时新建本地草稿目录（需再入库时请放到 docs/agent/<版本>/ 下）。
 dev-notes/
