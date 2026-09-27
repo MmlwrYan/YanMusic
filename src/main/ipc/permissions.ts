@@ -50,10 +50,14 @@ const windowKinds = new Map<number, WindowKind>();
  * 返回一个注销函数；同时自动挂到 `destroyed` 上，避免 id 复用造成误判。
  *
  * `once` 只用于挂 `destroyed`；测试传入的是最小 stub，故为可选。
+ * 这里刻意放宽到 `any[]`，因为 Electron 对 `once` 做了大量事件重载，
+ * 用具体签名（如 `(event: string, listener: () => void)`）无法被真实
+ * `WebContents` 赋值（TS2345）。本类型只描述「有 id、可能能挂 destroyed」。
  */
 type MinimalWebContents = {
   id: number;
-  once?: (event: string, listener: () => void) => unknown;
+  // 见上：必须放宽以兼容 Electron 重载过的 once
+  once?: (...args: any[]) => any;
 };
 
 export const registerWindowKind = (webContents: MinimalWebContents, kind: WindowKind): void => {
