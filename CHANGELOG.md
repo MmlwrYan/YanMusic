@@ -15,11 +15,19 @@
 
 - **二级 · 顺带修复：主进程 `external` 配置在 Vite 8 下被静默丢弃**。排查过程中发现 `vite-plugin-electron` 1.x 在 Vite ≥8 分支会 `delete build.rollupOptions` 并改用 `rolldownOptions`，导致项目写在 `rollupOptions.external` 的列表**整体失效** —— `electron-audio-loopback` 被误打进 bundle（它依赖原生模块，不应内联）。改到 `rolldownOptions.external` 后恢复正常外部化。（`../../native/yan-storage` 与 `yan-mpv-player` 的「未外部化」是**误报**：源码本就用 `require(运行时计算的 .node 绝对路径)`，不依赖 bundler 的 external，v1.2.3 起即如此。）
 
+### 新增
+
+- **主进程冒烟测试（CI 六腿全跑）**。v1.2.4 之所以能把一个「装完打不开」的包发出去，直接原因是当时的 CI **只校验产物存在**（`Verify bundled Windows executable`、`Verify bundled macOS mpv signatures`），**从未真的启动过主进程**。本次补上 `scripts/smoke-main-bundle.cjs`：
+  1. **结构断言**：主进程必须是单文件，出现额外 chunk 即失败 —— 这是启动崩溃的构建侧特征；
+  2. **真的加载一次产物**：用 stub 替换 `electron` 后 `require` 主进程 bundle，判定失败的依据是「错误是否源自主进程产物且发生在**模块顶层求值阶段**」（而非错误类型 —— stub 不完整导致的报错是异步发生的，不该误伤）。
+
+  已做**鉴别力验证**：人工把产物改回 v1.2.4 的失败形态，脚本以 `exit 1` 拦下，栈指向 `index.js:11:20312` —— 与事故现场的 `11:20264` 几乎同一位置。
+
 ### 说明
 
 - **定位过程**：先按报错文案怀疑压缩混淆，用 sourcemap 把崩溃点反查回源码——`settings-*.js:18683 → src/main/logger.ts:19`，调用的是 `storage/settings.ts:170` 定义的 `getPersistedLogSettings`，**调用点在定义点之前**。再用非压缩构建在本机复现出真实符号名（`Ot is not a function`），确认与混淆无关，是真实的源码/构建缺陷。
-- **验证**：新增 `tests/main-bundle-no-splitting.test.ts`（4 例），对源码层与构建层各设闸门并校验产物形态；该测试已做**反向验证**——喂回修复前代码时 A、B 两项**如预期失败**，证明守卫非空壳。主进程产物用 stub 过的 Electron 加载，模块顶层**完整通过**（修复前正是在此步抛出）。
-- **验证结果**：`vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0；主进程产物为**单文件**；`node --test` 全量通过。
+- **验证**：新增 `tests/main-bundle-no-splitting.test.ts`（5 例），对源码层与构建层各设闸门并校验产物形态；该测试已做**反向验证**——喂回修复前代码时 A、B 两项**如预期失败**，证明守卫非空壳。主进程产物用 stub 过的 Electron 加载，模块顶层**完整通过**（修复前正是在此步抛出）。
+- **验证结果**：`vue-tsc --noEmit` 退出码 0；`vite build` 退出码 0；主进程产物为**单文件**；`node --test` **181 例 / 176 通过 / 0 失败 / 5 跳过**。
 - **影响范围**：仅 v1.2.4 一个版本受影响。v1.2.3 及更早使用 `vite-plugin-electron` 0.29，产物是单文件，无此问题。**v1.2.4 的安装包建议作废，直接安装 v1.2.5。**
 
 ## [1.2.4]
