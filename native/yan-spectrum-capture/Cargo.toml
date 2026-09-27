@@ -15,7 +15,9 @@ rustfft = "6.4.1"
 napi-build = "2"
 
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
-cpal = "0.15.3"
+# 0.18 起统一了错误类型（Error/ErrorKind）、StreamConfig 按值传参、
+# SampleRate 变为 u32 别名、移除 DeviceTrait::name()。MSRV 1.85。
+cpal = "0.18.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"

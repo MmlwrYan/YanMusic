@@ -29,7 +29,9 @@ features = [
 
 # Linux: MPRIS D-Bus
 [target.'cfg(target_os = "linux")'.dependencies]
-mpris-server = "0.9"
+# 0.10 起 edition 升为 2024；zbus 默认走 async-std，需显式启用 tokio feature
+# 以配合本 crate 的 tokio runtime（见 sys_media/linux.rs 的 current_thread runtime）。
+mpris-server = { version = "0.10", features = ["tokio"] }
 tempfile = "3"
 
 # macOS: MPNowPlayingInfoCenter

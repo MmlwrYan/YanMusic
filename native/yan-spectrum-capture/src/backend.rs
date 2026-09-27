@@ -79,30 +79,36 @@ fn start_cpal_loopback(
 ) -> Result<(u32, Arc<Mutex<Option<String>>>, cpal::Stream), String> {
     let host = cpal::default_host();
     let (device, config) = select_loopback_device(&host)?;
-    let sample_rate = config.sample_rate().0;
+    // cpal 0.17 起 `SampleRate` 由 struct 变为 `u32` 别名，`sample_rate()` 直接返回 u32。
+    let sample_rate = config.sample_rate();
     let channels = config.channels();
     let sample_format = config.sample_format();
-    let stream_config = config.into();
+    let stream_config: cpal::StreamConfig = config.into();
     let last_error = Arc::new(Mutex::new(None));
     let error_slot = last_error.clone();
-    let err_fn = move |err: cpal::StreamError| {
+    // cpal 0.18：错误回调参数由 `StreamError` 改为统一的 `Error`。
+    let err_fn = move |err: cpal::Error| {
         if let Ok(mut guard) = error_slot.try_lock() {
             *guard = Some(err.to_string());
         }
     };
 
     let stream = match sample_format {
-        SampleFormat::F32 => build_stream::<f32>(&device, &stream_config, channels, ring, err_fn),
-        SampleFormat::F64 => build_stream::<f64>(&device, &stream_config, channels, ring, err_fn),
-        SampleFormat::I8 => build_stream::<i8>(&device, &stream_config, channels, ring, err_fn),
-        SampleFormat::I16 => build_stream::<i16>(&device, &stream_config, channels, ring, err_fn),
-        SampleFormat::I32 => build_stream::<i32>(&device, &stream_config, channels, ring, err_fn),
-        SampleFormat::I64 => build_stream::<i64>(&device, &stream_config, channels, ring, err_fn),
-        SampleFormat::U8 => build_stream::<u8>(&device, &stream_config, channels, ring, err_fn),
-        SampleFormat::U16 => build_stream::<u16>(&device, &stream_config, channels, ring, err_fn),
-        SampleFormat::U32 => build_stream::<u32>(&device, &stream_config, channels, ring, err_fn),
-        SampleFormat::U64 => build_stream::<u64>(&device, &stream_config, channels, ring, err_fn),
-        _ => Err(cpal::BuildStreamError::StreamConfigNotSupported),
+        SampleFormat::F32 => build_stream::<f32>(&device, stream_config, channels, ring, err_fn),
+        SampleFormat::F64 => build_stream::<f64>(&device, stream_config, channels, ring, err_fn),
+        SampleFormat::I8 => build_stream::<i8>(&device, stream_config, channels, ring, err_fn),
+        SampleFormat::I16 => build_stream::<i16>(&device, stream_config, channels, ring, err_fn),
+        SampleFormat::I32 => build_stream::<i32>(&device, stream_config, channels, ring, err_fn),
+        SampleFormat::I64 => build_stream::<i64>(&device, stream_config, channels, ring, err_fn),
+        SampleFormat::U8 => build_stream::<u8>(&device, stream_config, channels, ring, err_fn),
+        SampleFormat::U16 => build_stream::<u16>(&device, stream_config, channels, ring, err_fn),
+        SampleFormat::U32 => build_stream::<u32>(&device, stream_config, channels, ring, err_fn),
+        SampleFormat::U64 => build_stream::<u64>(&device, stream_config, channels, ring, err_fn),
+        // cpal 0.18 用统一错误类型；不再有 `BuildStreamError::StreamConfigNotSupported`。
+        _ => Err(cpal::Error::with_message(
+            cpal::ErrorKind::UnsupportedConfig,
+            format!("unsupported sample format: {sample_format:?}"),
+        )),
     }
     .map_err(|err| format!("failed to build loopback stream: {err}"))?;
 
@@ -132,7 +138,8 @@ fn select_loopback_device(host: &cpal::Host) -> Result<(Device, SupportedStreamC
     let mut fallback: Option<Device> = None;
 
     for device in devices {
-        let name = device.name().unwrap_or_default();
+        // cpal 0.18 移除了 `DeviceTrait::name()`，改用 `Display`（`to_string()`）。
+        let name = device.to_string();
         let lowered = name.to_ascii_lowercase();
         if lowered.contains("monitor")
             || lowered.contains(".monitor")
@@ -150,7 +157,7 @@ fn select_loopback_device(host: &cpal::Host) -> Result<(Device, SupportedStreamC
     }
 
     if let Some(device) = fallback {
-        let name = device.name().unwrap_or_default();
+        let name = device.to_string();
         if name.to_ascii_lowercase().contains("monitor") {
             let config = device
                 .default_input_config()
@@ -369,11 +376,12 @@ fn spawn_pulse_reader(
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 fn build_stream<T>(
     device: &Device,
-    config: &cpal::StreamConfig,
+    // cpal 0.18：`StreamConfig` 实现 `Copy`，`build_*_stream` 改为按值接收。
+    config: cpal::StreamConfig,
     channels: u16,
     ring: Arc<Mutex<SampleRing>>,
-    err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
-) -> Result<cpal::Stream, cpal::BuildStreamError>
+    err_fn: impl FnMut(cpal::Error) + Send + 'static,
+) -> Result<cpal::Stream, cpal::Error>
 where
     T: cpal::SizedSample + ToF32Sample,
 {
