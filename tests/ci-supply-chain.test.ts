@@ -252,10 +252,11 @@ const findUnquotedUntrusted = (step: RunStep, label: string): string[] => {
     // 去掉双引号包住的 `$VAR`（合法安全用法）
     const withoutDoubleQuoted = withoutSingleQuoted.replace(/"[^"]*"/g, '""');
     for (const name of untrustedNames) {
-      // eslint-disable-next-line no-new
       const bare = new RegExp(`\\$${name}(?![A-Za-z0-9_])|\\$\\{${name}\\}`);
       if (bare.test(withoutDoubleQuoted)) {
-        out.push(`${label}:${step.startLine + idx + 1}  不可信变量 $${name} 未加引号展开（应写 "$NAME"）`);
+        out.push(
+          `${label}:${step.startLine + idx + 1}  不可信变量 $${name} 未加引号展开（应写 "$NAME"）`,
+        );
       }
     }
   });
@@ -397,5 +398,3 @@ test('守卫自检：collectRunSteps 必须能解析出多行 run 块与 env 绑
   assert.equal(steps[0].envBindings[0].name, 'FOO', 'env 变量名解析错误');
   assert.ok(sources.size >= 3, `解析到的 workflow 数量过少（${sources.size}），守卫可能失效`);
 });
-
-

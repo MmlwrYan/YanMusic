@@ -83,7 +83,9 @@ export const checkRateLimit = (
 export const readStatsKeyFromHeaders = (headers: unknown): string => {
   if (!headers) return '';
   if (typeof (headers as { get?: unknown }).get === 'function') {
-    const value = (headers as { get: (name: string) => string | null }).get(PLUGIN_STATS_KEY_HEADER);
+    const value = (headers as { get: (name: string) => string | null }).get(
+      PLUGIN_STATS_KEY_HEADER,
+    );
     return String(value ?? '').trim();
   }
   if (typeof headers === 'object') {

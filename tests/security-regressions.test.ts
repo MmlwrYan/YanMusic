@@ -116,14 +116,8 @@ test('H-3：KvStorage 必须对敏感键启用 safeStorage 加密', () => {
     /ENCRYPTED_KV_KEYS[\s\S]{0,300}?pinia:user/.test(source),
     '敏感键清单里没有 pinia:user（登录态）',
   );
-  assert.ok(
-    /encryptString\(/.test(source),
-    '未调用 safeStorage.encryptString',
-  );
-  assert.ok(
-    /decryptString\(/.test(source),
-    '未调用 safeStorage.decryptString',
-  );
+  assert.ok(/encryptString\(/.test(source), '未调用 safeStorage.encryptString');
+  assert.ok(/decryptString\(/.test(source), '未调用 safeStorage.decryptString');
   // 加密不可用时必须拒绝写入，而不是静默落明文
   assert.ok(
     /isEncryptionAvailable\(\)[\s\S]{0,200}?throw/.test(source),
@@ -135,7 +129,10 @@ test('H-3：敏感键读写都必须过编解码变换（set/applyBatch/get 三�
   const source = read('src/main/storage/kv.ts');
 
   // set() 与 applyBatch() 的写入路径都必须经 encodeForWrite
-  const setBody = source.slice(source.indexOf('  set(key: string'), source.indexOf('  applyBatch('));
+  const setBody = source.slice(
+    source.indexOf('  set(key: string'),
+    source.indexOf('  applyBatch('),
+  );
   assert.ok(/encodeForWrite\(/.test(setBody), 'KvStorage.set 未过加密变换');
 
   const applyBody = source.slice(
@@ -144,7 +141,10 @@ test('H-3：敏感键读写都必须过编解码变换（set/applyBatch/get 三�
   );
   assert.ok(/encodeForWrite\(/.test(applyBody), 'KvStorage.applyBatch 未过加密变换');
 
-  const getBody = source.slice(source.indexOf('  get<T>(key: string'), source.indexOf('  set(key: string'));
+  const getBody = source.slice(
+    source.indexOf('  get<T>(key: string'),
+    source.indexOf('  set(key: string'),
+  );
   assert.ok(/decodeAfterRead\(/.test(getBody), 'KvStorage.get 未过解密变换');
 });
 

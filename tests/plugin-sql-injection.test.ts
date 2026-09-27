@@ -39,11 +39,7 @@ test('M-6：VACUUM INTO 的注释/空白绕过写法一律被拦下', () => {
     'VACUUM/**//**/INTO x',
   ];
   for (const sql of payloads) {
-    assert.equal(
-      findBlockedSqlKeyword(sql),
-      'vacuum',
-      `未拦下：${JSON.stringify(sql)}`,
-    );
+    assert.equal(findBlockedSqlKeyword(sql), 'vacuum', `未拦下：${JSON.stringify(sql)}`);
   }
 });
 
