@@ -535,12 +535,12 @@ jobs:
         # v1.2.4 线上事故后新增：安装包装完主进程启动即崩
         # （TypeError: <minified> is not a function），但 CI 当时全绿 ——
         # 因为没有任何一步真的「启动」过主进程，只校验了产物存在。
-        # 本步骤在打包完成后，用 xvfb（Linux）真启动一次打包产物，
-        # 断言主进程能走到 ready 而不是在模块求值阶段抛错。
+        #
+        # 本步骤不依赖 GUI/xvfb：它用 stub 替换 `electron` 后 require 主进程
+        # bundle，断言「模块顶层求值阶段」不抛错 —— 事故正是发生在那里。
+        # 同时校验主进程为单文件（多 chunk 是崩溃的构建侧特征）。
         shell: bash
-        run: |
-          set -e
-          node scripts/smoke-main-bundle.cjs
+        run: node scripts/smoke-main-bundle.cjs
 
       - name: Create Arch Linux package alias
         if: runner.os == 'Linux'
