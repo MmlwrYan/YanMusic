@@ -174,7 +174,8 @@ const electronStub = {
 };
 
 const originalLoad = Module._load;
-Module._load = function patchedLoad(request, parent, isMain) {
+// 未使用的形参以下划线前缀命名，符合仓库的 eslint 约定（argsIgnorePattern: '^_'）
+Module._load = function patchedLoad(request, _parent, _isMain) {
   if (request === 'electron') return electronStub;
   return originalLoad.apply(this, arguments);
 };
