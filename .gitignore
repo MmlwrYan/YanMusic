@@ -56,3 +56,6 @@ docs/agent/
 # 注：原 dev-notes/ 已于 2026-09-27 合并入 docs/agent/<版本>/ 并撤销本目录。
 # 保留此规则以防将来临时新建本地草稿目录（需再入库时请放到 docs/agent/<版本>/ 下）。
 dev-notes/
+
+# AI 助手（WorkBuddy）的会话与记忆目录，属本地开发留痕，不入库
+.workbuddy/

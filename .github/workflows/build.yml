@@ -670,6 +670,11 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
+          # 显式设置标题，与项目约定一致（`YanMusic vX.Y.Z Release`）。
+          # 此前未设置，GitHub 默认以 tag 名作标题，导致每次发布后都要手工
+          # `gh release edit --title`（见 docs/release-process.md §6）。
+          # 这里直接用 ref_name 拼出目标标题，消除该手工步骤。
+          name: YanMusic ${{ github.ref_name }} Release
           files: release-artifacts/**
           body: ${{ steps.changelog.outputs.BODY }}
           draft: false

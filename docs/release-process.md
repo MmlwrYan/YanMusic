@@ -72,7 +72,7 @@ git ls-remote --tags origin | Select-String vX.Y.Z
 
 > **禁止删除已推送的 tag。** tag 一旦推送即不可移动；若该版本构建失败，按第 7 节处理。
 
-## 6. 等待 Release 并**手工修正标题**
+## 6. 等待 Release 并校验标题
 
 推送 tag 会触发完整构建 → `Publish Release Assets` → 自动创建 Release。
 
@@ -82,17 +82,18 @@ gh run view <RUN_ID> --json status,conclusion
 gh release view vX.Y.Z --json name,tagName,isDraft,isPrerelease,url
 ```
 
-**必做：修正 Release 标题。** `.github/workflows/build.yml` 的发布步骤（`softprops/action-gh-release`）未设置 `name:`，
-GitHub 会默认以 **tag 名**（如 `vX.Y.Z`）作为 Release 标题，而本项目的约定是 `YanMusic vX.Y.Z Release`：
+**校验 Release 标题。** `.github/workflows/build.yml` 的发布步骤（`softprops/action-gh-release`）
+自 v1.2.4 起已显式设置
+`name: YanMusic ${{ github.ref_name }} Release`，因此 Release 标题会自动符合
+本项目约定（`YanMusic vX.Y.Z Release`），**不再需要手工修正**：
 
 ```powershell
-gh release edit vX.Y.Z --title "YanMusic vX.Y.Z Release"
-gh release view vX.Y.Z --json name,tagName --jq '.name'
+gh release view vX.Y.Z --json name --jq '.name'   # 期望输出：YanMusic vX.Y.Z Release
 ```
 
-> 为什么不直接改工作流：`release` job 受 `if: startsWith(github.ref, 'refs/tags/')` 守卫，
-> **无法用 `workflow_dispatch` 干跑验证**；在主仓创建测试 tag 会触发一次真实的全平台构建并生成 Release。
-> 因此该改动需要先有可验证的路径（fork 演练或经授权的测试 tag）才能安全落地。
+> 历史背景：v1.2.4 之前该步骤未设置 `name:`，GitHub 默认以 tag 名（`vX.Y.Z`）作标题，
+> 导致每次发布后都要手工 `gh release edit --title`。该手工步骤已在 v1.2.4 消除。
+> 此改动属**纯声明式**（标题由 tag 名确定性推导），故无需 fork 演练即可安全落地。
 
 ## 7. 发布后自检
 
