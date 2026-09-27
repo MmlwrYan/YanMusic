@@ -17,6 +17,7 @@ import {
 import { getActiveWindowMode, setActiveWindowMode } from './windowMode';
 import { isPluginRendererGoneFailureReason, reportPluginRendererFailure } from './plugins';
 import { ipcRegistry } from './ipc/registry';
+import { registerWindowKind } from './ipc/permissions';
 import { applyWindowAppIcon, resolveWindowIconPath } from './appIcons';
 import { logMainMemory } from './diagnostics/memory';
 
@@ -405,6 +406,10 @@ export async function createWindow() {
     },
   });
   await logMainMemory('createWindow:after BrowserWindow');
+
+  // M-1：登记本窗口的 webContents 类型，供 IPC 白名单做权威判定
+  // （主窗口与 mini 播放器共用 index.html，仅凭 URL 无法区分）。
+  registerWindowKind(win.webContents, 'main');
 
   applyWindowAppIcon(win);
   await logMainMemory('createWindow:after window icon');

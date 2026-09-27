@@ -13,8 +13,10 @@ import {
   IPC_VIOLATION_LOG_FILENAME,
   isStrictModeEnabled,
   observeIpcCall,
+  registerWindowKind,
   resetIpcPermissionObservation,
   scopeForChannel,
+  unregisterWindowKind,
 } from '../src/main/ipc/permissions.ts';
 
 /**
@@ -227,5 +229,103 @@ test('如实记录本轮未覆盖的通道：在 ipcRegistry 之外直连注册�
   assert.ok(
     permissions.includes('EXTERNALLY_REGISTERED_CHANNELS'),
     '未覆盖清单必须写进模块（作为 v1.3.0 的前置条件）',
+  );
+});
+
+/**
+ * M-1 修复守卫（v1.2.4）：用 `webContents.id` 登记表消除「无法区分窗口」的结构性障碍。
+ *
+ * 修复前的结论是「index.html 必然 ambiguous，因为 mini 播放器与主窗口同 bundle」。
+ * 但窗口由主进程创建，类型是**已知事实**。登记后，判定不再依赖 URL 猜测：
+ *   - 主窗口的 index.html → 确定 = main
+ *   - mini 播放器的 index.html → 确定 = mini-player
+ * 于是「白名单对这个维度永远失效」的结论被推翻 —— 两个结构性障碍都不再是障碍。
+ */
+test('M-1：登记 webContents 后 index.html 不再 ambiguous（主窗口与 mini 可区分）', () => {
+  resetIpcPermissionObservation();
+
+  // 未登记时：沿用旧行为（ambiguous）
+  const before = classifySender(INDEX, 999);
+  assert.equal(before.ambiguous, true, '未登记的 index.html 仍应按 URL 推断为 ambiguous');
+  assert.equal(before.via, 'url');
+
+  // 登记主窗口
+  registerWindowKind({ id: 101 }, 'main');
+  const asMain = classifySender(INDEX, 101);
+  assert.equal(asMain.ambiguous, false, '登记后应变为确定');
+  assert.equal(asMain.via, 'registry');
+  assert.deepEqual(asMain.kinds, ['main']);
+
+  // 登记 mini 播放器（同一个 URL！）
+  registerWindowKind({ id: 102 }, 'mini-player');
+  const asMini = classifySender(INDEX, 102);
+  assert.equal(asMini.ambiguous, false, 'mini 播放器也应是确定的');
+  assert.deepEqual(asMini.kinds, ['mini-player']);
+
+  // 同一个 URL、两个 id → 得到两个不同结论：这就是修复的核心证据
+  assert.notDeepEqual(asMain.kinds, asMini.kinds);
+
+  resetIpcPermissionObservation();
+});
+
+test('M-1：登记表优先于 URL 推断（URL 说 lyric、登记说 main 时以登记为准）', () => {
+  resetIpcPermissionObservation();
+  registerWindowKind({ id: 201 }, 'main');
+  const result = classifySender(LYRIC, 201);
+  assert.equal(result.via, 'registry');
+  assert.deepEqual(result.kinds, ['main']);
+
+  // 注销后回退到 URL 推断
+  unregisterWindowKind(201);
+  const fallback = classifySender(LYRIC, 201);
+  assert.equal(fallback.via, 'url');
+  assert.deepEqual(fallback.kinds, ['desktop-lyric']);
+
+  resetIpcPermissionObservation();
+});
+
+test('M-1：作用是「让判定变准」，而不是「立刻拒绝」——默认仍不得拒绝', () => {
+  resetIpcPermissionObservation();
+
+  // 桌面歌词窗口（确定类型）调用只属于主窗口的通道 → allowed=false（判定准确了）
+  registerWindowKind({ id: 301 }, 'desktop-lyric');
+  const decision = evaluateIpcCall('app:get-info', 'file:///C:/dist/desktop-lyric.html', 301);
+  assert.equal(decision.ambiguous, false);
+  assert.equal(decision.allowed, false, '确定类型且不在作用域内 → allowed=false');
+
+  // 但默认（非严格模式）下仍然必须**放行** —— 本轮红线不变
+  const observed = observeIpcCall({
+    channel: 'app:get-info',
+    url: 'file:///C:/dist/desktop-lyric.html',
+    webContentsId: 301,
+  });
+  assert.equal(observed.allowed, false);
+  assert.equal(observed.rejected, false, '默认配置下不得拒绝任何调用');
+  assert.equal(isStrictModeEnabled(), false);
+
+  resetIpcPermissionObservation();
+});
+
+test('M-1：四个窗口创建点都必须登记自己的类型（防止漏接导致回退到 URL 猜测）', () => {
+  const sites: Array<[string, string]> = [
+    ['src/main/window.ts', 'main'],
+    ['src/main/desktopLyric/window.ts', 'desktop-lyric'],
+    ['src/main/pluginWindows.ts', 'plugin-window'],
+    ['src/main/miniPlayer.ts', 'mini-player'],
+  ];
+  for (const [file, kind] of sites) {
+    const source = read(file);
+    assert.ok(
+      new RegExp(`registerWindowKind\\([^,]+,\\s*'${kind}'\\s*\\)`).test(source),
+      `${file} 未登记窗口类型 '${kind}'`,
+    );
+  }
+});
+
+test('M-1：登记表必须在 webContents 销毁时自动注销（防 id 复用误判）', () => {
+  const permissions = read('src/main/ipc/permissions.ts');
+  assert.ok(
+    /once\(\s*'destroyed'/.test(permissions),
+    'registerWindowKind 未挂 destroyed 事件 —— id 复用后可能把新窗口误判为旧类型',
   );
 });

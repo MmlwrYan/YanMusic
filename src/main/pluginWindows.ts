@@ -1,4 +1,5 @@
 import { ipcRegistry } from './ipc/registry';
+import { registerWindowKind } from './ipc/permissions';
 import { BrowserWindow, app, screen } from 'electron';
 import { join } from 'path';
 import type {
@@ -271,6 +272,9 @@ const createPluginWindow = async (
       partition: `persist:plugin-window-${descriptor.pluginId}-${descriptor.id}`,
     },
   });
+
+  // M-1：登记本窗口的 webContents 类型，供 IPC 白名单做权威判定。
+  registerWindowKind(win.webContents, 'plugin-window');
 
   const record: PluginWindowRecord = {
     pluginId: descriptor.pluginId,

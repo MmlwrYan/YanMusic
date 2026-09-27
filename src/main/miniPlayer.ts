@@ -10,6 +10,7 @@ import type {
 import { MINI_PLAYER_DIMENSIONS } from '../shared/mini-player';
 import { getMainWindow, hideMainWindow, showMainWindow } from './window';
 import { getActiveWindowMode, setActiveWindowMode } from './windowMode';
+import { registerWindowKind } from './ipc/permissions';
 import { getMainAppSettings, setMainAppSetting } from './storage/settings';
 
 const MINI_PLAYER_WIDTH = MINI_PLAYER_DIMENSIONS.width;
@@ -508,6 +509,11 @@ export const ensureMiniPlayerWindow = async () => {
   });
 
   miniPlayerWindow = win;
+
+  // M-1：登记本窗口的 webContents 类型，供 IPC 白名单做权威判定。
+  // mini 播放器与主窗口加载同一份 index.html，仅凭 URL 无法区分 —— 这里补上事实。
+  registerWindowKind(win.webContents, 'mini-player');
+
   miniPlayerWindowUsesPanel = shouldUseMiniPlayerPanel();
   miniPlayerExpanded = false;
   miniPlayerExpandDirection = 'down';

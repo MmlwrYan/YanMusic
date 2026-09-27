@@ -1,6 +1,6 @@
 import { app } from 'electron';
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'fs';
-import { join } from 'path';
+import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync } from 'fs';
+import { join, resolve } from 'path';
 import type {
   EchoPluginDescriptor,
   PluginSqliteCloseResult,
@@ -18,6 +18,8 @@ import type {
   PluginSqliteStatement,
 } from '../shared/plugins';
 import { getNativeStorage } from './storage/native';
+import { findBlockedSqlKeyword } from '../shared/pluginSqlSafety';
+import { isPathInsideRoot } from '../shared/pathBoundary';
 import log from './logger';
 
 const PLUGIN_SQLITE_ROOT = 'plugin-sqlite';
@@ -30,8 +32,9 @@ const MAX_TRANSACTION_STATEMENTS = 500;
 const MAX_RESULT_JSON_BYTES = 8 * 1024 * 1024;
 const MAX_BLOB_PARAM_BYTES = 8 * 1024 * 1024;
 const DATABASE_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
-const BLOCKED_SQL_RE =
-  /\b(?:ATTACH|DETACH)\b|\bVACUUM\s+INTO\b|\bload_extension\s*\(|\bPRAGMA\s+database_list\b/i;
+
+// SQL 危险语句拦截已抽到 shared/pluginSqlSafety.ts（纯函数、可在 node --test 下单测）。
+// 详见该文件头部的 M-6 修复说明。
 const HEX_RE = /^[0-9a-fA-F]*$/;
 const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
@@ -52,14 +55,55 @@ const normalizeDatabaseName = (name?: string) => {
       'SQLite 数据库名只能包含字母、数字、点、下划线和短横线，且必须以字母或数字开头',
     );
   }
+  // L-4（v1.2.4）：显式拒绝 `..`。原正则允许点号但未禁止连续点，
+  // 虽因「首字符必须是字母数字」尚未构造出确定的越界输入，但纵深防御上应收紧：
+  // 只要不出现 `..`，`join(root, name + '.sqlite')` 就绝无跳出根目录的可能。
+  if (normalized.includes('..')) {
+    throw new Error('SQLite 数据库名不得包含连续的 ".."');
+  }
   return normalized;
 };
 
 const getPluginSqliteRoot = (pluginId: string) =>
   join(app.getPath('userData'), PLUGIN_SQLITE_ROOT, pluginId);
 
-const getDatabasePath = (pluginId: string, name: string) =>
-  join(getPluginSqliteRoot(pluginId), `${name}.sqlite`);
+/**
+ * M-5 修复（v1.2.4）：纵深防御 —— 打开的数据库路径必须**落在插件自己的根目录内**。
+ *
+ * 现状与风险（审计发现 M-5）：原生层 `plugin_sqlite_open(database_id, database_path, …)`
+ * 直接 `Connection::open_with_flags(database_path, …)`，**不校验路径**；当前之所以安全，
+ * 全靠本文件用已消毒的库名（`DATABASE_NAME_RE`）拼出 `join(root, name + '.sqlite')`。
+ * 也就是说**越权防护 100% 在 JS 层**，一旦多出第二条调用路径、或该 addon 被别的
+ * 项目复用，原生层会无条件打开任意路径的 SQLite 文件。
+ *
+ * 这里补一道**显式的边界断言**（纵深防御，不是替代原生层修复）：
+ *   - 解析后的绝对路径必须仍以插件根目录为前缀；
+ *   - 并且不得借符号链接跳出（对本目录内已存在的文件做 realpath 比对）。
+ * 原生层的 `sqlite3_set_authorizer` 白名单授权是彻底方案，已记入报告 M-5 的后续事项
+ *（需改 Rust 并重编 4 平台产物，不在本补丁版本范围内）。
+ */
+const assertDatabasePathInsideRoot = (pluginId: string, databasePath: string) => {
+  const root = resolve(getPluginSqliteRoot(pluginId));
+  if (!isPathInsideRoot(root, resolve(databasePath))) {
+    throw new Error('SQLite 数据库路径超出插件目录');
+  }
+
+  // 对已存在的路径再做一次 realpath 比对，避免符号链接把落点引到根目录之外。
+  const resolved = resolve(databasePath);
+  if (existsSync(resolved)) {
+    const real = realpathSync(resolved);
+    const realRoot = existsSync(root) ? realpathSync(root) : root;
+    if (!isPathInsideRoot(realRoot, real)) {
+      throw new Error('SQLite 数据库路径经链接指向插件目录之外');
+    }
+  }
+};
+
+const getDatabasePath = (pluginId: string, name: string) => {
+  const databasePath = join(getPluginSqliteRoot(pluginId), `${name}.sqlite`);
+  assertDatabasePathInsideRoot(pluginId, databasePath);
+  return databasePath;
+};
 
 const getDatabaseId = (pluginId: string, name: string) => `${pluginId}:${name}`;
 
@@ -75,8 +119,11 @@ const validateSql = (sql: string) => {
   const value = String(sql || '');
   if (!value.trim()) throw new Error('SQLite SQL 不能为空');
   if (value.length > MAX_SQL_LENGTH) throw new Error('SQLite SQL 过长');
-  if (BLOCKED_SQL_RE.test(value)) {
-    throw new Error('SQLite SQL 包含不允许的语句');
+
+  // 归一化后再判定：注释与引号已被剥除，任何拆分写法都会还原成独立关键字。
+  const blocked = findBlockedSqlKeyword(value);
+  if (blocked) {
+    throw new Error(`SQLite SQL 包含不允许的语句（${blocked.toUpperCase()}）`);
   }
   return value;
 };

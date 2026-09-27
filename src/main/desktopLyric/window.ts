@@ -7,6 +7,7 @@ import {
   persistDesktopLyricWindowState,
   resolveInitialBounds,
 } from './store';
+import { registerWindowKind } from '../ipc/permissions';
 
 const getBackgroundColor = () => '#00000000';
 const desktopLyricUrl = process.env.VITE_DEV_SERVER_URL;
@@ -187,6 +188,9 @@ export const createDesktopLyricWindow = () => {
   });
 
   desktopLyricWindow = win;
+
+  // M-1：登记本窗口的 webContents 类型，供 IPC 白名单做权威判定。
+  registerWindowKind(win.webContents, 'desktop-lyric');
 
   win.once('ready-to-show', () => {
     // 只有在内容准备就绪后才显示，避免灰色/黑色闪烁

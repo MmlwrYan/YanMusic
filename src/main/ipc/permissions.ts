@@ -28,6 +28,50 @@ import path from 'node:path';
 
 export type WindowKind = 'main' | 'desktop-lyric' | 'mini-player' | 'plugin-window';
 
+/**
+ * M-1 修复（v1.2.4）：用 `webContents.id` 作为窗口身份的**权威来源**。
+ *
+ * 修复前的两个结构性障碍（见文件头）都源于「只靠 URL 猜窗口类型」：
+ *   1. 4 类窗口共用同一份 preload；
+ *   2. mini 播放器加载的就是 `dist/index.html`，与主窗口同 bundle。
+ * 因此 `index.html` 一律被判为 `ambiguous: true` → 永远放行，白名单对这个维度失效。
+ *
+ * 但窗口是**主进程自己创建的**，创建时就确切知道它属于哪一类。把这个事实登记下来，
+ * 判定时优先查表，就能在不拆 bundle、不拆 preload 的前提下得到确定结论 ——
+ * 两个「结构性障碍」随即消失。
+ *
+ * 登记时机：各窗口在 `new BrowserWindow(...)` 之后立即调用 `registerWindowKind`。
+ * 注销时机：`webContents` 的 `destroyed` 事件（在 registerWindowKind 内自动挂载）。
+ */
+const windowKinds = new Map<number, WindowKind>();
+
+/**
+ * 登记某个 webContents 的窗口类型（主进程创建窗口后调用）。
+ * 返回一个注销函数；同时自动挂到 `destroyed` 上，避免 id 复用造成误判。
+ */
+export const registerWindowKind = (webContents: { id: number; once?: Function }, kind: WindowKind): void => {
+  windowKinds.set(webContents.id, kind);
+  const dispose = () => windowKinds.delete(webContents.id);
+  // 仅在有 once 的完整 Electron webContents 上挂事件（测试里传入的是最小 stub）
+  if (typeof webContents.once === 'function') {
+    webContents.once('destroyed', dispose);
+  }
+};
+
+/** 注销（`destroyed` 之外也可手动调用） */
+export const unregisterWindowKind = (webContentsId: number): void => {
+  windowKinds.delete(webContentsId);
+};
+
+/** 查询已登记的窗口类型；未登记返回 null（回退到 URL 判定） */
+export const windowKindOf = (webContentsId: unknown): WindowKind | null =>
+  typeof webContentsId === 'number' ? (windowKinds.get(webContentsId) ?? null) : null;
+
+/** 供测试用：清空登记表 */
+export const resetWindowKinds = (): void => {
+  windowKinds.clear();
+};
+
 /** `all` = 不作限制（默认，用于「不确定」的通道） */
 export type ChannelScope = 'all' | readonly WindowKind[];
 
@@ -120,6 +164,8 @@ export interface SenderClassification {
   readonly ambiguous: boolean;
   /** 归一化后的页面名，写进日志便于分析 */
   readonly page: string;
+  /** M-1：判定依据 —— 登记表命中（authoritative）还是 URL 推断（heuristic） */
+  readonly via: 'registry' | 'url';
 }
 
 const pageNameOf = (url: string): string => {
@@ -128,25 +174,41 @@ const pageNameOf = (url: string): string => {
   return match ? match[1] : clean ? '(非页面)' : '(空)';
 };
 
-/**
- * 仅凭发送方 URL 判定窗口类型。
- *
- * 注意：**index.html 必然 ambiguous** —— mini 播放器加载的就是 `dist/index.html`
- * （`miniPlayer.ts:231`），与主窗口同 bundle。这是本观测最重要的结论之一：
- * 在现有结构下，白名单无法仅靠 URL 对主窗口与 mini 播放器做出区分。
- */
-export const classifySender = (url: unknown): SenderClassification => {
-  const text = typeof url === 'string' ? url : '';
-  if (!text) return { kinds: [], ambiguous: true, page: '(空)' };
+/** 四个窗口页面的文件名 → 窗口类型（`index.html` 单独处理，因为它对应两类窗口） */
+const PAGE_KIND: Readonly<Record<string, WindowKind>> = {
+  'desktop-lyric.html': 'desktop-lyric',
+  'plugin-window.html': 'plugin-window',
+};
 
+/**
+ * 判定发送方窗口类型。
+ *
+ * **优先走 `webContentsId` 登记表**（M-1 修复）：窗口是主进程创建的，它确切知道
+ * 类型，这比 URL 推断可靠得多，并且能让 `index.html`（主窗口 vs mini 播放器）
+ * 从 `ambiguous` 变成**确定**。
+ *
+ * 登记表未命中时才回退到 URL 推断 —— 这是**兼容路径**，用于覆盖尚未接入登记
+ * 的非常规发送方（例如未来新增的窗口、或测试注入的 stub）。
+ */
+export const classifySender = (url: unknown, webContentsId?: unknown): SenderClassification => {
+  const text = typeof url === 'string' ? url : '';
   const page = pageNameOf(text);
-  if (page === 'desktop-lyric.html') return { kinds: ['desktop-lyric'], ambiguous: false, page };
-  if (page === 'plugin-window.html') return { kinds: ['plugin-window'], ambiguous: false, page };
+
+  // ① 登记表命中：权威判定，永不 ambiguous
+  const registered = windowKindOf(webContentsId);
+  if (registered) {
+    return { kinds: [registered], ambiguous: false, page, via: 'registry' };
+  }
+
+  // ② 回退：URL 推断
+  if (!text) return { kinds: [], ambiguous: true, page: '(空)', via: 'url' };
+  const direct = PAGE_KIND[page];
+  if (direct) return { kinds: [direct], ambiguous: false, page, via: 'url' };
   if (page === 'index.html') {
-    return { kinds: ['main', 'mini-player'], ambiguous: true, page };
+    return { kinds: ['main', 'mini-player'], ambiguous: true, page, via: 'url' };
   }
   // 未知页面（例如未来的新窗口、或异常导航）：无法判定 → 视为不确定
-  return { kinds: [], ambiguous: true, page };
+  return { kinds: [], ambiguous: true, page, via: 'url' };
 };
 
 export interface IpcCallDecision {
@@ -155,23 +217,37 @@ export interface IpcCallDecision {
   readonly kinds: readonly WindowKind[];
   readonly scope: ChannelScope;
   readonly ambiguous: boolean;
+  /** 判定依据来源（registry = 权威，url = 推断） */
+  readonly via: 'registry' | 'url';
   /** false 仅当调用方窗口类型**可确定**且不在作用域内 */
   readonly allowed: boolean;
 }
 
 /** 纯判定：不写日志、不抛错。 */
-export const evaluateIpcCall = (channel: string, url: unknown): IpcCallDecision => {
+export const evaluateIpcCall = (
+  channel: string,
+  url: unknown,
+  webContentsId?: unknown,
+): IpcCallDecision => {
   const scope = scopeForChannel(channel);
-  const { kinds, ambiguous, page } = classifySender(url);
+  const { kinds, ambiguous, page, via } = classifySender(url, webContentsId);
 
   if (scope === 'all') {
-    return { channel, page, kinds, scope, ambiguous, allowed: true };
+    return { channel, page, kinds, scope, ambiguous, via, allowed: true };
   }
   // 无法确定窗口类型时一律放行：宁可漏标不可误标
   if (ambiguous) {
-    return { channel, page, kinds, scope, ambiguous, allowed: true };
+    return { channel, page, kinds, scope, ambiguous, via, allowed: true };
   }
-  return { channel, page, kinds, scope, ambiguous, allowed: kinds.some((k) => scope.includes(k)) };
+  return {
+    channel,
+    page,
+    kinds,
+    scope,
+    ambiguous,
+    via,
+    allowed: kinds.some((k) => scope.includes(k)),
+  };
 };
 
 /** 严格模式开关（默认关闭）。仅认显式的真值，避免 "0"/"false" 被误判为开启。 */
@@ -228,7 +304,7 @@ export interface ObserveResult extends IpcCallDecision {
  * 汇总记录 —— 避免高频通道（如 storage:kv:get）把日志刷爆，同时保留完整计数。
  */
 export const observeIpcCall = ({ channel, url, webContentsId }: ObservedIpcCall): ObserveResult => {
-  const decision = evaluateIpcCall(channel, url);
+  const decision = evaluateIpcCall(channel, url, webContentsId);
   const strict = isStrictModeEnabled();
   const rejected = strict && !decision.allowed;
   const occurrences = decision.allowed ? 0 : bumpCounter(decision);
@@ -245,6 +321,7 @@ export const observeIpcCall = ({ channel, url, webContentsId }: ObservedIpcCall)
         kinds: decision.kinds,
         scope: decision.scope,
         ambiguous: decision.ambiguous,
+        via: decision.via,
         webContentsId: typeof webContentsId === 'number' ? webContentsId : -1,
         occurrences,
         strictMode: strict,
@@ -273,6 +350,7 @@ const bumpCounter = (decision: IpcCallDecision): number => {
 export const resetIpcPermissionObservation = (): void => {
   violationCounters.clear();
   logDirectory = null;
+  windowKinds.clear();
 };
 
 /** 本轮**未被观测覆盖**的通道（在 ipcRegistry 之外直连注册）。 */

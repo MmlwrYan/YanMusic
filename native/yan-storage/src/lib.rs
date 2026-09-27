@@ -1421,6 +1421,11 @@ pub fn plugin_sqlite_open(
     database_path: String,
     options_json: Option<String>,
 ) -> NativeResult<String> {
+    // SECURITY (M-5, 见 docs/agent/v1.2.4/…)：本函数接受任意 database_path 并直接打开，
+    // **原生层不做路径校验**。当前的越权防护完全由调用方 (src/main/pluginSqlite.ts)
+    // 用消毒后的库名拼接路径 + 边界断言保证 —— 属纵深防御缺口。
+    // 彻底修复应在原生层用 sqlite3_set_authorizer 做白名单授权，并在此处再判一次
+    // 「路径必须落在允许根之内」。该改动需改 Rust 并重编 4 平台产物，待后续版本处理。
     let options = match options_json {
         Some(value) if !value.trim().is_empty() => parse_payload(&value)?,
         _ => Map::new(),
