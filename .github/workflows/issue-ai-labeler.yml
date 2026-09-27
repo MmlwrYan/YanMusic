@@ -14,12 +14,18 @@ jobs:
         id: ai_judge
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # SECURITY: 标题与正文来自外部用户，属不可信输入。
+          # 一律只经 env 传入，**绝不**在 run: 脚本里做 `${{ }}` 插值 ——
+          # 否则注入内容可闭合下面的引号并执行任意 shell 命令（见 CHANGELOG v1.2.4）。
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
           sudo apt-get install -y jq
 
-          PROMPT="你是一个开源项目的 Issue 审核助手。请根据以下标准判定 Issue 是否【合规】：
+          # 用 printf 把「固定提示词」与「不可信内容」分开拼接：
+          # 不可信内容始终以 $VAR 形式展开为**数据**，不会被 shell 解析成代码。
+          PROMPT=$(printf '%s\n标题：%s\n正文：%s' \
+            '你是一个开源项目的 Issue 审核助手。请根据以下标准判定 Issue 是否【合规】：
 
           1. 结构完整性：
             - 如果是 Bug 报告，必须包含：【问题描述】、【复现步骤】和【环境信息】。
@@ -31,10 +37,9 @@ jobs:
 
           不合规返回：INVALID
           合规返回：VALID
-          严禁返回其他文字。
-
-          标题：$ISSUE_TITLE
-          正文：$ISSUE_BODY"
+          严禁返回其他文字。' \
+            "$ISSUE_TITLE" \
+            "$ISSUE_BODY")
 
           # 构造请求
           JSON=$(jq -n \
@@ -61,9 +66,25 @@ jobs:
           echo "AI 返回原始内容：$RESPONSE"
 
           # 提取结果
-          RESULT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' | xargs 2>/dev/null)
-          echo "AI 判定结果：$RESULT"
-          echo "response=$RESULT" >> $GITHUB_OUTPUT
+          RESULT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' 2>/dev/null | tr -d '\r' | xargs 2>/dev/null)
+
+          # SECURITY（H-1，v1.2.4）：把结果**归一化**为严格枚举后再写出。
+          # 不加这一步时，AI 返回的任意多行文本会经 `echo "response=$RESULT" >> $GITHUB_OUTPUT`
+          # 写入 —— 值里的换行会在 output 文件里**伪造出新的键**（CWE-93/74）。
+          # 详见 CHANGELOG v1.2.4 与 tests/ci-supply-chain.test.ts 的守卫用例。
+          case "$RESULT" in
+            INVALID) VERDICT=INVALID ;;
+            VALID)   VERDICT=VALID   ;;
+            *)       VERDICT=UNKNOWN ;;
+          esac
+          echo "AI 判定结果：$VERDICT"
+
+          # 用 heredoc 定界符写入，值即使含换行也只会被当作单条值的内容（GitHub 官方推荐写法）
+          {
+            echo "response<<__YAN_EOF__"
+            echo "$VERDICT"
+            echo "__YAN_EOF__"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Add Invalid Label
         if: contains(steps.ai_judge.outputs.response, 'INVALID')
