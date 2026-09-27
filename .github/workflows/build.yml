@@ -531,6 +531,17 @@ jobs:
           pnpm exec vue-tsc --noEmit && pnpm exec vite build
           pnpm exec electron-builder ${{ matrix.electron_builder_args }} --publish never
 
+      - name: Smoke test main process bundle
+        # v1.2.4 线上事故后新增：安装包装完主进程启动即崩
+        # （TypeError: <minified> is not a function），但 CI 当时全绿 ——
+        # 因为没有任何一步真的「启动」过主进程，只校验了产物存在。
+        # 本步骤在打包完成后，用 xvfb（Linux）真启动一次打包产物，
+        # 断言主进程能走到 ready 而不是在模块求值阶段抛错。
+        shell: bash
+        run: |
+          set -e
+          node scripts/smoke-main-bundle.cjs
+
       - name: Create Arch Linux package alias
         if: runner.os == 'Linux'
         shell: bash

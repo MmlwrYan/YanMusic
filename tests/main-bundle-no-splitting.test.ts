@@ -116,3 +116,24 @@ test('D：主进程产物中不得残留顶层跨模块立即调用', () => {
       '可能又变回了顶层立即调用（会触发启动崩溃）',
   );
 });
+
+/**
+ * E. 冒烟脚本必须存在 —— 它是 v1.2.4 事故后补的「真启动一次」防线。
+ * CI 在 `Build desktop app` 之后调用它；缺了它就等于回到「只看产物存在」的旧状态。
+ */
+test('E：主进程冒烟脚本存在且已接入 CI', () => {
+  const smokePath = path.join(repoRoot, 'scripts', 'smoke-main-bundle.cjs');
+  assert.ok(existsSync(smokePath), 'scripts/smoke-main-bundle.cjs 缺失 —— 启动崩溃防线被移除了');
+
+  const smoke = readFileSync(smokePath, 'utf8');
+  assert.ok(
+    smoke.includes('code splitting') || smoke.includes('extraChunks'),
+    '冒烟脚本缺少「禁止 code splitting」的结构断言',
+  );
+
+  const workflow = read(' .github/workflows/build.yml'.trim());
+  assert.ok(
+    workflow.includes('smoke-main-bundle.cjs'),
+    'build.yml 未调用主进程冒烟脚本 —— CI 不会真的验证主进程能否启动',
+  );
+});
