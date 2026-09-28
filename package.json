@@ -48,7 +48,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@types/dompurify": "^3.2.0",
-    "@types/node": "^25.9.1",
+    "@types/node": "^26.6.2",
     "@types/semver": "^7.7.1",
     "@types/sortablejs": "^1.15.9",
     "@typescript-eslint/eslint-plugin": "^8.70.1",
