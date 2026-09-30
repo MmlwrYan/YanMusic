@@ -15,6 +15,33 @@
   - **不敏感的键一律放行**，保持既有行为（否则会打断所有窗口的 `sqlitePersist`）。
   - 回退：删除 `storage.ts` 中三处 `evaluateSensitiveKvAccess` 判定与 `reset-all` 的窗口判定即可（不推荐）。
 
+- **歌词漂移与换句闪回（两个独立缺陷，均已修复）**
+
+  - **桌面歌词「固定慢一点」** —— `desktopLyric/DesktopLyricView.vue` 的锚点同步把**两个不同时钟相减**：
+
+    ```ts
+    const ipcDelay = performance.now() - (state.updatedAt || performance.now());
+    //                 ↑ 相对时钟（页面加载后毫秒，约 122）   ↑ 绝对时钟（Unix epoch 毫秒，约 1.79e12）
+    ```
+
+    `state.updatedAt` 的来源链全程是 `Date.now()`（`MiniPlayerView.vue` 赋 `Date.now()` →
+    `main/nowPlaying.ts` 原样透传 → 桌面歌词快照），因此两者相差约 **−1.79e12 ms**，
+    使 `ipcDelay > 0 && ipcDelay < 1000` **恒为假**，**补偿分支自引入以来从未执行过一次**。
+    主进程 `time-update` 的 200ms 节流滞后因此完全没有被抵消。
+    **修复**：改用同源时钟 `Date.now() - state.updatedAt`。（实测：修复前 `ipcDelay = −1.791e+12`，正确写法应为 0–200ms 量级。）
+
+  - **换句时「先到下一句、又闪回、再到下一句」** —— `views/lyric/composables/useLyricScroll.ts` 的自动跟随
+    使用了 `behavior: 'smooth'`（原条件为 `previous !== -1`）。平滑滚动的动画时长与换句间隔同量级，于是：
+    索引已在下一句、动画还在从上一句滑过去（视觉滞后）；期间带 `+100ms` 提前量的
+    `scrollIndex` 又把滚动目标推向下一句，**两个滚动目标互相打断**。
+    **修复**：自动跟随换句改为**瞬时定位**（`scrollToLine(index, false, …)`），
+    歌词位置与音频同帧对齐；`smooth` 仅保留给「用户滚轮结束后恢复自动跟随」一处。
+
+  - 回退：两处均为独立小改动 —— 将 `Date.now()` 改回 `performance.now()`、
+    将 `scrollToLine` 第二参改回 `previous !== -1` 即恢复原行为（不推荐）。
+  - 说明：以上为**代码层确证**（含时钟量级实证）。**运行时滚动观感仍需人工会话复核**，
+    见下方「说明」段的未验证项。
+
 ### 新增
 
 - **敏感键访问守卫用例**（`tests/sensitive-kv-access.test.ts`，7 例）：锁定「插件窗口被拒」「三类必要窗口放行」「不敏感键放行」「未登记 fail-closed」「注销后回到拒绝」等行为。已做**鉴别力验证**：临时短路允许集合判断后，**2 个核心用例如期变红**，撤销后恢复全绿。
@@ -42,8 +69,12 @@
 - **未做的验证（需要人工交互会话，本机为无头自动化环境）**：
   1. 评论 ≥200 条时滚动 30 秒的 DevTools Performance 前/后对比；
   2. 图片懒加载的 Network 面板复核（「初始只加载可视区图片」）；
-  3. `backgroundThrottling` 最小化后的任务管理器 CPU 对比。
-  **以上三项均只完成了代码改动与自动化验证（类型 / 单测 / 构建 / lint），未做运行时实测。**
+  3. `backgroundThrottling` 最小化后的任务管理器 CPU 对比；
+  4. **歌词修复的运行时观感复核**：桌面歌词是否不再「固定慢一点」、换句是否不再「闪回」。
+     两处修复均为**代码层确证**（时钟混用已用真实数值实证：`ipcDelay = −1.791e+12`，
+     正确同源写法应为 0–200ms 量级；`smooth` 滚动与 `+100ms` 提前量的目标冲突为静态可读的代码事实），
+     但**滚动动画的最终观感仍需在真实界面确认**。
+  **以上四项均只完成了代码改动与自动化验证（类型 / 单测 / 构建 / lint），未做运行时实测。**
 - **本版未纳入的项及原因**：
   - **插件运行时懒加载（原 P1-3）**：实施中发现原方案方向有误。`runtime.ts` 的 `ctx.windows` 由**主窗口 / 桌面歌词**的 runtime 装配（`runtime.ts:2518`），而**插件窗口有自己独立的 `buildContext`**（`plugin-window/main.ts:629` / `:690`）。因此「由插件窗口注入工厂」会让主窗口侧直接失败，**已完整回退**。可行的切边需要先确认「主窗口的 `ctx.windows.drag/resize.bind` 是否真的被使用」——属**独立设计问题**，不在本版强行处理。
   - **W-3**（`pinia:device` 存量明文迁移）、**W-18**（`register_event_handler` 补 `take()+join()`）、**M-1**（能力门禁绑定发送方）、**H-1**（插件独立执行上下文）→ **推 v1.2.7**。

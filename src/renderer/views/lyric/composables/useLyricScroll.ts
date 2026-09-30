@@ -169,7 +169,17 @@ export function useLyricScroll(
       // 如果用户正在滚动，不自动跟随
       if (isUserScrolling.value) return;
       await nextTick();
-      scrollToLine(index, previous !== -1, collapsed?.value ?? false);
+      // v1.2.6 修复：自动跟随换句必须用**瞬时滚动**（`smooth = false`）。
+      //
+      // 原实现传 `previous !== -1`，即「非首次定位就用平滑滚动」。但 `behavior: 'smooth'`
+      // 的动画时长与换句间隔同量级，于是出现：
+      //   ① 索引已经在 B 句，平滑滚动动画还在从 A 滑向 B（视觉滞后）；
+      //   ② 期间 `scrollIndex`（带 `LYRIC_SCROLL_LOOKAHEAD_MS = +100ms` 提前量）
+      //      已把滚动目标推向 B，两个滚动目标互相打断；
+      //   ③ 用户看到的就是「先换到 B → 回一下 → 再到 B」。
+      // 改为瞬时定位后，歌词位置与音频同帧对齐；`smooth` 只保留给
+      // 「用户滚轮结束后恢复自动跟随」这一处（见 `handleWheel`），那里动画是合理的。
+      scrollToLine(index, false, collapsed?.value ?? false);
     },
   );
 

@@ -835,7 +835,16 @@ const syncAnchor = (force = false) => {
   if (!state) return;
   lastPlaybackUpdateTick = performance.now();
   const newBaseMs = Math.round((state.currentTime || 0) * 1000);
-  const ipcDelay = performance.now() - (state.updatedAt || performance.now());
+  // 漂移补偿（v1.2.6 修复）：这里**必须用 `Date.now()`**，不能与 `performance.now()` 混用。
+  //
+  // `state.updatedAt` 的来源链：
+  //   `MiniPlayerView.vue` 的 `updatedAt: Date.now()`
+  //   → `main/nowPlaying.ts` 的 `toFiniteNumber(payload.updatedAt, Date.now())`（原样透传）
+  //   → `desktop-lyric:snapshot` → 本文件
+  // 即它是**绝对时间戳（Unix epoch 毫秒）**；而 `performance.now()` 是**相对时间（页面加载后毫秒）**。
+  // 两者相差约 −1.79e12 ms，导致下面的 `ipcDelay > 0 && ipcDelay < 1000` **恒为假**，
+  // 补偿分支从未执行过一次 —— 主进程 200ms 节流带来的滞后因此完全没被抵消。
+  const ipcDelay = Date.now() - (state.updatedAt || Date.now());
   const compensated = ipcDelay > 0 && ipcDelay < 1000 ? newBaseMs + ipcDelay : newBaseMs;
   if (force || Math.abs(compensated - playSeekMsRaw) > SYNC_THRESHOLD) {
     baseMs = compensated;
