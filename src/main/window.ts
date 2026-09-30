@@ -400,7 +400,7 @@ export async function createWindow() {
       spellcheck: false,
       webSecurity: false, // 禁用 CORS 限制
       allowRunningInsecureContent: true, // 允许混合内容
-      backgroundThrottling: false, // 最小化后不节流，保证播放状态和歌词同步
+      backgroundThrottling: true, // v1.2.6：最小化后节流渲染层，降低后台 CPU/耗电（播放与歌词由主进程驱动，不依赖渲染层帧率）
       zoomFactor: 1.0,
       devTools: devToolsEnabled, // 控制是否允许打开开发者工具
     },

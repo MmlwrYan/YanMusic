@@ -71,6 +71,8 @@ const getVersionTitle = (plugin: PluginMarketplacePlugin) => {
           :src="plugin.iconUrl"
           :alt="plugin.name"
           class="plugin-card-icon"
+          loading="lazy"
+          decoding="async"
         />
         <span v-else class="plugin-card-initial">
           {{ getInitial(plugin) }}

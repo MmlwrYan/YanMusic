@@ -314,6 +314,8 @@ defineExpose({
           alt=""
           class="portrait-blur-img"
           :class="{ 'is-visible': visibleBlurLayer === layerIndex }"
+          loading="eager"
+          decoding="async"
         />
         <div v-if="hasVisibleBlur" class="portrait-blur-overlay"></div>
       </div>
@@ -326,6 +328,8 @@ defineExpose({
           :alt="`${currentTrack?.artist || '歌手'}写真`"
           class="portrait-img"
           :class="{ 'is-visible': visiblePortraitLayer === layerIndex }"
+          loading="eager"
+          decoding="async"
         />
       </div>
     </div>

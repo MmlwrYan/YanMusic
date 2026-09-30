@@ -58,6 +58,8 @@ const emit = defineEmits<{
           :src="iconUrl"
           :alt="record.descriptor.name"
           class="plugin-card-icon"
+          loading="lazy"
+          decoding="async"
           @error="emit('icon-error', record.descriptor.id)"
         />
         <span v-else class="plugin-card-initial">

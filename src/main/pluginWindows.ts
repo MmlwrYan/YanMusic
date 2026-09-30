@@ -267,7 +267,7 @@ const createPluginWindow = async (
       sandbox: false,
       webSecurity: false,
       allowRunningInsecureContent: true,
-      backgroundThrottling: false,
+      backgroundThrottling: true, // v1.2.6：最小化后节流
       zoomFactor: 1.0,
       partition: `persist:plugin-window-${descriptor.pluginId}-${descriptor.id}`,
     },

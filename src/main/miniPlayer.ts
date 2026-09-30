@@ -1,4 +1,4 @@
-﻿import { ipcRegistry } from './ipc/registry';
+import { ipcRegistry } from './ipc/registry';
 import { BrowserWindow, app, nativeTheme, screen, shell } from 'electron';
 import { join } from 'path';
 import type {
@@ -503,7 +503,7 @@ export const ensureMiniPlayerWindow = async () => {
       sandbox: false,
       webSecurity: false,
       allowRunningInsecureContent: true,
-      backgroundThrottling: false,
+      backgroundThrottling: true, // v1.2.6：最小化后节流
       zoomFactor: 1.0,
     },
   });

@@ -266,6 +266,8 @@ onUnmounted(() => {
         alt=""
         class="lyric-blur-bg-img"
         :class="{ 'lyric-blur-bg-img--rhythm': isBlurBackgroundRhythmEnabled }"
+        loading="eager"
+        decoding="async"
       />
       <LyricFluidBackground :cover-url="blurCoverUrl" :enabled="isBlurBackgroundRhythmEnabled" />
       <div class="lyric-blur-bg-overlay"></div>

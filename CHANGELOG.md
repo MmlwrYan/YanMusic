@@ -1,3 +1,55 @@
+## [1.2.6]
+
+> 本次为**体验优化 + 安全收口**版本，**不包含新功能**。主题是「**让用户感觉到更快、更顺、更省电**」，因此本版只做**用户可感知**的改动；原先列入的若干项（队列深拷贝、频谱降频、持久化序列化、同步 IO、`deep` watch）因**用户无可感收益**而推迟到 v1.2.7。
+
+### 修复
+
+- **一级 · 凭据读取收口（H-2）**。`storage:kv:*` 的 handler 原本是**裸透传**（`_event` 被丢弃、无任何身份校验），而 `KvStorage.get()` 会**透明解密** —— 因此**任意窗口（含插件窗口）**都能通过通用 IPC 通道读走已解密的登录票据（`pinia:user` 的 `info.token`），也能**覆写 / 删除**它（令牌替换 / 强制登出）。本次按键级收口：
+
+  - 新增 `src/main/ipc/sensitiveKv.ts`（**纯函数策略模块**，无 Electron 依赖，可单测）：
+    - 敏感键：`pinia:user`、`pinia:device`；
+    - 允许的发送方：`main` / `mini-player` / `desktop-lyric`（**三者都安装了 `sqlitePersist`，确实需要读写这些键**）；
+    - **`plugin-window` 被拒绝**（它不安装 pinia/sqlitePersist，本就不该访问）。
+  - **只信 `registerWindowKind` 登记表**：未登记 → 拒绝（fail-closed）。刻意**不**回退到 URL 推断 —— mini 播放器与主窗口加载**同一份 `dist/index.html`**（`miniPlayer.ts:232`），URL 不可区分。
+  - **收口范围含写入面**：`kv:get` / `kv:set` / `kv:delete` 三者同规则；`storage:reset-all` 另限**仅主窗口**——它经 `playbackQueues.ts:82` 调原生的 `resetAll()`，而后者**同时 `DELETE FROM app_kv`**（即清掉凭据）以及播放历史 / 队列 / 歌曲。
+  - **不敏感的键一律放行**，保持既有行为（否则会打断所有窗口的 `sqlitePersist`）。
+  - 回退：删除 `storage.ts` 中三处 `evaluateSensitiveKvAccess` 判定与 `reset-all` 的窗口判定即可（不推荐）。
+
+### 新增
+
+- **敏感键访问守卫用例**（`tests/sensitive-kv-access.test.ts`，7 例）：锁定「插件窗口被拒」「三类必要窗口放行」「不敏感键放行」「未登记 fail-closed」「注销后回到拒绝」等行为。已做**鉴别力验证**：临时短路允许集合判断后，**2 个核心用例如期变红**，撤销后恢复全绿。
+
+### 变更
+
+- **评论列表启用 `content-visibility`**。`CommentList.vue` 的 `.comment-item-wrap` 新增 `content-visibility: auto` + `contain-intrinsic-size: 160px`，视口外评论项跳过 layout / paint，**200 条以上评论滚动更流畅**。
+  - 为什么不用虚拟化：项目自带的 `useVirtualList` 是**固定行高**设计（`useVirtualList.ts:41-47`，总高 = `itemCount × itemSize`），而评论是可变高度（内容折叠 + 楼层回复展开），强行套用会导致**滚动位置错乱**。
+  - 回退：删掉这两行 CSS 即完全恢复（**无 JS、无 DOM 结构改动**）。
+- **图片按需加载**。补全 13 处 `<img>` 中的 10 处：长列表用 `loading="lazy" decoding="async"`（评论头像 ×2、历史封面、插件卡片 ×3、分享页、榜单 logo），**首屏主视觉 3 处用 `loading="eager"`**（歌词页背景 `LyricPage:264`、人像模式 `PortraitMode:309/321`）——首屏图**不可**用 lazy，否则首帧延迟出现。
+  - `ui/Image.vue` 新增 `loading` / `decoding` 两个 prop（默认 `lazy` / `async`）；首屏用法需**显式传 `eager`**。
+  - 说明：封面主路径 `ui/Cover.vue:104` **原本就已有** `loading="lazy" decoding="async"`，本版未改动它。
+- **后台节流**。`backgroundThrottling` 由 `false` 改为 `true`：**主窗口**（`window.ts`）、**mini 播放器**（`miniPlayer.ts`）、**插件窗口**（`pluginWindows.ts`）→ 最小化后渲染层不再全速运行，降低后台 CPU 与耗电。
+  - **桌面歌词窗口保持 `false`**（`desktopLyric/window.ts`）——节流会导致歌词与播放不同步。
+
+### 说明
+
+- **v1.2.6 主题**：体验优化 + 安全收口。本版只做**用户可感知**的改动。
+- **验证结果**（本地，全部真实执行）：
+  - `node --test tests/*.test.ts` → **188 例 / 188 通过 / 0 失败**（v1.2.5 基线为 181，本版净增 7 例）；
+  - `node node_modules/vue-tsc/bin/vue-tsc.js --noEmit` → **退出码 0**；
+  - `node node_modules/vite/bin/vite.js build` → **退出码 0**（渲染层 + 主进程 + preload）；
+  - `node node_modules/eslint/bin/eslint.js .` → **退出码 0**（0 error / 0 warning）。
+  - 注：本机 `pnpm` / `npx` 的 `.ps1` 垫片被执行策略拦截，**且退出码为 0**，故一律直调 JS 入口执行，避免「未执行」被误判为「通过」。
+- **未做的验证（需要人工交互会话，本机为无头自动化环境）**：
+  1. 评论 ≥200 条时滚动 30 秒的 DevTools Performance 前/后对比；
+  2. 图片懒加载的 Network 面板复核（「初始只加载可视区图片」）；
+  3. `backgroundThrottling` 最小化后的任务管理器 CPU 对比。
+  **以上三项均只完成了代码改动与自动化验证（类型 / 单测 / 构建 / lint），未做运行时实测。**
+- **本版未纳入的项及原因**：
+  - **插件运行时懒加载（原 P1-3）**：实施中发现原方案方向有误。`runtime.ts` 的 `ctx.windows` 由**主窗口 / 桌面歌词**的 runtime 装配（`runtime.ts:2518`），而**插件窗口有自己独立的 `buildContext`**（`plugin-window/main.ts:629` / `:690`）。因此「由插件窗口注入工厂」会让主窗口侧直接失败，**已完整回退**。可行的切边需要先确认「主窗口的 `ctx.windows.drag/resize.bind` 是否真的被使用」——属**独立设计问题**，不在本版强行处理。
+  - **W-3**（`pinia:device` 存量明文迁移）、**W-18**（`register_event_handler` 补 `take()+join()`）、**M-1**（能力门禁绑定发送方）、**H-1**（插件独立执行上下文）→ **推 v1.2.7**。
+    - 重启条件：`W-18` 需**联网重建原生 addon**（本机 cargo 离线无法解析 workspace）；`H-1` 为架构级改动，需单独设计。
+- **已知问题**：本版**未处理** `webSecurity: false`（M-3）与插件 `ctx.net.fetch` 绕过能力门禁的问题，二者仍按原计划留待后续版本。
+
 ## [1.2.5]
 
 > **紧急修复**：v1.2.4 的安装包安装后主进程启动即崩（弹窗 `A JavaScript error occurred in the main process / TypeError: Be is not a function`），应用完全无法打开。本次定位到根因并修复，**无任何新功能**。

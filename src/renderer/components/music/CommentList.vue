@@ -165,7 +165,13 @@ const formatLike = (value: number) => {
     <div v-for="comment in comments" :key="comment.id" class="comment-item-wrap">
       <div class="comment-item">
         <div class="comment-avatar">
-          <img v-if="comment.avatar" :src="comment.avatar" alt="avatar" />
+          <img
+            v-if="comment.avatar"
+            :src="comment.avatar"
+            alt="avatar"
+            loading="lazy"
+            decoding="async"
+          />
           <div v-else class="comment-avatar-fallback">?</div>
         </div>
         <div class="comment-main">
@@ -235,7 +241,13 @@ const formatLike = (value: number) => {
               class="comment-floor-reply"
             >
               <div class="comment-floor-reply-avatar">
-                <img v-if="reply.avatar" :src="reply.avatar" alt="avatar" />
+                <img
+                  v-if="reply.avatar"
+                  :src="reply.avatar"
+                  alt="avatar"
+                  loading="lazy"
+                  decoding="async"
+                />
                 <div v-else class="comment-avatar-fallback">?</div>
               </div>
               <div class="comment-floor-reply-body">
@@ -339,6 +351,24 @@ const formatLike = (value: number) => {
 .comment-item-wrap {
   display: flex;
   flex-direction: column;
+  /*
+   * 渲染优化（v1.2.6 体验优化 · 方案 C）：
+   * 视口外的评论项跳过 layout / paint，显著降低长列表滚动时的渲染开销。
+   *
+   * 为什么不用虚拟化：项目自带的 useVirtualList 是「固定行高」设计
+   * （见 composables/useVirtualList.ts:41-47，总高 = itemCount × itemSize），
+   * 而评论是可变高度（内容折叠 + 楼层回复展开），
+   * 强行套用会导致滚动位置错乱。此处用 Chromium 原生能力规避该问题。
+   *
+   * contain-intrinsic-size：视口外元素的占位高度。取值依据——
+   * .comment-item 为 padding:20px + margin:0 12px 12px，
+   * 折叠态典型高度约 160px。该值只影响「尚未渲染过」的元素的滚动条估算，
+   * 渲染过一次后浏览器会记住真实尺寸，因此轻微偏差不会造成跳动。
+   *
+   * 边界：不减少 DOM 节点数。若评论常态达数千条，需升级为可变高度虚拟化。
+   */
+  content-visibility: auto;
+  contain-intrinsic-size: 160px;
 }
 
 .comment-item {

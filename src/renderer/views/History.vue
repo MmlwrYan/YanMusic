@@ -963,7 +963,13 @@ onUnmounted(() => {
                     >
                       <div class="history-song-rank-index">{{ index + 1 }}</div>
                       <div class="history-song-cover">
-                        <img v-if="song.coverUrl" :src="song.coverUrl" alt="" />
+                        <img
+                          v-if="song.coverUrl"
+                          :src="song.coverUrl"
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                        />
                         <Icon v-else :icon="iconMusic" width="18" height="18" />
                       </div>
                       <div class="history-song-rank-main">

@@ -1386,6 +1386,8 @@ watch(total, (value) => {
                           class="ranking-card-logo"
                           :src="getRankingCardLogo(rank)"
                           alt=""
+                          loading="lazy"
+                          decoding="async"
                         />
                         <div class="ranking-card-main">
                           <div class="ranking-card-header">

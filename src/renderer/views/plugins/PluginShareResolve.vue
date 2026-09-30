@@ -370,7 +370,13 @@ onMounted(() => {
           :style="{ '--plugin-accent': '#1a73e8' }"
           :class="{ 'has-icon': targetPlugin.iconUrl }"
         >
-          <img v-if="targetPlugin.iconUrl" :src="targetPlugin.iconUrl" :alt="targetPlugin.name" />
+          <img
+            v-if="targetPlugin.iconUrl"
+            :src="targetPlugin.iconUrl"
+            :alt="targetPlugin.name"
+            loading="lazy"
+            decoding="async"
+          />
           <span v-else>{{ targetPlugin.name.trim()[0]?.toUpperCase() || 'E' }}</span>
         </div>
         <div>
