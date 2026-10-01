@@ -22,6 +22,58 @@ export function useLyricScroll(
   let userScrollResumeTimer: number | null = null;
   let scrollEndTimer: number | null = null;
   let scrollRafId: number | null = null;
+  let smoothScrollRafId: number | null = null;
+
+  /**
+   * 自动跟随换句的滑动时长（v1.2.6）。
+   *
+   * 为什么**不用**浏览器的 `scrollTo({ behavior: 'smooth' })`：
+   * 它的时长由浏览器决定（数百毫秒），且**无法取消/重定向**。当下一句紧接着到来时，
+   * 旧动画仍在进行、新目标又已下达，两个滚动目标互相打断 —— 这正是用户看到的
+   * 「先换到下一句 → 回一下 → 再到下一句」（闪回）。
+   *
+   * 改为自绘 rAF 动画后：时长可控、每次新滚动都**取消上一个**、起点取当前位置，
+   * 因此既保留可见的滑动过程，又不会出现多动画竞争。
+   */
+  const AUTO_SCROLL_DURATION_MS = 200;
+
+  const clearSmoothScroll = () => {
+    if (smoothScrollRafId !== null) {
+      cancelAnimationFrame(smoothScrollRafId);
+      smoothScrollRafId = null;
+    }
+  };
+
+  const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+
+  const applyScrollTop = (container: HTMLElement, targetTop: number, smooth: boolean) => {
+    clearSmoothScroll();
+
+    if (!smooth) {
+      container.scrollTo({ top: targetTop, behavior: 'auto' });
+      return;
+    }
+
+    const startTop = container.scrollTop;
+    const distance = targetTop - startTop;
+    if (Math.abs(distance) < 1) {
+      container.scrollTo({ top: targetTop, behavior: 'auto' });
+      return;
+    }
+
+    const startTime = performance.now();
+    const step = () => {
+      const elapsed = performance.now() - startTime;
+      const progress = Math.min(1, elapsed / AUTO_SCROLL_DURATION_MS);
+      container.scrollTop = startTop + distance * easeOutCubic(progress);
+      if (progress < 1) {
+        smoothScrollRafId = requestAnimationFrame(step);
+      } else {
+        smoothScrollRafId = null;
+      }
+    };
+    smoothScrollRafId = requestAnimationFrame(step);
+  };
 
   const clearUserScrollTimer = () => {
     if (userScrollResumeTimer !== null) {
@@ -66,13 +118,16 @@ export function useLyricScroll(
         twoLineHeight +
         bottomMargin;
       const targetTop = Math.max(0, offset);
+      // 列表已无溢出空间（顶部/底部）时，平滑滚动不会产生可见位移 —— 直接瞬时定位。
+      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      const canSmooth = smooth && targetTop > 0 && targetTop < maxScrollTop;
       const handled = requestPluginLyricAutoScroll('page', {
         index,
         targetTop,
-        smooth,
+        smooth: canSmooth,
         collapsed,
       });
-      if (!handled) container.scrollTo({ top: targetTop, behavior: smooth ? 'smooth' : 'auto' });
+      if (!handled) applyScrollTop(container, targetTop, canSmooth);
       return;
     }
 
@@ -84,13 +139,15 @@ export function useLyricScroll(
       container.clientHeight * anchorRatio +
       targetRect.height / 2;
     const targetTop = Math.max(0, offset);
+    const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    const canSmooth = smooth && targetTop > 0 && targetTop < maxScrollTop;
     const handled = requestPluginLyricAutoScroll('page', {
       index,
       targetTop,
-      smooth,
+      smooth: canSmooth,
       collapsed,
     });
-    if (!handled) container.scrollTo({ top: targetTop, behavior: smooth ? 'smooth' : 'auto' });
+    if (!handled) applyScrollTop(container, targetTop, canSmooth);
   };
 
   const scrollToLine = (index: number, smooth: boolean, collapsed = false) => {
@@ -169,17 +226,14 @@ export function useLyricScroll(
       // 如果用户正在滚动，不自动跟随
       if (isUserScrolling.value) return;
       await nextTick();
-      // v1.2.6 修复：自动跟随换句必须用**瞬时滚动**（`smooth = false`）。
+      // v1.2.6：自动跟随重新使用**平滑滚动**，但由 `applyScrollTop` 自绘
+      // （固定 `AUTO_SCROLL_DURATION_MS`、可被下一次滚动取消），
+      // 因此既有可见的滑动过程，又不会出现「多个滚动目标互相打断」的闪回。
       //
-      // 原实现传 `previous !== -1`，即「非首次定位就用平滑滚动」。但 `behavior: 'smooth'`
-      // 的动画时长与换句间隔同量级，于是出现：
-      //   ① 索引已经在 B 句，平滑滚动动画还在从 A 滑向 B（视觉滞后）；
-      //   ② 期间 `scrollIndex`（带 `LYRIC_SCROLL_LOOKAHEAD_MS = +100ms` 提前量）
-      //      已把滚动目标推向 B，两个滚动目标互相打断；
-      //   ③ 用户看到的就是「先换到 B → 回一下 → 再到 B」。
-      // 改为瞬时定位后，歌词位置与音频同帧对齐；`smooth` 只保留给
-      // 「用户滚轮结束后恢复自动跟随」这一处（见 `handleWheel`），那里动画是合理的。
-      scrollToLine(index, false, collapsed?.value ?? false);
+      // 说明：这里刻意不再传 `previous !== -1`。原先的条件让「切歌重置」走瞬时定位，
+      // 但切歌时 `previous` 同样是 `-1`，语义并不精确；而统一平滑后，
+      // 切歌那一次是「从上一句滑到新歌开头」，200ms 内完成，观感可接受。
+      scrollToLine(index, true, collapsed?.value ?? false);
     },
   );
 
@@ -200,6 +254,7 @@ export function useLyricScroll(
       cancelAnimationFrame(scrollRafId);
       scrollRafId = null;
     }
+    clearSmoothScroll();
     clearUserScrollTimer();
     clearScrollEndTimer();
   };
