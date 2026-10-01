@@ -222,9 +222,30 @@ onMounted(async () => {
   void initNowPlayingSync().then((dispose) => {
     disposeNowPlayingSync = dispose;
   });
-  void initMiniPlayerSync().then((dispose) => {
-    disposeMiniPlayerSync = dispose;
-  });
+  // v1.2.8 修复：mini 播放器窗口**不得**初始化本同步器。
+  //
+  // `initMiniPlayerSync` 的职责是把**主窗口**的播放状态推给主进程（主进程再广播给 mini 窗口），
+  // 因此它是**数据生产者**。而 `App.vue` 是主窗口与 mini 窗口**共用的根组件**
+  // （两者加载同一份 `dist/index.html`），此前这里缺少窗口守卫，于是 mini 窗口也跑了它：
+  //
+  //   · mini 窗口没有播放引擎，它的 `playerStore` 只有被动接收的一份状态，
+  //     在切歌等时序下可能仍是**上一首**的 trackId；
+  //   · 它照样调用 `syncSnapshot({ playback })`，用自己的残缺状态**覆盖主进程快照**；
+  //   · 主进程 `miniPlayer.ts:674` 的守卫（`event.sender === win.webContents` 时 return）
+  //     正是为拦截这种情况，但一旦窗口尚未创建/已销毁（`getMiniPlayerWindow()` 为 null），
+  //     守卫失效，覆盖就会发生。
+  //
+  // 症状即用户所见：**切歌后播放正常，但 mini 窗口的封面/歌名不更新、进度条卡住不动**。
+  //
+  // 这与本文件其余处一致 —— 它们都用了 `isMiniPlayerRoute` 守卫
+  // （见 `:304` `:310` `:316` `:322` `:328` `:336` `:342` `:348` `:357` `:372`），
+  // 只有此处遗漏。mini 窗口只需要**消费** `miniPlayer:onSnapshot`
+  // （由 `MiniPlayerView.vue` 自行订阅），不需要生产快照。
+  if (!isMiniPlayerRoute.value) {
+    void initMiniPlayerSync().then((dispose) => {
+      disposeMiniPlayerSync = dispose;
+    });
+  }
   settings.syncTheme();
   settings.syncCloseBehavior();
   settings.syncRememberWindowSize();

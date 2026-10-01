@@ -17,12 +17,7 @@ import { dirname, extname, join, resolve, sep, basename } from 'path';
 import { autoUpdater, CancellationToken } from 'electron-updater';
 import { getFonts } from 'font-list';
 import { coerce as semverCoerce, gt as semverGt, valid as semverValid } from 'semver';
-import type {
-  AppInfoResult,
-  UpdateCheckResult,
-  UpdateDownloadResult,
-  UpdateInstallResult,
-} from '../../shared/app';
+import type { AppInfoResult, UpdateCheckResult, UpdateDownloadResult } from '../../shared/app';
 import type { NetworkSettingsUpdateRequest } from '../../shared/network';
 import {
   applyGithubAcceleratorUrl,
@@ -1387,63 +1382,72 @@ export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) 
     });
   });
 
-  ipcRegistry.registerHandler(
-    'update:install',
-    (_event, payload?: { silent?: boolean }): UpdateInstallResult => {
-      if (downloadState.status !== 'downloaded') {
-        const error = '更新尚未下载完成，请下载完成后再安装。';
-        downloadState = { status: 'error', error };
-        sendToRenderer('update-download-status', downloadState);
-        return { ok: false, error };
-      }
-
-      const isSilent = payload?.silent ?? false;
-      downloadState = { status: 'installing' };
+  // ⚠️ 必须是 `registerListener`（`ipcMain.on`），**不能**是 `registerHandler`（`ipcMain.handle`）。
+  //
+  // 原因：`preload/index.ts` 用的发送方式是 **`ipcRenderer.send`（单向）**：
+  //     install: (silent) => ipcRenderer.send('update:install', { silent: !!silent })
+  // 而 `ipcMain.handle` **只响应 `ipcRenderer.invoke`**；`send` 打到 `handle` 上会被 Electron
+  // **静默丢弃** —— 既没有 handler 日志、也没有任何异常，表现为「点击立即安装毫无反应」。
+  //
+  // 这是 v1.2.7 及更早版本的真实缺陷（`update:download` / `update:cancel-download` 用的是
+  // `registerListener` 且工作正常，`update:install` 是唯一的例外，故此前一直未被察觉）。
+  //
+  // 由于 listener 路径无法向调用方返回结果，这里沿用更新模块既有的
+  // `update-download-status` 广播通道回传状态（渲染层 `downloadStatus` 消费它，
+  // 而不是消费 `install()` 的返回值 —— 见 `stores/update.ts` 的 `install()`）。
+  ipcRegistry.registerListener('update:install', (_event, payload?: { silent?: boolean }) => {
+    if (downloadState.status !== 'downloaded') {
+      const error = '更新尚未下载完成，请下载完成后再安装。';
+      downloadState = { status: 'error', error };
       sendToRenderer('update-download-status', downloadState);
-      log.info('[Updater] Starting update install', {
-        silent: isSilent,
-        platform: process.platform,
-      });
-      markUpdateInstallQuitRequested();
-      scheduleUpdateInstallExitTimeout();
+      return;
+    }
 
-      try {
-        const updater = autoUpdater as unknown as {
-          install?: (isSilent?: boolean, isForceRunAfter?: boolean) => boolean;
-          autoRunAppAfterInstall?: boolean;
-          quitAndInstall: (isSilent?: boolean, isForceRunAfter?: boolean) => void;
-        };
+    const isSilent = payload?.silent ?? false;
+    downloadState = { status: 'installing' };
+    sendToRenderer('update-download-status', downloadState);
+    log.info('[Updater] Starting update install', {
+      silent: isSilent,
+      platform: process.platform,
+    });
+    markUpdateInstallQuitRequested();
+    scheduleUpdateInstallExitTimeout();
 
-        if (typeof updater.install === 'function') {
-          const forceRunAfter = isSilent ? true : (updater.autoRunAppAfterInstall ?? true);
-          const started = updater.install(isSilent, forceRunAfter);
-          if (!started) {
-            const error = '更新安装器未能启动，请重新下载或前往发布页手动安装。';
-            failUpdateInstall(error, 'install() returned false');
-            return { ok: false, error };
-          }
+    try {
+      const updater = autoUpdater as unknown as {
+        install?: (isSilent?: boolean, isForceRunAfter?: boolean) => boolean;
+        autoRunAppAfterInstall?: boolean;
+        quitAndInstall: (isSilent?: boolean, isForceRunAfter?: boolean) => void;
+      };
 
-          setImmediate(() => {
-            try {
-              app.quit();
-            } catch (error) {
-              const message = error instanceof Error ? error.message : '更新安装退出失败，请重试。';
-              failUpdateInstall(message, 'Quit after install failed');
-            }
-          });
-        } else {
-          updater.quitAndInstall(isSilent, true);
+      if (typeof updater.install === 'function') {
+        const forceRunAfter = isSilent ? true : (updater.autoRunAppAfterInstall ?? true);
+        const started = updater.install(isSilent, forceRunAfter);
+        if (!started) {
+          failUpdateInstall(
+            '更新安装器未能启动，请重新下载或前往发布页手动安装。',
+            'install() returned false',
+          );
+          return;
         }
 
-        return { ok: true };
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : '更新安装器启动失败，请前往发布页手动安装。';
-        failUpdateInstall(message, 'Install failed');
-        return { ok: false, error: message };
+        setImmediate(() => {
+          try {
+            app.quit();
+          } catch (error) {
+            const message = error instanceof Error ? error.message : '更新安装退出失败，请重试。';
+            failUpdateInstall(message, 'Quit after install failed');
+          }
+        });
+      } else {
+        updater.quitAndInstall(isSilent, true);
       }
-    },
-  );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '更新安装器启动失败，请前往发布页手动安装。';
+      failUpdateInstall(message, 'Install failed');
+    }
+  });
 
   ipcRegistry.registerListener('open-external', async (_event, url: string) => {
     const safeUrl = normalizeOpenExternalUrl(url);

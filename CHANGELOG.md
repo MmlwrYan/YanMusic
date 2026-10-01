@@ -1,3 +1,82 @@
+## [1.2.8]
+
+> 本次为**缺陷修复版**，**不包含新功能**。修复两个用户实测发现的独立缺陷：**更新无法安装**、**mini 播放器切歌后界面不同步**。
+
+### 修复
+
+- **点击「立即安装」无任何反应（既不退出应用，也不拉起安装程序）** —— IPC 契约不匹配。
+
+  **根因**：`preload/index.ts` 用**单向** `ipcRenderer.send` 发送该通道：
+
+  ```ts
+  install: (silent) => ipcRenderer.send('update:install', { silent: !!silent })
+  ```
+
+  但主进程 `ipc/settings.ts` 用 **`ipcRegistry.registerHandler`** 注册（其实现是 `ipcMain.handle`）。
+  **`ipcMain.handle` 只响应 `ipcRenderer.invoke`** —— `send` 打上去会被 Electron **静默丢弃**：
+  既没有 handler 日志、也没有任何异常，表现为点击后毫无反应。
+
+  用户日志提供了决定性证据：更新**下载确实成功**
+  （`New version 1.2.7 has been downloaded to …yanmusic-updater\pending\…`），
+  但点击安装后 **`[Updater] Starting update install` 从未出现**（该日志位于 handler 第一行之后），
+  连 handler 开头的「尚未下载完成」错误日志也没有，证明 `update:install` **根本没有抵达主进程**。
+
+  **对照组印证**：同一模块的 `update:download` / `update:cancel-download` 用的是
+  `registerListener`（`ipcMain.on`）配 `send`，**匹配且工作正常**（下载成功即为证据）；
+  `update:get-state` 用 `registerHandler` 配 `invoke`，也匹配。
+  **`update:install` 是唯一的例外**，故此前一直未被察觉。
+
+  **修复**：改为 `ipcRegistry.registerListener('update:install', …)`。
+  listener 路径无法向调用方返回结果，故沿用更新模块既有的 `update-download-status`
+  广播通道回传状态（渲染层消费的是该状态，而不是 `install()` 的返回值 —— 见 `stores/update.ts`）。
+
+  - 回退：改回 `registerHandler`（会重新变成「点击无反应」）。
+
+- **mini 播放器切歌后界面不同步（播放正常，但封面/歌名不更新、进度条卡住不动）** —— 共用根组件缺少窗口守卫。
+
+  **根因**：`App.vue` 是**主窗口与 mini 窗口共用的根组件**（两者加载同一份 `dist/index.html`），
+  而 `initMiniPlayerSync()` 的职责是把**主窗口**的播放状态推给主进程（主进程再广播给 mini 窗口），
+  它是**数据生产者**。此前该调用**没有窗口类型守卫**，于是 mini 窗口也跑了它：
+
+  - mini 窗口**没有播放引擎**，它的 `playerStore` 只有被动接收的一份状态，
+    在切歌等时序下可能仍是**上一首**的 trackId；
+  - 它照样调用 `syncSnapshot({ playback })`，用**残缺状态覆盖主进程快照**；
+  - 主进程 `miniPlayer.ts` 的守卫
+    （`if (win && !win.isDestroyed() && event.sender === win.webContents) return;`）
+    正是为拦截这种情况，但**一旦窗口尚未创建或已销毁（`getMiniPlayerWindow()` 为 null），守卫即失效**。
+
+  症状与用户描述完全一致：**播放不受影响，而 mini 窗口的封面/歌名停在上一首、进度条卡在中后段不动**；
+  经实测确认，mini 窗口内展开歌词面板等**本地**交互仍正常（因为那些不依赖被覆盖的 playback 快照）。
+
+  **修复**：`App.vue` 的 `initMiniPlayerSync()` 加 `isMiniPlayerRoute` 守卫。
+  这与本文件其余位置**一致** —— `:304` `:310` `:316` `:322` `:328` `:336` `:342` `:348` `:357` `:372`
+  均已有该守卫，**只有 `initMiniPlayerSync` 这一处遗漏**。
+  mini 窗口只需**消费** `miniPlayer:onSnapshot`（由 `MiniPlayerView.vue` 自行订阅），不需要生产快照。
+
+  - 回退：移除 `if (!isMiniPlayerRoute.value)` 包裹。
+
+### 说明
+
+- **主题**：两个独立缺陷修复，无新功能、无接口变更、无新增依赖。
+- **验证结果**（本地，全部真实执行）：
+  - `node --test tests/*.test.ts` → **188 例 / 188 通过 / 0 失败**；
+  - `node node_modules/vue-tsc/bin/vue-tsc.js --noEmit` → **退出码 0**；
+  - `node node_modules/vite/bin/vite.js build` → **退出码 0**；
+  - `node node_modules/eslint/bin/eslint.js .` → **退出码 0**（0 error / 0 warning）；
+  - **主进程产物为单文件**（`dist-electron/main/` 仅 `index.js`）—— 确认未复发 v1.2.4 的多 chunk 启动崩溃事故。
+- **未做的验证（本机无法自证）**：
+  1. **「立即安装」端到端** —— 需要真实的「已下载待安装」状态，本机无法构造（当前已是最新版本）；
+  2. **mini 播放器切歌同步** —— 需要连续切歌并肉眼观察，本机无显示器会话。
+  以上两项均为**代码层确证**（IPC 注册方式与发送方式的匹配关系、共用根组件缺少守卫，都是可静态判定的事实），
+  但**端到端行为需在真实安装场景下确认**。
+- **顺带发现（未在本版修复，记为技术债）**：`renderer/miniPlayer/sync.ts` 的 `buildPlaybackPayload()`
+  每次都生成 `updatedAt: Date.now()`，而调用方用 `JSON.stringify({ playback })` 做去重 ——
+  **该去重因此永远不生效**，会造成冗余 IPC 推送。本版不修（与本次两个缺陷无因果关系，且修复需谨慎评估
+  推送频率变化的影响），留待后续版本。
+- **仍推后续版本**：`W-3`（`pinia:device` 存量明文迁移）、`W-18`（`register_event_handler` 补 `take()+join()`，
+  需联网重建原生 addon）、`M-1`（能力门禁绑定发送方）、`H-1`（插件独立执行上下文）；
+  以及 v1.2.6 / v1.2.7「说明」段列出的各项人工交互验证。
+
 ## [1.2.7]
 
 > 本次为 **v1.2.6 的紧接补丁**，**不包含新功能**。修复 v1.2.6 中「歌词换句滑动动效消失」的回归问题 —— 该问题由 v1.2.6 修复「换句闪回」时引入。
