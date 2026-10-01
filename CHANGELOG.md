@@ -37,6 +37,7 @@
 
 - **零引用模块扫描脚本 `scripts/scan-dead-modules.mjs`**。以 5 个入口（`renderer/main.ts`、`main/index.ts`、`desktop-lyric/main.ts`、`plugin-window/main.ts`、`preload/index.ts`）做 import 图 BFS，解析 `import/export from`、`import()`、`require()` 与 Vue SFC 的 `<style src=>`，别名 `@/` → `src/renderer/`，并把 `import.meta.glob` 覆盖的两处目录单列为 **B 类（插件 API 面，不可删）**。输出分 A/B/T 三类，支持 `--json`，也可作为模块被测试直接调用。
   - 扫描器本身在本次开发中修掉两个漏边 bug（CRLF 下 `;\r\nimport` 前缀只消耗一个字符；`import './style.css'` 无 `from` 时被带 `from` 的惰性分支吞掉），两者都会把**活文件误判为死代码**。
+- **配套类型声明 `scripts/scan-dead-modules.d.mts`**（**必须保留，勿当冗余文件删掉**）。`tsconfig.json` 的 `include` 覆盖 `tests/**/*.ts`，而 `tests/source-level-guards.test.ts` 直接 `import` 该 `.mjs`；在 `moduleResolution: bundler` 且未开 `allowJs` 的配置下会触发 `TS7016`「找不到声明文件」+ 3 处 `TS7006`（返回值退化为 any）。CI 构建步骤是 `vue-tsc --noEmit && vite build`（`&&` 短路）→ 类型检查非 0 会让 **`vite build` 压根不执行**，症状却表现为「`dist-electron/main/index.js` 不在 asar 里」的**打包失败**，排查时极易被误导到产物/打包配置上。**v1.2.9 首轮干跑六条腿全红即因此**（详见「说明」段）。
 - **发布前验证脚本 `scripts/verify.ps1`**。本机 `pnpm` / `npx` / `npm` 的 `.ps1` 垫片会被 PowerShell 执行策略拦截**且退出码为 0** —— 只检查 `$LASTEXITCODE` 会把「压根没执行」误判成「通过」。该脚本一律**直调 JS 入口**并逐步显式断言退出码，任一失败即整体非 0（支持 `-SkipNative` / `-SkipBuild`）。
   - ⚠️ **本机的鉴别力验证未完成**：当前会话无法取得 PowerShell 的回显输出（返回值不可见），因此**没有**实证「故意断一步 → 脚本退出非 0」。**首次使用时请自行验证一次**（把任一步改成必然失败的命令，确认脚本非 0 退出且不继续往下跑）。在此之前，请勿把它当作已验证通过的防线。
 - **守卫用例 9 条**：`tests/kv-sensitive-keys.test.ts`（5 例：加密白名单、与 `sensitiveKv` 的运行时敏感键**两处不得漂移**、迁移纯函数的边界、迁移必须挂在 `get()` 上且失败不影响读取、迁移必须复用 `encodeForWrite`）；`tests/source-level-guards.test.ts`（4 例：统计常量不得内联、`sanitizeHtml` 必须**调用** `ensureNoopenerHook()`、不得出现同值三元、A 类零引用模块不得超出「刻意保留」白名单）。
@@ -57,6 +58,7 @@
 - **验证结果**（本地，全部真实执行）：
   - `node --test tests/*.test.ts` → **197 例 / 192 通过 / 0 失败 / 5 跳过**（基线 188 例，本版**净增 9 例**，用例数未减少）；5 个跳过为沙箱内 `spawnSync` 返回 `EBUSY` 的环境产物（v1.2.4 起即有，CI 中正常执行）；
   - `node node_modules/vue-tsc/bin/vue-tsc.js --noEmit` → **退出码 0**（删除 12 个模块后仍全绿，说明删除未碰到隐式引用）；
+  - ⚠️ **发布过程中的一次实际事故（已修复，如实记录）**：首轮 CI 干跑**六条腿全红**。根因是新增的 `tests/source-level-guards.test.ts` 直接 `import` `scripts/scan-dead-modules.mjs`，触发 `TS7016` + 3 处 `TS7006`；而 CI 构建步骤为 `vue-tsc --noEmit && vite build`，**`&&` 短路使 `vite build` 未执行** → `dist-electron/main/index.js` 不存在 → `electron-builder` 在 `sanityCheckPackage` 报「entry file is corrupted」。macOS/Windows/Linux 五条已完成的腿报错逐字一致。**本机漏检原因**：最后一次 `vue-tsc` 跑在新增这两个测试文件**之前**，之后只补跑了 `node --test`（运行时）与 `eslint`（语法/风格），两者都不做类型检查。已补 `scripts/scan-dead-modules.d.mts` 并重跑 `vue-tsc` 验证通过；流程教训：**新增测试文件后必须重跑类型检查，不能只跑测试**。
   - `node node_modules/vite/bin/vite.js build` → **退出码 0**；**主进程产物为单文件**（`dist-electron/main/` 仅 `index.js`，864,890 B）—— 未复发 v1.2.4 的多 chunk 启动崩溃事故；产物中已确认含本次新增的迁移逻辑（字符串常量命中）；
   - `node node_modules/eslint/bin/eslint.js .` → **退出码 0**（0 error / 0 warning；新增文件的格式问题已用显式的 `--fix` 修正，未改写其它文件）。
 - **未做的验证**：无 GUI 会话，改动均未做运行时观感/端到端复核；其中 W-4（外链 rel）与 W-2（状态字段）均为**行为等价**改动，风险面在静态可判定的范围内。
