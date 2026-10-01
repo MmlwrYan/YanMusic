@@ -19,10 +19,17 @@ type KvBatchMutation =
  * 值在磁盘上的形态为 `{"__yanEncrypted":"<base64 密文>"}`，
  * 与既有明文 JSON 对象在结构上不冲突，因此可平滑升级：
  * 旧数据按明文读入，下一次写出即自动转为密文。
+ * **v1.2.9 补充**：仅靠「下次写出」对存量用户是**不够**的 —— `pinia:device`
+ * 这类键几乎不再被写，旧明文会永久留在盘上。因此增加了**读时惰性迁移**
+ * （见 `needsEncryptionMigration` / `migratePlaintextToEnvelope`）。
  */
 const ENCRYPTED_KV_KEYS: ReadonlySet<string> = new Set<string>([
   // 登录态：token（Kugou 票据）、userid、用户资料
   'pinia:user',
+  // 设备指纹：dfid / mid / uuid / guid / mac（W-3，v1.2.9）
+  // 它同时是 `ipc/sensitiveKv.ts` 的运行时敏感键；两处必须一致，由
+  // `tests/kv-sensitive-keys.test.ts` 的守卫锁定。
+  'pinia:device',
 ]);
 
 /** 加密信封标记 */
@@ -75,6 +82,50 @@ const decryptJsonIfNeeded = (key: string, valueJson: string): string | null => {
 const encodeForWrite = (key: string, valueJson: string): string =>
   shouldEncryptKvKey(key) ? encryptJson(key, valueJson) : valueJson;
 
+/**
+ * 判定某个落盘值是否属于「本应加密、但仍是明文」的存量数据（W-3 第二步）。
+ *
+ * 只加白名单（第一步）**对存量用户无效**：读路径遇到非信封会**原样直通**
+ * （`decryptJsonIfNeeded` 的语义），而写路径只在**再次写入**时才加密 ——
+ * 像 `pinia:device` 这种几乎不再被写的键，旧明文会永久留在磁盘上。
+ *
+ * 本函数是**纯函数**（无 IO、无 Electron），因此可直接单测。
+ *
+ * @returns `true` = 需要迁移为加密信封
+ */
+export const needsEncryptionMigration = (key: string, raw: string | null | undefined): boolean => {
+  if (!raw) return false;
+  if (!shouldEncryptKvKey(key)) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // 非 JSON：属异常数据（KV 值一律由 JSON.stringify 产出）。
+    // 读路径会原样返回，不迁移 —— 避免在损坏数据上写入无法预期的内容。
+    return false;
+  }
+  return !isEncryptedEnvelope(parsed);
+};
+
+/**
+ * 把一条存量明文**就地升级**为加密信封。
+ *
+ * 设计取舍：
+ * - **幂等**：迁移后落盘值已是信封，下次读取不再触发；
+ * - **不影响读取**：失败（如 `safeStorage` 不可用）只记日志，明文值照常返回，
+ *   不把「迁移失败」升级成「读不到数据」；
+ * - **通用**：做在 `get()` 而非针对某一个键，将来任何新增的 `ENCRYPTED_KV_KEYS`
+ *   都自动获得同样的迁移能力。
+ */
+const migratePlaintextToEnvelope = (key: string, raw: string): void => {
+  try {
+    getNativeStorage().kvSet(key, encodeForWrite(key, raw));
+    log.info('[KvStorage] 存量明文敏感键已升级为加密信封:', key);
+  } catch (error) {
+    log.warn('[KvStorage] 存量明文迁移失败（保留原值，不影响本次读取）:', key, error);
+  }
+};
+
 /** 读取后的统一变换：敏感键解密（失败返回 null = 无数据） */
 const decodeAfterRead = (key: string, raw: string | null | undefined): string | null => {
   if (raw === null || raw === undefined) return null;
@@ -84,7 +135,10 @@ const decodeAfterRead = (key: string, raw: string | null | undefined): string | 
 
 export class KvStorage {
   get<T>(key: string): T | null {
-    const decoded = decodeAfterRead(key, getNativeStorage().kvGet(key));
+    const raw = getNativeStorage().kvGet(key);
+    // 存量明文迁移（W-3）：读一次即顺手升级为加密信封，失败不影响本次读取。
+    if (needsEncryptionMigration(key, raw)) migratePlaintextToEnvelope(key, raw as string);
+    const decoded = decodeAfterRead(key, raw);
     if (!decoded) return null;
     try {
       return JSON.parse(decoded) as T;

@@ -156,9 +156,11 @@ jobs:
         working-directory: server
         shell: bash
         run: |
-          # server 是外部子模块，其 package-lock.json 常与 package.json 不同步，
-          # 且 devDependencies(tsdown) 与 typescript@4.x 存在 peer 冲突。
-          # 运行时只需 --omit=dev 的依赖，故统一用 npm install + --legacy-peer-deps。
+          # server 是外部子模块，其依赖锁定文件是 **pnpm-lock.yaml**（受子模块版本控制，
+          # 覆盖全部 21 条声明依赖），而 **npm 不读 pnpm-lock.yaml** —— 也就是说
+          # 这里每次构建都是按 ^x.y.z 重新解析，同一次 tag 在不同时间构建会得到不同产物。
+          # 改用 pnpm install --frozen-lockfile --prod 即可复现（W-10，需联网验证后切换）。
+          # 另：devDependencies(tsdown) 与 typescript@4.x 确有 peer 冲突，故运行时只装 --omit=dev。
           npm install --omit=dev --no-audit --no-fund --legacy-peer-deps
 
       - name: Remove server test files
@@ -186,6 +188,9 @@ jobs:
 
       - name: Download libmpv library
         shell: bash
+        env:
+          # W-9：GitHub API 令牌经 env 传入（见下方 curl 处的说明）
+          MPV_RELEASES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
           mkdir -p build/mpv
@@ -387,8 +392,10 @@ jobs:
               RELEASES_JSON="/tmp/mpv-winbuild-releases.json"
               # CI 失败修复（第 2 项）：不带 token 的 GitHub API 会命中匿名限流
               # （实测 Windows-x64 腿返回 403），改用 GITHUB_TOKEN 走高配额通道。
+              # W-9：密钥经 `env:` 传入，不直接插值进 `run:` 脚本正文
+              # （GitHub 官方建议；虽会被日志掩码，但插值进命令文本仍属不必要的暴露面）。
               curl -fsSL \
-                -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Authorization: Bearer $MPV_RELEASES_TOKEN" \
                 -H "Accept: application/vnd.github+json" \
                 "https://api.github.com/repos/zhongfly/mpv-winbuild/releases?per_page=20" \
                 -o "$RELEASES_JSON"
@@ -679,7 +686,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Create Release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.x（SHA 为准，见 tests/ci-supply-chain.test.ts）
         with:
           # 显式设置标题，与项目约定一致（`YanMusic vX.Y.Z Release`）。
           # 此前未设置，GitHub 默认以 tag 名作标题，导致每次发布后都要手工

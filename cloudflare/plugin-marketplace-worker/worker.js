@@ -28,9 +28,20 @@ const isWriteAuthorized = (provided, expected) => {
 // 固定窗口限流。Workers 实例间不共享内存，故这是「单实例尽力而为」的限流，
 // 用于抬高脚本刷量的成本；强一致限流需改用 Durable Object / KV，属后续可选强化。
 const rateBuckets = new Map();
+// W-7：限流表原本只增不减（per-isolate 内存随不同 IP 单调增长）。
+// 这里加一个兜底上限：达到上限时先清一遍过期桶，若清完仍满（全部在窗口内、确实
+// 是高并发），则本次只放行、不入表 —— 宁可少记一条，也不让内存无界增长。
+const RATE_BUCKET_MAX = 5000;
+const pruneRateBuckets = (now) => {
+  for (const [ip, entry] of rateBuckets) {
+    if (now - entry.windowStart >= WRITE_WINDOW_MS) rateBuckets.delete(ip);
+  }
+};
 const checkRateLimit = (ip, now) => {
   const entry = rateBuckets.get(ip);
   if (!entry || now - entry.windowStart >= WRITE_WINDOW_MS) {
+    if (rateBuckets.size >= RATE_BUCKET_MAX) pruneRateBuckets(now);
+    if (rateBuckets.size >= RATE_BUCKET_MAX) return true; // 清完仍满：放行但不入表
     rateBuckets.set(ip, { count: 1, windowStart: now });
     return true;
   }
@@ -335,10 +346,10 @@ export default {
       }
       return json({ ok: false, error: 'not found' }, { status: 404 });
     } catch (error) {
-      return json(
-        { ok: false, error: error instanceof Error ? error.message : 'worker error' },
-        { status: 500 },
-      );
+      // W-7：不要把内部错误文本回显给客户端（可能含 D1 报错、内部路径等细节），
+      // 统一文案，真实错误只进 Workers 日志。
+      console.error('[plugin-marketplace-worker] unhandled error:', error);
+      return json({ ok: false, error: 'internal error' }, { status: 500 });
     }
   },
 };

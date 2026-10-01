@@ -1,3 +1,76 @@
+## [1.2.9]
+
+> 本次为**技术债清算版**，**不包含新功能**。选债原则只有三条：局部可验证、不改对外行为、不可逆动作必须先确认；范围与顺序见 `docs/agent/v1.2.9/13-debt-clear-plan-2026-10-01.md`（本地留痕，不入库）。安全面的最大收益是**补上 v1.2.4 凭据加密工作的遗漏面**（`pinia:device` 与存量迁移）。
+
+### 修复
+
+- **二级 · 设备指纹明文落盘（M-4 / W-3）**。`ENCRYPTED_KV_KEYS`（`src/main/storage/kv.ts:23-26`）自 v1.2.4 起只有 `pinia:user`，同一次改动漏掉了 `pinia:device` —— `dfid` / `mid` / `uuid` / `guid` / `mac` 以明文存于 `YanMusic.sqlite`，本机任意进程可读。现已加入白名单。
+
+  - 回退：从 `ENCRYPTED_KV_KEYS` 中删掉 `'pinia:device'` 一行。
+
+- **二级 · 只加白名单对存量用户无效，补上「读时惰性迁移」（W-3 第二步）**。这是本版最容易被漏掉的一点：
+
+  - 读路径 `decryptJsonIfNeeded` 遇到**非信封**会走 `return valueJson` **直通**分支；写路径只在**再次写入**时才加密。而 `pinia:device` 恰好几乎不再被写 → **升级用户的 `pinia:device` 会永久留在明文状态**；
+  - 修复：新增纯函数 `needsEncryptionMigration(key, raw)`，并在 `KvStorage.get()` 里判定命中时调用 `migratePlaintextToEnvelope()` 就地重写为信封；
+  - 三条设计取舍：① **幂等**（迁移后已是信封，下次不再触发）；② **失败不影响读取**（`safeStorage` 不可用时只记日志，明文值照常返回，不把「迁移失败」升级成「读不到数据」）；③ **通用** —— 做在 `get()` 而非针对某一个键，将来任何新增的 `ENCRYPTED_KV_KEYS` 都自动获得同样的迁移能力；
+  - 回退：删掉 `get()` 中那一行迁移调用即可恢复原行为（不建议）。
+
+- **三级 · 统计鉴权常量的单一来源（W-6）**。`src/shared/pluginStatsAuth.ts` 的头注释自称「由主进程侧客户端与测试共同引用」，但**主进程零引用**：`src/main/plugins.ts:1070-1073` 内联重写了 `'X-YanMusic-Key'` 与 `process.env.yanmusic_PLUGIN_STATS_API_KEY` 两个字面量。这是**跨语言契约**（主进程 TS / Worker 纯 JS / 测试 TS 三方），改一侧不会让另一侧报错。现改为 `import { PLUGIN_STATS_KEY_ENV, PLUGIN_STATS_KEY_HEADER }`。
+
+  - 说明：常量值为小写 `'x-yanmusic-key'`（HTTP 头名大小写不敏感，Worker 侧 `readStatsKeyFromHeaders` 按小写比较），行为不变。
+
+- **三级 · 插件运行时状态的死分支（W-2）**。`renderer/plugins/runtime.ts:2787` 原为 `activePlugins.has(id) ? 'active' : descriptor.enabled ? 'idle' : 'idle'` —— 两个分支取到同一个值。当前 `status` 类型只有 `'idle' | 'loading' | 'active' | 'error'`（无 `'disabled'`），故等价化简为 `? 'active' : 'idle'`，**行为不变**，只消除误导。
+
+- **三级 · 外链补 `rel="noopener noreferrer"`（W-4）**。`utils/sanitize.ts` 的 `ALLOWED_ATTR` 放行了 `target`，但未挂 DOMPurify 钩子补 `rel` —— `target="_blank"` 会让新页面拿到 `window.opener` 句柄。现已加 `afterSanitizeAttributes` 钩子（带「只注册一次」保护）。**属纵深防御**：渲染层已有 `setWindowOpenHandler`（仅放行 `https:` 且一律 `deny`）兜底，本改动不改变现有行为。
+
+- **三级 · 注释与事实不符（W-11，3 处）**：
+
+  1. `renderer/plugins/network.ts:63-65` 与 `:127`：注释称 `fetch`「受同源与禁用请求头规则约束」，但本项目四类窗口均为 `webSecurity: false`，同源策略已关闭 —— 该说法与事实不符，已订正（**行为未改**，是否给 `fetch` 补能力门禁属对外行为变更，另列为待定项）；
+  2. `.github/workflows/build.yml:157-158`：注释称「`server` 的 `package-lock.json` 常与 `package.json` 不同步」，而该文件**根本不存在**（子模块只有 `pnpm-lock.yaml`，且 npm 不读它）—— 已订正为准确描述「构建不可复现」这一真实问题；
+  3. `build.yml` 中 `softprops/action-gh-release` 的 `# v2` 未给具体版本 —— 已标注「SHA 为准」。
+
+- **三级 · Worker 限流表与错误回显（W-7）**：`cloudflare/plugin-marketplace-worker` 的限流表是 per-isolate 内存 Map 且**只增不减**，现加兜底上限（达到上限先清过期桶，清完仍满则放行但不入表）；顶层 `catch` 原样回显 `error.message`，现改为统一文案 `internal error`，真实错误只进 Workers 日志。
+
+- **三级 · CI secret 插值（W-9）**：`build.yml` 中 `${{ secrets.GITHUB_TOKEN }}` 原被直接插值进 `run:` 命令正文，现改由 `env: MPV_RELEASES_TOKEN` 传入。现全仓 11 处 secret 引用**全部位于 `env:` 块**，`run:` 正文零插值。
+
+### 新增
+
+- **零引用模块扫描脚本 `scripts/scan-dead-modules.mjs`**。以 5 个入口（`renderer/main.ts`、`main/index.ts`、`desktop-lyric/main.ts`、`plugin-window/main.ts`、`preload/index.ts`）做 import 图 BFS，解析 `import/export from`、`import()`、`require()` 与 Vue SFC 的 `<style src=>`，别名 `@/` → `src/renderer/`，并把 `import.meta.glob` 覆盖的两处目录单列为 **B 类（插件 API 面，不可删）**。输出分 A/B/T 三类，支持 `--json`，也可作为模块被测试直接调用。
+  - 扫描器本身在本次开发中修掉两个漏边 bug（CRLF 下 `;\r\nimport` 前缀只消耗一个字符；`import './style.css'` 无 `from` 时被带 `from` 的惰性分支吞掉），两者都会把**活文件误判为死代码**。
+- **发布前验证脚本 `scripts/verify.ps1`**。本机 `pnpm` / `npx` / `npm` 的 `.ps1` 垫片会被 PowerShell 执行策略拦截**且退出码为 0** —— 只检查 `$LASTEXITCODE` 会把「压根没执行」误判成「通过」。该脚本一律**直调 JS 入口**并逐步显式断言退出码，任一失败即整体非 0（支持 `-SkipNative` / `-SkipBuild`）。
+  - ⚠️ **本机的鉴别力验证未完成**：当前会话无法取得 PowerShell 的回显输出（返回值不可见），因此**没有**实证「故意断一步 → 脚本退出非 0」。**首次使用时请自行验证一次**（把任一步改成必然失败的命令，确认脚本非 0 退出且不继续往下跑）。在此之前，请勿把它当作已验证通过的防线。
+- **守卫用例 9 条**：`tests/kv-sensitive-keys.test.ts`（5 例：加密白名单、与 `sensitiveKv` 的运行时敏感键**两处不得漂移**、迁移纯函数的边界、迁移必须挂在 `get()` 上且失败不影响读取、迁移必须复用 `encodeForWrite`）；`tests/source-level-guards.test.ts`（4 例：统计常量不得内联、`sanitizeHtml` 必须**调用** `ensureNoopenerHook()`、不得出现同值三元、A 类零引用模块不得超出「刻意保留」白名单）。
+  - **鉴别力验证（已做，喂回修复前代码必须变红）**：W-3 摘掉 `pinia:device` / 去掉迁移调用 → 3 条变红；W-6 改回字面量 → 变红；W-4 短路钩子调用 → 变红（**第一版只断言字符串存在，短路后仍绿，已加强为断言「被调用」**）；W-2 改回死分支 → 变红；W-1 新增一个未被引用的样例文件 → 变红。撤销后恢复全绿。
+
+### 变更
+
+- **删除零引用模块 12 个 / 967 行**（按「应用入口不可达 + 未被 `import.meta.glob` 覆盖 + 未被 tests 引用」三条件判定，删除前逐项做过「文件名 / 相对路径 / 别名」三串全仓复核）：
+
+  `renderer/components/ui/dialogStack.ts`(109)、`renderer/composables/usePlaybackProgressStatus.ts`(23)、`renderer/composables/useStableLyricIndex.ts`(48)、`renderer/composables/useWindowDrag.ts`(43)、`renderer/models/gradeInfo.ts`(33)、`renderer/stores/player/progressStatus.ts`(53)、`renderer/stores/player/queueAdvancePolicy.ts`(27，`shared/playback-queue-decision.ts` 的重复实现，两者**成对删除**)、`renderer/utils/lyricFilter.ts`(59)、`renderer/utils/routeViewCache.ts`(32)、`renderer/views/search/components/SearchResultsSkeleton.vue`(156)、`shared/playback-queue-decision.ts`(247)、`shared/player-audio-graph.ts`(137)；并删掉 `renderer/stores/playlist/constants.ts` 中指向 `queueAdvancePolicy` 的失效备忘注释。
+
+  - **刻意保留 9 项**（已写进守卫白名单，每条附理由）：`main/cache.ts`、`composables/useLyricTimeline.ts`、`stores/loginDevices.ts`、`views/settings/components/InterfaceSettingsSection.vue`、`views/settings/components/WindowSettingsSection.vue` —— 这 5 项**疑似被重构遗漏的活功能**，删除不可逆且本机无法确认，**待核定**；`renderer/plugins/types.ts`（环境类型增强，删后类型检查不一定报错但会静默丢失插件全局类型）；`shims-vue.d.ts` / `renderer/types.d.ts` / `renderer/stores/persist.d.ts`（构建契约，删除会让 `vue-tsc` 找不到声明）。
+  - **B 类 5 件一律未动**（`components/ui/DatePicker.vue`、`components/music/DetailPageSkeleton.vue`、`components/music/SongListSkeletonRows.vue`、`components/ui/Textarea.vue`、`components/player/ProgressBusyOverlay.vue`）—— 它们经 `import.meta.glob` 进入插件 API 面，删除会改变对外暴露面。
+
+### 说明
+
+- **主题**：技术债清算。无新功能、无架构改动、无依赖升级。
+- **验证结果**（本地，全部真实执行）：
+  - `node --test tests/*.test.ts` → **197 例 / 192 通过 / 0 失败 / 5 跳过**（基线 188 例，本版**净增 9 例**，用例数未减少）；5 个跳过为沙箱内 `spawnSync` 返回 `EBUSY` 的环境产物（v1.2.4 起即有，CI 中正常执行）；
+  - `node node_modules/vue-tsc/bin/vue-tsc.js --noEmit` → **退出码 0**（删除 12 个模块后仍全绿，说明删除未碰到隐式引用）；
+  - `node node_modules/vite/bin/vite.js build` → **退出码 0**；**主进程产物为单文件**（`dist-electron/main/` 仅 `index.js`，864,890 B）—— 未复发 v1.2.4 的多 chunk 启动崩溃事故；产物中已确认含本次新增的迁移逻辑（字符串常量命中）；
+  - `node node_modules/eslint/bin/eslint.js .` → **退出码 0**（0 error / 0 warning；新增文件的格式问题已用显式的 `--fix` 修正，未改写其它文件）。
+- **未做的验证**：无 GUI 会话，改动均未做运行时观感/端到端复核；其中 W-4（外链 rel）与 W-2（状态字段）均为**行为等价**改动，风险面在静态可判定的范围内。
+- **本版未纳入的项及原因**（均非「忘了」，是有书面结论）：
+  - **N 批次（原生层 W-18 / W-5 / W-13 / L-3）整批推迟**：需联网重建 4 个 addon，本机 `cargo` 走代理返回 502、`--offline` 又缺缓存，**无法验证** → 按「先复现再修复」与「不做只改源码的假完成」的纪律，不在本版改 `.rs`；
+  - **M-1（能力门禁绑定 `event.sender`）与 M-2（开 `IPC_PERMISSION_STRICT`）**：属同一件事的两半，改动会让插件调用在身份反查失败时被拒，**有使插件大面积不可用的风险**，需先确认插件窗口 → `pluginId` 映射是否齐备 → **待核定**；strict 必须与 H-1（插件独立执行上下文）同批开，本版只做了「不动行为」的部分；
+  - **W-17（插件 `ctx.net.fetch` 补能力门禁）**：属插件 API 的对外行为变更（或直接下线该 API），**待核定**；本版只订正了与事实不符的注释；
+  - **W-19（mini 播放器 `sync.ts:146` 的 `updatedAt` 让去重永远失效）**：已查明 payload 本身含 `currentTime`，播放中每次必变；去重只在「状态完全不变」时才有意义，而触发源是状态驱动 → 冗余量可能有限，**建议先量一次真实推送频率再决定**，本版不动；
+  - **W-8（`build` 作业 `contents: write` → `read`）**：需先确认 `upload-artifact` 是否真的不需要 `write`，改错会在打 tag 之后才失败 → **待核定**；
+  - **W-10（`server` 依赖改用 `pnpm install --frozen-lockfile --prod`）**：需联网验证（且需确认 pnpm 在 workspace 子目录是否拒绝执行），本机做不到 → **待核定**；本版只订正了注释；
+  - **B-2（首屏体积阈值守卫）**：已实测 CI 中 `Run unit tests`（`build.yml:511`）**早于** `Build desktop app`（`:531`）→ 体积守卫在 CI 里读不到产物，需先定「无产物时如何处理」（跳过 = 假绿，硬失败 = 阻塞）→ **待核定**；
+  - **H-1（插件隔离）、M-3（`webSecurity`）、M-5、L-9/L-10、L-14、巨型文件拆分、插件运行时懒加载**：按既有结论维持「明确不做」，重启条件见规划文档 §5。
+- **仍推后续版本**：上述全部「待核定」项，以及 `docs`/规划文档里已记的原生层与性能项。
+
 ## [1.2.8]
 
 > 本次为**缺陷修复版**，**不包含新功能**。修复两个用户实测发现的独立缺陷：**更新无法安装**、**mini 播放器切歌后界面不同步**。

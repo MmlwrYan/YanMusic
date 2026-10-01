@@ -60,7 +60,10 @@ const withBlobContentType = (
 /**
  * 创建插件网络 API。
  *
- * - `fetch`：渲染进程原生 fetch，受同源与禁用请求头规则约束，始终可用；
+ * - `fetch`：渲染进程原生 fetch，**当前不受 `unrestrictedNetwork` 门禁**（仅 `request` 分支受门禁）。
+ *   注：注释曾称其「受同源与禁用请求头规则约束」，但本项目四类窗口均为 `webSecurity: false`
+ *   （见 `src/main/window.ts` 等），Chromium 的同源策略已关闭，该说法与事实不符，已于 v1.2.9 订正。
+ *   是否给 `fetch` 补能力门禁属对外行为变更，记为待定项（W-17），本版不改行为；
  * - `request`：走主进程原生 HTTP 适配器，需清单显式声明 `capabilities.unrestrictedNetwork === true`，
  *   未声明时明确拒绝（与主进程 `hasUnrestrictedNetwork` 判定一致）。
  */
@@ -123,7 +126,11 @@ export const createPluginNetworkApi = (
   }) as PluginNetworkRequest;
 
   return {
-    /** 浏览器 Fetch 语义，包含 Chromium 的禁用请求头规则。 */
+    /**
+     * 浏览器 Fetch 语义（含 Chromium 的禁用请求头规则）。
+     * ⚠️ 在 `webSecurity: false` 下同源策略已关闭，因此它**不**受同源约束，
+     * 也**不**受 `unrestrictedNetwork` 能力门禁限制（见上方文档注释与 W-17）。
+     */
     fetch: window.fetch.bind(window),
     /** 主进程原生 HTTP 请求，用于 Fetch 受限于同源/禁用头的场景。 */
     request,

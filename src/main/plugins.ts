@@ -23,6 +23,7 @@ import { pathToFileURL } from 'url';
 import StreamZip from 'node-stream-zip';
 import { coerce as semverCoerce, gt as semverGt, valid as semverValid } from 'semver';
 import { findUnsafeArchiveEntries } from '../shared/archiveEntry';
+import { PLUGIN_STATS_KEY_ENV, PLUGIN_STATS_KEY_HEADER } from '../shared/pluginStatsAuth';
 import type {
   EchoPluginDescriptor,
   EchoPluginManifest,
@@ -1067,10 +1068,11 @@ const reportMarketplacePluginInstallEvent = async (
           'Content-Type': 'application/json',
           'User-Agent': 'YanMusic-Plugin-Marketplace',
         };
-        // M-7：写入端点需带共享密钥（构建期经 yanmusic_PLUGIN_STATS_API_KEY 注入）。
+        // M-7：写入端点需带共享密钥（构建期经 PLUGIN_STATS_KEY_ENV 注入）。
         // 未配置时不发该头，服务端会以 401 拒绝——客户端仅记录告警，不影响安装流程。
-        const statsKey = String(process.env.yanmusic_PLUGIN_STATS_API_KEY || '').trim();
-        if (statsKey) headers['X-YanMusic-Key'] = statsKey;
+        // 头名与环境变量名一律取自 shared/pluginStatsAuth（跨主进程 / Worker / 测试三方单一来源）。
+        const statsKey = String(process.env[PLUGIN_STATS_KEY_ENV] || '').trim();
+        if (statsKey) headers[PLUGIN_STATS_KEY_HEADER] = statsKey;
         const response = await fetchWithTimeout(
           url,
           {

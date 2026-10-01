@@ -2784,7 +2784,10 @@ export const refreshPlugins = async (
 
     pluginRuntimeState.records = descriptors.map((descriptor) => ({
       descriptor,
-      status: activePlugins.has(descriptor.id) ? 'active' : descriptor.enabled ? 'idle' : 'idle',
+      // 原写法是嵌套三元，两个分支取到同一个值（死分支，W-2）。
+      // 当前 status 类型只有 'idle' | 'loading' | 'active' | 'error'，没有 'disabled'，
+      // 因此等价化简为下式；「启用但未运行」与「已禁用」暂不在此字段上区分。
+      status: activePlugins.has(descriptor.id) ? 'active' : 'idle',
       error: descriptor.error,
     }));
 

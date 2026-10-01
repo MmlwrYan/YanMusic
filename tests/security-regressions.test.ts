@@ -16,14 +16,29 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const read = (rel: string) => readFileSync(path.join(repoRoot, rel), 'utf8');
 
 /**
- * H-2：插件本地文件访问必须处处过 `localFiles` 能力闸门。
+ * ⚠️ 编号对照表（W-16，v1.2.9）——**引用编号时必须带版本号**，否则必然撞号：
+ *
+ * | 本报告/版本 | 编号 | 含义 |
+ * |---|---|---|
+ * | v1.2.3 报告 | `H-2` | 插件在主渲染上下文执行（执行模型） |
+ * | v1.2.5 报告 | `H-1` | 同上（v1.2.3 的 `H-2` 在新报告里的编号） |
+ * | v1.2.5 报告 | `H-2` | 凭据**运行时**可经 `storage:kv:get` 读走（v1.2.6 已修，守卫见 `tests/sensitive-kv-access.test.ts`） |
+ * | v1.2.3 报告 | `M-2` | `getPluginFileUrl` / `listPluginImageFiles` **无能力门禁**（v1.2.4 已修） |
+ * | **本文件** | ~~`H-2`~~ → `M-2(v1.2.3)` | **本文件守的是 v1.2.3 的 `M-2`，不是 `H-2`** |
+ *
+ * 为何必须改名：本文件原先三条用例自称 `H-2`，容易让下一次审阅误判
+ * 「一级 H-2 已有回归守卫」—— 而真正的 H-2 在 v1.2.6 之前**一条守卫都没有**。
+ */
+
+/**
+ * M-2（v1.2.3 编号；≠ v1.2.5 报告的 H-2）：插件本地文件访问必须处处过 `localFiles` 能力闸门。
  *
  * 复现（修复前）：`getPluginFileUrl(filePath)` 只收路径，不查能力；
  * `listPluginImageFiles(directoryPath)` 连 pluginId 都没有。任何插件都能把任意
  * 绝对路径转成 file:// URL 或枚举任意目录的图片，绕过 `capabilities.localFiles`
  * 与「插件安全模式」→ 任意本地文件读取（CWE-22 / CWE-200）。
  */
-test('H-2：所有插件文件入口都必须带 pluginId 并调用 capability 闸门', () => {
+test('M-2(v1.2.3)：所有插件文件入口都必须带 pluginId 并调用 capability 闸门', () => {
   const source = read('src/main/plugins.ts');
 
   // 1) 这两个函数必须显式声明 pluginId 形参
@@ -69,7 +84,7 @@ test('H-2：所有插件文件入口都必须带 pluginId 并调用 capability �
   );
 });
 
-test('H-2：渲染层包装必须把内部 pluginId 注入 fs 调用（插件无法自证身份）', () => {
+test('M-2(v1.2.3)：渲染层包装必须把内部 pluginId 注入 fs 调用（插件无法自证身份）', () => {
   const runtime = read('src/renderer/plugins/runtime.ts');
   assert.ok(
     /getFileUrl\s*:\s*\(filePath[^)]*\)\s*=>\s*getFsApi\(\)\?\.getFileUrl\(pluginId,/.test(runtime),
@@ -92,7 +107,7 @@ test('H-2：渲染层包装必须把内部 pluginId 注入 fs 调用（插件无
   );
 });
 
-test('H-2：getPluginFileUrl 必须 realpath 解析后再判定（防符号链接跳转）', () => {
+test('M-2(v1.2.3)：getPluginFileUrl 必须 realpath 解析后再判定（防符号链接跳转）', () => {
   const source = read('src/main/plugins.ts');
   const start = source.indexOf('export const getPluginFileUrl');
   const body = source.slice(start, start + 1200);
