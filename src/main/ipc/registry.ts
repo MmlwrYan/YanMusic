@@ -14,6 +14,33 @@ interface IpcHandlerOptions {
 // 用于定位是哪个通道在阻塞主进程（如切歌时的地址解析、媒体控制等）。
 const IPC_SYNC_WARN_MS = 50;
 
+/**
+ * P-3（v1.3.0）：**可选的**发送方守卫。
+ *
+ * 依赖倒置 —— registry 只认识下面这个函数签名，**不认识**「插件身份」这个概念：
+ * 具体策略（哪些通道要校验、如何反查发送方）由插件域用 `setIpcSenderGuard()` 安装，
+ * 见 `main/plugins/senderIdentity.ts` 的 `createPluginSenderGuard()`。
+ *
+ * 这样做的理由：若不倒置，则需在 49 个 `plugins:` 注册点上各包一层
+ *（改错面大且无法用单测覆盖）；倒置后「改错面」收敛为 1 处安装 + 1 处调用。
+ */
+export interface IpcSenderGuardParams {
+  channel: string;
+  webContentsId: number | undefined;
+  args: unknown[];
+}
+
+export type IpcSenderGuard = (
+  params: IpcSenderGuardParams,
+) => { ok: true } | { ok: false; error: string };
+
+let ipcSenderGuard: IpcSenderGuard | null = null;
+
+/** 安装/清除发送方守卫（传 `null` 清除）。 */
+export const setIpcSenderGuard = (guard: IpcSenderGuard | null): void => {
+  ipcSenderGuard = guard;
+};
+
 class IpcRegistry {
   private handlers = new Map<string, IpcHandler>();
   private listeners = new Map<string, IpcListener[]>();
@@ -36,6 +63,11 @@ class IpcRegistry {
         throw new Error(
           `[IPC] channel "${channel}" is not permitted for page ${observation.page} (strict mode)`,
         );
+      }
+      // P-3：发送方身份守卫（插件域安装时才有）。契约违规**可抛回调用方**。
+      if (ipcSenderGuard) {
+        const gate = ipcSenderGuard({ channel, webContentsId: event.sender?.id, args });
+        if (!gate.ok) throw new Error(gate.error);
       }
       // 计时仅在诊断模式开启时进行（平时一次布尔判断，近乎零开销）。
       // 测的是 handler 同步执行（返回前/首个 await 让出前）占用主线程的时长；
@@ -85,6 +117,18 @@ class IpcRegistry {
         // 严格模式（默认关闭）：listener 路径无法向调用方抛错，只记录并丢弃本次调用
         log.error('[IPC] listener blocked by strict permission mode', { channel });
         return;
+      }
+      // P-3：发送方身份守卫。listener 路径同样**无法抛回**，故记录并丢弃本次调用
+      //（与上面的严格模式分支保持同一处理语义）。
+      if (ipcSenderGuard) {
+        const gate = ipcSenderGuard({ channel, webContentsId: event.sender?.id, args });
+        if (!gate.ok) {
+          log.error('[IPC] listener blocked by sender identity guard', {
+            channel,
+            error: gate.error,
+          });
+          return;
+        }
       }
       const profiling = isDiagnosticModeActive();
       const start = profiling ? performance.now() : 0;

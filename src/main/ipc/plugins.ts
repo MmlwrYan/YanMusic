@@ -1,4 +1,5 @@
-import { ipcRegistry } from './registry';
+import { ipcRegistry, setIpcSenderGuard } from './registry';
+import { createPluginSenderGuard } from '../plugins/senderIdentity';
 import { BrowserWindow, dialog, type OpenDialogOptions, type WebContents } from 'electron';
 import type {
   PluginAssetSourceResult,
@@ -204,6 +205,19 @@ const showPluginOpenDialog = async (
 };
 
 export const registerPluginHandlers = (context: IpcContext) => {
+  // P-3（v1.3.0，M-1）：安装「插件能力调用」的发送方身份守卫。
+  //
+  // 依赖倒置：`registry` 不认识插件身份概念，具体策略在此安装（改错面收敛为 1 处）。
+  // 守卫内部**保守放行**：主窗口来源无法反查（插件与宿主同 realm、一个窗口可承载
+  // 多个插件），此时走旧的入参路径并保持行为不变，仅当「反查成功且与声明值不一致」
+  // 时拒绝 —— 这样不会误拒正品插件（正品插件传的就是自己的 id）。
+  // 完整理由与残余风险见 `main/plugins/senderIdentity.ts` 模块头。
+  setIpcSenderGuard(
+    createPluginSenderGuard((info) => {
+      log.error('[Plugins] 插件身份不匹配，已拒绝该次能力调用', info);
+    }),
+  );
+
   const refreshPluginAppIcons = (options?: { force?: boolean }): PluginAppIconRefreshResult => {
     refreshAppIconConfig();
     // 按需：若解析出的图标配置与上次已应用的一致，则跳过昂贵的应用步骤

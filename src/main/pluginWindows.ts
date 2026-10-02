@@ -1,5 +1,6 @@
 import { ipcRegistry } from './ipc/registry';
 import { registerWindowKind } from './ipc/permissions';
+import { registerPluginSender, unregisterPluginSender } from './plugins/senderIdentity';
 import { BrowserWindow, app, screen } from 'electron';
 import { join } from 'path';
 import type {
@@ -304,6 +305,10 @@ const createPluginWindow = async (
     persist: () => schedulePersistBounds(record),
   });
   pluginWindows.set(getWindowKey(descriptor.pluginId, descriptor.id), record);
+  // P-3（v1.3.0，M-1）：登记本插件窗口的 WebContents → pluginId。
+  // 这是**发送方反查**的唯一数据源：插件能力通道的发送方身份由它决定，
+  // 而不是由调用方自报的 pluginId 入参决定（详见 plugins/senderIdentity.ts）。
+  registerPluginSender(win.webContents.id, descriptor.pluginId);
 
   win.once('ready-to-show', () => {
     syncPresentation(win, effectiveDescriptor);
@@ -319,6 +324,8 @@ const createPluginWindow = async (
     if (record.persistTimer) clearTimeout(record.persistTimer);
     const key = getWindowKey(descriptor.pluginId, descriptor.id);
     if (pluginWindows.get(key) === record) pluginWindows.delete(key);
+    // P-3：注销发送方登记，避免 WebContents id 复用导致身份串号
+    unregisterPluginSender(win.webContents.id);
     if (pluginWindows.size === 0) clearDockRestoreTimers();
     // 显式移除所有事件监听器，防止闭包持有 record 引用
     win.removeAllListeners();
