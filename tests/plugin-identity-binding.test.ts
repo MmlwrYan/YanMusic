@@ -10,9 +10,11 @@ import {
   evaluatePluginIdentity,
   registerPluginSender,
   resetPluginSenderRegistryForTest,
+  resetUnknownSenderCountersForTest,
   resolvePluginIdByWebContentsId,
   unregisterPluginSender,
   type PluginIdentityMismatchInfo,
+  type PluginIdentityUnknownSenderInfo,
 } from '../src/main/plugins/senderIdentity.ts';
 
 /**
@@ -103,31 +105,31 @@ test('P-3：注册表按 webContentsId 反查插件身份，注销后失效', ()
   resetPluginSenderRegistryForTest();
 });
 
-test('P-3：evaluatePluginIdentity 的判定语义（一致放行 / 不一致拒绝 / 未知来源放行）', () => {
+test('P-3：evaluatePluginIdentity 的判定语义（四情形显式区分，唯一判定口径）', () => {
   // 1) 反查成功且一致 → 放行（正品插件的正常路径）
   assert.equal(evaluatePluginIdentity('plugin.a', 'plugin.a'), 'allow');
 
-  // 2) 反查成功但不一致 → 拒绝（本项要拦的冒充行为）
+  // 2) 反查成功但不一致 → 拒绝（本项要拦的冒充行为，唯一被拒的情形）
   assert.equal(
     evaluatePluginIdentity('plugin.a', 'plugin.b'),
     'mismatch',
     '声明 B、实际来自 A 必须被拒 —— 这正是 M-1 要堵的冒充路径',
   );
 
-  // 3) 未知来源（主窗口内的插件无法反查）→ **放行**。
-  //    这是规划 §7 明确的保守策略：宁可漏拦，不可误拒正品插件。
+  // 3) 未知来源（插件在主窗口内运行，无法反查）→ **放行**，但单独成一类，
+  //    以便 guard 为它留下观测计数（规划 §7 要求「放行 + 打 warn 观测」）。
   assert.equal(
     evaluatePluginIdentity(null, 'plugin.a'),
-    'allow',
-    '未知来源必须放行（否则主窗口内的正品插件会被大面积误拒，影响评级为高）',
+    'unknown-sender',
+    '未知来源必须与「一致放行」区分开，否则无法统计「有多少次没能反查」',
   );
 
-  // 4) 声明值不是非空字符串 → 本校验不适用，放行（如可选参数缺省、首参为数组）
-  assert.equal(evaluatePluginIdentity('plugin.a', undefined), 'allow');
-  assert.equal(evaluatePluginIdentity('plugin.a', null), 'allow');
-  assert.equal(evaluatePluginIdentity('plugin.a', ''), 'allow');
-  assert.equal(evaluatePluginIdentity('plugin.a', 123), 'allow');
-  assert.equal(evaluatePluginIdentity('plugin.a', ['plugin.a']), 'allow');
+  // 4) 声明值不是非空字符串 → 本校验不适用
+  assert.equal(evaluatePluginIdentity('plugin.a', undefined), 'not-applicable');
+  assert.equal(evaluatePluginIdentity('plugin.a', null), 'not-applicable');
+  assert.equal(evaluatePluginIdentity('plugin.a', ''), 'not-applicable');
+  assert.equal(evaluatePluginIdentity('plugin.a', 123), 'not-applicable');
+  assert.equal(evaluatePluginIdentity('plugin.a', ['plugin.a']), 'not-applicable');
 });
 
 test('P-3：createPluginSenderGuard 只对白名单通道生效，并回传拒绝原因', () => {
@@ -135,7 +137,7 @@ test('P-3：createPluginSenderGuard 只对白名单通道生效，并回传拒�
   registerPluginSender(7, 'plugin.owner');
 
   const mismatches: PluginIdentityMismatchInfo[] = [];
-  const guard = createPluginSenderGuard((info) => mismatches.push(info));
+  const guard = createPluginSenderGuard({ onMismatch: (info) => mismatches.push(info) });
 
   // 非白名单通道：任何情况都放行（身份校验不适用于它）
   assert.deepEqual(
@@ -177,6 +179,41 @@ test('P-3：createPluginSenderGuard 只对白名单通道生效，并回传拒�
 });
 
 // ── 源码守卫：白名单与真实注册双向一致 ──────────────────────────────────
+
+test('P-3：未知来源必须触发观测回调（规划 §7 要求「放行 + 打 warn 观测」）', () => {
+  resetPluginSenderRegistryForTest();
+  resetUnknownSenderCountersForTest();
+
+  const unknowns: PluginIdentityUnknownSenderInfo[] = [];
+  const mismatches: PluginIdentityMismatchInfo[] = [];
+  const guard = createPluginSenderGuard({
+    onUnknownSender: (info) => unknowns.push(info),
+    onMismatch: (info) => mismatches.push(info),
+  });
+
+  // 未知来源（未登记该 webContents）+ 白名单通道 + 已声明 pluginId → 放行，但必须留痕
+  assert.deepEqual(
+    guard({ channel: 'plugins:data:set', webContentsId: 12345, args: ['plugin.x', 'k', 1] }),
+    { ok: true },
+    '未知来源按保守策略放行',
+  );
+  assert.equal(unknowns.length, 1, '未知来源必须触发一次观测回调（否则将来无从判断能否收紧）');
+  assert.equal(unknowns[0].channel, 'plugins:data:set');
+  assert.equal(unknowns[0].claimedPluginId, 'plugin.x');
+  assert.equal(unknowns[0].occurrences, 1, '首次出现 occurrences 应为 1');
+  assert.equal(mismatches.length, 0, '未知来源不是 mismatch，不得计入冒充');
+
+  // 同一通道再次出现：仍在采样窗口内（首次之后要到第 200 次才再报），故计数增加但不再回调
+  guard({ channel: 'plugins:data:set', webContentsId: 12345, args: ['plugin.x', 'k', 2] });
+  assert.equal(unknowns.length, 1, '同一通道的第 2 次不应重复回调（采样避免刷爆日志）');
+
+  // 非白名单通道不触发任何回调
+  guard({ channel: 'storage:kv:get', webContentsId: 12345, args: ['pinia:user'] });
+  assert.equal(unknowns.length, 1, '非白名单通道不得产生未知来源观测');
+
+  resetPluginSenderRegistryForTest();
+  resetUnknownSenderCountersForTest();
+});
 
 test('P-3：凡「首参是 pluginId」的 plugins: 通道都必须纳入身份校验白名单', () => {
   const actual = collectPluginIdFirstArgChannels();

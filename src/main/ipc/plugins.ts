@@ -213,8 +213,16 @@ export const registerPluginHandlers = (context: IpcContext) => {
   // 时拒绝 —— 这样不会误拒正品插件（正品插件传的就是自己的 id）。
   // 完整理由与残余风险见 `main/plugins/senderIdentity.ts` 模块头。
   setIpcSenderGuard(
-    createPluginSenderGuard((info) => {
-      log.error('[Plugins] 插件身份不匹配，已拒绝该次能力调用', info);
+    createPluginSenderGuard({
+      onMismatch: (info) => {
+        log.error('[Plugins] 插件身份不匹配，已拒绝该次能力调用', info);
+      },
+      onUnknownSender: (info) => {
+        // 规划 §7 回退策略要求的观测出口：未知来源（插件在主窗口内运行，
+        // 无法反查发送方归属）按保守策略**放行**，但必须留痕 ——
+        // 将来接上真实插件环境后，用这些计数判断能否收紧为「拒绝」。
+        log.warn('[Plugins] 插件身份无法反查（发送方非插件窗口），按保守策略放行', info);
+      },
     }),
   );
 

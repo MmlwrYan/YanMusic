@@ -173,24 +173,29 @@ export const resetPluginSenderRegistryForTest = (): void => {
   senderOwners.clear();
 };
 
-export type PluginIdentityVerdict = 'allow' | 'mismatch';
+export type PluginIdentityVerdict = 'allow' | 'mismatch' | 'unknown-sender' | 'not-applicable';
 
 /**
- * **纯判定**：是否允许本次调用（不读注册表、无副作用，故可直接单测）。
+ * **纯判定**：唯一判定口径（不读注册表、无副作用，故可直接单测）。
  *
- * 放行（`allow`）的三种情形：
- * 1. 声明的 `pluginId` 不是非空字符串 —— 本校验不适用（例如可选参数缺省、首参为数组等）；
- * 2. 反查结果为 `null` —— **未知来源**（主窗口内的插件无法反查），按规划 §7 走旧路径放行；
- * 3. 反查结果与声明值一致 —— 正品插件的正常路径。
+ * 四种情形：
+ * 1. `not-applicable` —— 声明的 `pluginId` 不是非空字符串（可选参数缺省、首参为数组等），
+ *    本校验不适用于该调用；
+ * 2. `unknown-sender` —— 反查不到发送方归属（**插件在主窗口内运行**）。按规划 §7
+ *    **放行**，但 guard 会为它留下观测计数；
+ * 3. `allow` —— 反查成功且与声明一致（正品插件的正常路径）；
+ * 4. `mismatch` —— 反查成功但与声明不同（**冒充他人**，唯一被拒的情形）。
  *
- * 仅当「反查成功且与声明值不同」时判 `mismatch`。
+ * ⚠️ 刻意把四种情形都返回出来，而不是只给 `allow | mismatch` 两值：
+ * 否则 guard 必须自己再判一次「是否未知来源」，就形成**两处判定口径** ——
+ * 那正是 F-1（`ctx.net.fetch` 漏门禁）的根因形态。
  */
 export const evaluatePluginIdentity = (
   resolvedPluginId: string | null,
   claimedPluginId: unknown,
 ): PluginIdentityVerdict => {
-  if (typeof claimedPluginId !== 'string' || claimedPluginId.length === 0) return 'allow';
-  if (resolvedPluginId === null) return 'allow';
+  if (typeof claimedPluginId !== 'string' || claimedPluginId.length === 0) return 'not-applicable';
+  if (resolvedPluginId === null) return 'unknown-sender';
   return resolvedPluginId === claimedPluginId ? 'allow' : 'mismatch';
 };
 
@@ -224,29 +229,83 @@ export interface PluginIdentityMismatchInfo {
   claimedPluginId: string;
 }
 
+export interface PluginIdentityUnknownSenderInfo {
+  channel: string;
+  claimedPluginId: string;
+  /** 该通道累计出现次数（首次即 1） */
+  occurrences: number;
+}
+
+export interface PluginSenderGuardHooks {
+  /** 反查成功但与声明不一致（= 冒充，已拒绝）。 */
+  onMismatch?: (info: PluginIdentityMismatchInfo) => void;
+  /**
+   * **本该校验但无法反查**（未知来源）：声明了 pluginId、通道在白名单内，
+   * 却查不到发送方归属 —— 即「插件在主窗口内运行」的情形。
+   *
+   * 规划 §7 对该项的回退策略要求：「未知来源走旧的入参路径 **+ 打 warn 观测**；
+   * 观测数据为空再收紧」。本回调就是那个观测出口 —— 有了它，将来接上真实插件环境
+   * 后可以直接看「哪些通道有多少次未知来源调用」，据此决定能否收紧。
+   *
+   * 采样：首次必报，之后每 {@link UNKNOWN_SENDER_SAMPLE_INTERVAL} 次报一条（带累计次数），
+   * 避免高频通道把日志刷爆。
+   */
+  onUnknownSender?: (info: PluginIdentityUnknownSenderInfo) => void;
+}
+
+/** 未知来源的日志采样间隔（与 `ipc/permissions.ts` 的观测采样保持同一量级）。 */
+const UNKNOWN_SENDER_SAMPLE_INTERVAL = 200;
+
+/** 未知来源计数：channel → 次数。仅用于观测采样，不参与判定。 */
+const unknownSenderCounters = new Map<string, number>();
+
+/** 仅供测试：清空未知来源计数。 */
+export const resetUnknownSenderCountersForTest = (): void => {
+  unknownSenderCounters.clear();
+};
+
 /**
  * 生成注册表用的守卫函数（依赖倒置：`registry.ts` 只认识这个函数签名，
  * **不认识**插件身份概念）。
  *
- * @param onMismatch 拒绝时的回调 —— 用于写审计日志。**只在校验失败时触发**，
- *   因此不会在热路径上制造噪声。
+ * @param hooks 观测出口。两者都**只在异常/未知情形触发**，故不会在热路径上制造噪声。
  */
-export const createPluginSenderGuard = (
-  onMismatch?: (info: PluginIdentityMismatchInfo) => void,
-): IpcSenderGuard => {
+export const createPluginSenderGuard = (hooks?: PluginSenderGuardHooks): IpcSenderGuard => {
   return (params: IpcSenderGuardParams): IpcSenderGuardResult => {
     // 放行路径零分配（单例常量）——本函数在每一次 IPC 调用上执行，
-    // 见 registry.ts 中 IPC_SENDER_GUARD_ALLOW 的说明。
+    // 见上方 ALLOW 的说明。
     if (!PLUGIN_IDENTITY_CHANNELS.has(params.channel)) return ALLOW;
 
-    const resolvedPluginId = resolvePluginIdByWebContentsId(params.webContentsId);
     const claimed = params.args[0];
-    if (evaluatePluginIdentity(resolvedPluginId, claimed) === 'allow') return ALLOW;
+    const verdict = evaluatePluginIdentity(
+      resolvePluginIdByWebContentsId(params.webContentsId),
+      claimed,
+    );
 
+    // 正品插件的正常路径 / 本校验不适用 —— 直接放行，零额外开销
+    if (verdict === 'allow' || verdict === 'not-applicable') return ALLOW;
+
+    if (verdict === 'unknown-sender') {
+      // 未知来源：本该校验却无法反查（插件在主窗口内运行）。
+      // 按规划 §7 放行，但**必须留下观测计数**，否则将来无从判断能否收紧。
+      const occurrences = (unknownSenderCounters.get(params.channel) ?? 0) + 1;
+      unknownSenderCounters.set(params.channel, occurrences);
+      if (occurrences === 1 || occurrences % UNKNOWN_SENDER_SAMPLE_INTERVAL === 0) {
+        hooks?.onUnknownSender?.({
+          channel: params.channel,
+          claimedPluginId: String(claimed),
+          occurrences,
+        });
+      }
+      return ALLOW;
+    }
+
+    // verdict === 'mismatch'：唯一被拒的情形
     const claimedPluginId = String(claimed);
-    onMismatch?.({
+    const resolvedPluginId = resolvePluginIdByWebContentsId(params.webContentsId) as string;
+    hooks?.onMismatch?.({
       channel: params.channel,
-      resolvedPluginId: resolvedPluginId as string,
+      resolvedPluginId,
       claimedPluginId,
     });
 
@@ -254,7 +313,7 @@ export const createPluginSenderGuard = (
       ok: false,
       error:
         `插件身份不匹配：通道 "${params.channel}" 声明的 pluginId 为 "${claimedPluginId}"，` +
-        `但发送方实际归属 "${String(resolvedPluginId)}"。` +
+        `但发送方实际归属 "${resolvedPluginId}"。` +
         '能力调用只允许操作自身资源（P-3 / M-1）。',
     };
   };
