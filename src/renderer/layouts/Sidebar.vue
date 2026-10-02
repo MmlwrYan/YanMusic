@@ -24,6 +24,7 @@ import {
   iconHeart,
   iconImage,
   iconPlaylistAdd,
+  iconPlugin,
   iconPulse,
   iconPlus,
   iconSearch,
@@ -120,6 +121,11 @@ const iconMap = {
   heart: iconHeart,
   purchased: iconCloudDownload,
   together: iconHeadphones,
+  // v1.3.0：插件入口的固定图标（tabler puzzle）。
+  // 原先「插件」只是**插件动态贡献的侧边栏分区**（默认 order 300），
+  // 新用户没装插件时该分区根本不出现 → 无从发现插件系统的存在。
+  // 现在侧边栏有一个固定入口（见 navSections 的 plugins 项）。
+  plugin: iconPlugin,
 } as const;
 
 type BuiltinSidebarIcon = keyof typeof iconMap;
@@ -237,6 +243,23 @@ const builtinSidebarSections = [
         path: '/main/journal',
         builtinIcon: 'pulse',
         order: 45,
+      },
+      {
+        // v1.3.0：固定的插件入口，紧随「听歌档案」（order 45 → 46）。
+        //
+        // 为什么需要它：「插件」此前**只以插件动态贡献的分区形式出现**
+        //（见下方 pluginSidebarSections，默认 sectionOrder 300 且需已装插件），
+        // 于是新用户装了应用、用了一段时间都发现不了插件系统的存在。
+        //
+        // 指向设置页内的插件管理/市场页（复用既有页面，不新造路由）：
+        // Sidebar 的高亮是 `route.path === item.path` **精确匹配**，
+        // 故不会与「设置」项同时高亮。
+        id: 'plugins',
+        key: 'plugins',
+        title: '插件',
+        path: '/main/settings/plugins',
+        builtinIcon: 'plugin',
+        order: 46,
       },
     ],
   },
