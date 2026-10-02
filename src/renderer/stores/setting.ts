@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import type { CloseBehavior, ThemeMode } from '../../shared/app';
+import type { CloseBehavior, StartupDegradationInfo, ThemeMode } from '../../shared/app';
 import type { AppLogLevel, LogSettings } from '../../shared/logging';
 import type {
   AudioQualityValue,
@@ -15,6 +15,7 @@ import {
   type NetworkSettings,
 } from '../../shared/network';
 import { resolveLegacyAudioOptionDefaultPatch } from '../../shared/native-audio-options';
+import { useToastStore } from '@/stores/toast';
 import logger, { configureRendererLogger } from '@/utils/logger';
 
 export const DEFAULT_SHORTCUT_LABELS: Record<string, string> = {
@@ -312,9 +313,34 @@ export const useSettingStore = defineStore('setting', {
         const appInfo = await window.electron.appInfo.get();
         this.appVersion = String(appInfo.version || '').trim();
         this.isPrerelease = Boolean(appInfo.isPrerelease);
+        // S-3（v1.3.0）：把主进程记录的启动降级告知用户
+        this.reportStartupDegradations(appInfo.startupDegradations);
       } catch {
         // ignore hydration failure and keep current value
       }
+    },
+    /**
+     * S-3（v1.3.0）：向用户明确提示**启动期降级**。
+     *
+     * 修复前 `initApiServer` / `initMpvPlayer` 失败**只写主进程日志**，
+     * 用户侧表现为「应用能打开，但放不了歌 / 局域网访问不通」且不知道原因。
+     *
+     * 只提示**可降级**项（`fatal === false`）：
+     * `fatal` 项（如 native-storage 不可用）在主进程已经弹出阻塞式错误框并退出，
+     * 根本走不到这里；此处再提示一次只会造成重复打扰。
+     */
+    reportStartupDegradations(degradations?: StartupDegradationInfo[]) {
+      if (!Array.isArray(degradations) || degradations.length === 0) return;
+      const reportable = degradations.filter((item) => item && !item.fatal);
+      if (reportable.length === 0) return;
+      const message = reportable
+        .map((item) => String(item.message || '').trim())
+        .filter(Boolean)
+        .join('；');
+      if (!message) return;
+      // 用较长的展示时长（8s）：这不是普通的操作反馈，而是「某功能本次不可用」的告知，
+      // 太短会让用户错过，且错过了也没有别处能看到。
+      useToastStore().warning(message, 8000);
     },
     openRepo() {
       if (window.electron?.appControl) {

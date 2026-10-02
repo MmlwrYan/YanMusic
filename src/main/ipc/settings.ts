@@ -19,6 +19,7 @@ import { getFonts } from 'font-list';
 import { coerce as semverCoerce, gt as semverGt, valid as semverValid } from 'semver';
 import type { AppInfoResult, UpdateCheckResult, UpdateDownloadResult } from '../../shared/app';
 import type { NetworkSettingsUpdateRequest } from '../../shared/network';
+import { getStartupDegradations } from '../startupDiagnostics';
 import {
   applyGithubAcceleratorUrl,
   runGithubAcceleratorFallback,
@@ -716,7 +717,15 @@ const downloadCommunityAudioEffect = async (
 
 const getAppInfo = (): AppInfoResult => {
   const version = app.getVersion();
-  return { version, isPrerelease: version.includes('-'), isPackaged: app.isPackaged };
+  return {
+    version,
+    isPrerelease: version.includes('-'),
+    isPackaged: app.isPackaged,
+    // S-3（v1.3.0）：把启动期降级项一并回传 —— 渲染层据此向用户明确提示
+    // 「哪一部分不可用」，而不是让应用静默地半残运行。
+    // 空数组 = 一切正常（这是绝大多数情况）。
+    startupDegradations: getStartupDegradations(),
+  };
 };
 
 export const registerSettingsHandlers = ({ getMainWindow, mpvRef }: IpcContext) => {

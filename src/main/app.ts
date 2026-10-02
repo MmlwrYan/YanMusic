@@ -1,7 +1,9 @@
-import { app, BrowserWindow, globalShortcut } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut } from 'electron';
 import { initLogger, setDiagnosticStateListener } from './logger';
 import log from './logger';
 import { installFatalErrorGuard } from './fatalErrorGuard';
+import { recordStartupDegradation } from './startupDiagnostics';
+import { getNativeStorage } from './storage/native';
 import { startEventLoopMonitor, stopEventLoopMonitor } from './eventLoopMonitor';
 import { initApiServer } from './server';
 import { registerIpcHandlers } from './ipc';
@@ -63,6 +65,57 @@ setDiagnosticStateListener((active) => {
 });
 
 const hasSafeModeArg = (argv: string[]) => argv.includes('--safe-mode');
+
+/**
+ * S-3（v1.3.0）：**窗口创建前**预检原生存储 addon（不可降级依赖）。
+ *
+ * ## 为什么需要
+ *
+ * `storage/native.ts` 的 addon 加载失败会**直接 `throw`**，而存储是全应用的根基
+ * （Pinia 持久化、KV、插件 sqlite 都依赖它）。此前该异常会一路冒泡，
+ * 可能崩在窗口创建前 —— 用户只看到「应用打不开」，没有任何解释，也无从自救。
+ *
+ * ## 处置
+ *
+ * 把「不可降级」的失败**显式化**：记录降级项 → 弹出含**日志路径**的明确提示
+ * → 优雅退出（`app.exit(1)`，而不是让异常继续冒泡）。
+ *
+ * 刻意**不**尝试「无存储继续运行」：那会让播放、设置、插件在各处零散报错，
+ * 比一次性说清「哪个组件坏了、日志在哪」更难排查（规划 §2.2 S-3 的要求是
+ * 「明确提示而不是崩在窗口创建前」，不是「带病运行」）。
+ *
+ * @returns `true` = 可继续启动
+ */
+const preflightNativeStorage = (): boolean => {
+  try {
+    // 触发 addon 加载与初始化；幂等，后续调用直接复用同一实例
+    getNativeStorage();
+    return true;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    log.error('[Main] Native storage preflight failed:', error);
+    recordStartupDegradation({
+      kind: 'native-storage',
+      message: `本地数据库组件加载失败：${detail}`,
+      fatal: true,
+    });
+
+    let logDirectory = '';
+    try {
+      logDirectory = app.getPath('logs');
+    } catch {
+      // getPath 在极端早期可能不可用；此时提示里省略路径，不影响主流程
+    }
+
+    dialog.showErrorBox(
+      'YanMusic 无法启动',
+      '本地数据库组件（yan-storage）加载失败，应用无法正常工作。\n\n' +
+        (logDirectory ? `详细信息请查看日志目录：\n${logDirectory}\n\n` : '') +
+        '常见原因：安装不完整、杀毒软件隔离了 native 组件、或安装包架构与系统不匹配。',
+    );
+    return false;
+  }
+};
 
 app.on('open-url', (event, url) => {
   event.preventDefault();
@@ -148,6 +201,13 @@ if (!gotTheLock) {
   });
 
   app.whenReady().then(async () => {
+    // S-3（v1.3.0）：最早时机预检**不可降级**的启动依赖。
+    // 必须早于 registerIpcHandlers/窗口创建 —— 否则 addon 异常会崩在窗口创建前。
+    if (!preflightNativeStorage()) {
+      app.exit(1);
+      return;
+    }
+
     configureApplicationMenu();
 
     // N-02 观测：为应用自身页面挂上「仅报告」的 CSP（只观测、不阻断）。
@@ -181,9 +241,22 @@ if (!gotTheLock) {
     const [, mpvInstance] = await Promise.all([
       initApiServer().catch((err) => {
         log.error('[Main] Failed to init API server:', err);
+        // S-3（v1.3.0）：**可降级** —— 界面照常启动，但必须让用户知道
+        // 「内置 API 服务未启动」，而不是让它静默地坏着（此前只写日志）。
+        recordStartupDegradation({
+          kind: 'api-server',
+          message: '内置 API 服务未启动（局域网访问与相关插件功能不可用）',
+          fatal: false,
+        });
       }),
       initMpvPlayer(getMainWindow).catch((err) => {
         log.error('[Main] Failed to init mpv player:', err);
+        // S-3（v1.3.0）：**可降级** —— 界面可用但无法播放，必须明确告知。
+        recordStartupDegradation({
+          kind: 'mpv',
+          message: '音频引擎初始化失败，当前无法播放音乐',
+          fatal: false,
+        });
         return null;
       }),
     ]);
