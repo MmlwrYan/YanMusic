@@ -1,9 +1,35 @@
-﻿import { ipcMain } from 'electron';
+import { ipcMain, type IpcMainInvokeEvent } from 'electron';
 import type { BrowserWindow } from 'electron';
 import { app } from 'electron';
 import path from 'path';
 import log from './logger';
+import { observeIpcCall } from './ipc/permissions';
 import { setTaskbarCover } from './taskbarThumbnail';
+
+/**
+ * P-4a（v1.3.0）：本模块的 8 个通道原先用**裸 `ipcMain.handle`** 注册，因此
+ * **绕开 `ipcRegistry` 的观测层**（IMP-01 的 `observeIpcCall`），调用不可见。
+ *
+ * 这里补一次**显式观测**而不改动注册机制 —— 这样 `registerFallbackIpc()` 里
+ * 的 `ipcMain.listenerCount` 判定与 `destroyMediaControls()` 的清理语义都**保持原样**
+ *（本版只做「并入规则表 + 接入观测」，**不开 `IPC_PERMISSION_STRICT`**）。
+ *
+ * 用 `function` 声明而非 `const`：本函数在下方多个注册点被引用，
+ * 而 `registerFallbackIpc()` 定义在其后，函数声明提升可避免初始化顺序问题。
+ */
+function handleObserved(
+  channel: string,
+  handler: (event: IpcMainInvokeEvent, ...args: any[]) => unknown,
+): void {
+  ipcMain.handle(channel, (event, ...args) => {
+    observeIpcCall({
+      channel,
+      url: event.senderFrame?.url,
+      webContentsId: event.sender?.id,
+    });
+    return handler(event, ...args);
+  });
+}
 
 // native addon 类型（与自动生成的 index.d.ts 对齐）
 interface NativeMediaControls {
@@ -138,7 +164,7 @@ export function initMediaControls(getMainWindow: () => BrowserWindow | null): vo
   });
 
   // IPC: 更新元数据
-  ipcMain.handle(
+  handleObserved(
     'media-control:update-metadata',
     async (
       _e,
@@ -211,7 +237,7 @@ export function initMediaControls(getMainWindow: () => BrowserWindow | null): vo
   );
 
   // IPC: 更新播放状态
-  ipcMain.handle('media-control:update-state', (_e, payload: { status: string }) => {
+  handleObserved('media-control:update-state', (_e, payload: { status: string }) => {
     try {
       nativeModule?.updatePlayState(payload);
     } catch (err) {
@@ -220,7 +246,7 @@ export function initMediaControls(getMainWindow: () => BrowserWindow | null): vo
   });
 
   // IPC: 更新播放进度
-  ipcMain.handle(
+  handleObserved(
     'media-control:update-timeline',
     (_e, payload: { currentTimeMs: number; totalTimeMs: number }) => {
       try {
@@ -232,7 +258,7 @@ export function initMediaControls(getMainWindow: () => BrowserWindow | null): vo
   );
 
   // IPC: 查询 native addon 是否可用
-  ipcMain.handle('media-control:available', () => {
+  handleObserved('media-control:available', () => {
     return nativeModule !== null;
   });
 }
@@ -240,16 +266,16 @@ export function initMediaControls(getMainWindow: () => BrowserWindow | null): vo
 /** native addon 不可用时注册空的 IPC handler，防止渲染进程报错 */
 function registerFallbackIpc(): void {
   if (!ipcMain.listenerCount('media-control:update-metadata')) {
-    ipcMain.handle('media-control:update-metadata', () => {});
+    handleObserved('media-control:update-metadata', () => {});
   }
   if (!ipcMain.listenerCount('media-control:update-state')) {
-    ipcMain.handle('media-control:update-state', () => {});
+    handleObserved('media-control:update-state', () => {});
   }
   if (!ipcMain.listenerCount('media-control:update-timeline')) {
-    ipcMain.handle('media-control:update-timeline', () => {});
+    handleObserved('media-control:update-timeline', () => {});
   }
   if (!ipcMain.listenerCount('media-control:available')) {
-    ipcMain.handle('media-control:available', () => false);
+    handleObserved('media-control:available', () => false);
   }
 }
 

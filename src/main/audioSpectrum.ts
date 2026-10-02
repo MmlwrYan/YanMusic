@@ -1,4 +1,4 @@
-import { ipcMain, type WebContents } from 'electron';
+import { ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import type {
   AudioSpectrumFrame,
   AudioSpectrumOptions,
@@ -8,6 +8,7 @@ import type {
   AudioSpectrumUnsubscribePayload,
 } from '../shared/audio-spectrum';
 import log from './logger';
+import { observeIpcCall } from './ipc/permissions';
 import { loadSpectrumCapture, type NativeSpectrumCapture } from './spectrumCapture';
 
 type AudioSpectrumSubscription = {
@@ -264,15 +265,37 @@ const removeWebContentsSubscriptions = (webContents: WebContents) => {
   return changed;
 };
 
+/**
+ * P-4a（v1.3.0）：本模块的 4 个通道原先用**裸 `ipcMain.handle`** 注册，因此
+ * **绕开 `ipcRegistry` 的观测层**（IMP-01 的 `observeIpcCall`），调用不可见。
+ *
+ * 这里补一次**显式观测**而不改动注册机制 —— 保持 `ipcMain.removeHandler` 的注销语义
+ * 与既有行为完全一致。本版只做「并入规则表 + 接入观测」，**不开 `IPC_PERMISSION_STRICT`**
+ *（§6 已拍板）；观测数据供下一版决定是否收窄 `SCOPE_RULES`。
+ */
+const handleObserved = (
+  channel: string,
+  handler: (event: IpcMainInvokeEvent, ...args: any[]) => unknown,
+): void => {
+  ipcMain.handle(channel, (event, ...args) => {
+    observeIpcCall({
+      channel,
+      url: event.senderFrame?.url,
+      webContentsId: event.sender?.id,
+    });
+    return handler(event, ...args);
+  });
+};
+
 export const registerAudioSpectrumIpc = () => {
   if (registered) return;
   registered = true;
 
-  ipcMain.handle('audio-spectrum:get-status', () => getStatus());
+  handleObserved('audio-spectrum:get-status', () => getStatus());
 
-  ipcMain.handle('audio-spectrum:get-snapshot', () => getSnapshot());
+  handleObserved('audio-spectrum:get-snapshot', () => getSnapshot());
 
-  ipcMain.handle(
+  handleObserved(
     'audio-spectrum:subscribe',
     (event, payload: AudioSpectrumSubscribePayload): AudioSpectrumSubscribeResult => {
       const subscriptionId = String(payload?.subscriptionId || '').trim();
@@ -308,7 +331,7 @@ export const registerAudioSpectrumIpc = () => {
     },
   );
 
-  ipcMain.handle(
+  handleObserved(
     'audio-spectrum:unsubscribe',
     (event, payload: AudioSpectrumUnsubscribePayload): AudioSpectrumStatus => {
       const subscriptionId = String(payload?.subscriptionId || '').trim();

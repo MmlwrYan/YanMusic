@@ -150,6 +150,35 @@ const SCOPE_RULES: readonly ScopeRule[] = [
     basis: '所有窗口都通过 sqlitePersist 读写同一份存储',
   },
   { prefix: 'api:request', scope: 'all', basis: '各窗口都可能发起 API 请求' },
+
+  // ── P-4a（v1.3.0）：原「在 ipcRegistry 之外直连注册」的 9 条，现已并入规则表 ──
+  //
+  // 这 9 条此前**既不在规则表内**（走 DEFAULT_SCOPE，等于无显式判定依据），
+  // 也**绕开观测**（直连 ipcMain.handle/on，不经 ipcRegistry 的 observeIpcCall）。
+  // 本版把两者都补上：显式条目 + 显式观测调用（见 audioSpectrum.ts / mediaControls.ts
+  // 的 handleObserved 包装，以及 thumbar.ts 已改为 ipcRegistry.registerListener）。
+  //
+  // **刻意保持 `all`（不收窄）**，理由如实记录：
+  // - 调用方跨窗口且部分来自**插件 runtime**（`audioSpectrum` 由 plugins/runtime.ts 调用），
+  //   而插件可在**主窗口内**运行（与宿主同 realm，其 sender 即主窗口）——
+  //   在无真实观测数据时收窄会**误拒正品插件**（影响评级高）；
+  // - 冒充他人身份的问题由 **P-3 的发送方绑定**负责，不依赖 scope 收窄；
+  // - 按规划 §4「先并入 + 接入观测，本批不开 strict」，收窄留待观测数据充分后评估。
+  {
+    prefix: 'audio-spectrum:',
+    scope: 'all',
+    basis: '频谱订阅/快照：插件 runtime 与主窗口都可能调用，暂无观测数据故不收窄（P-4a）',
+  },
+  {
+    prefix: 'media-control:',
+    scope: 'all',
+    basis: '播放状态/元数据上报：使用方为共用 player store 的多窗口，暂无观测数据故不收窄（P-4a）',
+  },
+  {
+    prefix: 'thumbar:',
+    scope: 'all',
+    basis: '任务栏缩略图播放态上报：来自共用 player store，暂无观测数据故不收窄（P-4a）',
+  },
 ];
 
 const DEFAULT_SCOPE: ChannelScope = 'all';
@@ -364,7 +393,23 @@ export const resetIpcPermissionObservation = (): void => {
   windowKinds.clear();
 };
 
-/** 本轮**未被观测覆盖**的通道（在 ipcRegistry 之外直连注册）。 */
+/**
+ * **在 `ipcRegistry` 之外直连注册**的通道清单。
+ *
+ * ⚠️ P-4a（v1.3.0）后语义已变，阅读时注意区分两件事：
+ *
+ * - **仍不在 `ipcRegistry` 内**（故仍不出现在 `tests/ipc-channel-contract.test.ts`
+ *   的注册扫描里）—— `audio-spectrum:*` / `media-control:*` 仍用 `ipcMain.handle`，
+ *   `thumbar:update-play-state` 已改为 `ipcRegistry.registerListener`（P-2）；
+ * - **但已接入观测**：`audioSpectrum.ts` / `mediaControls.ts` 用 `handleObserved`
+ *   包装补上了 `observeIpcCall` 调用，故本清单**不再等于「未观测」**。
+ *
+ * 保留本清单的价值：它是「不经注册表注册」这一事实的**单一出处记录**，
+ * 供 `tests/ipc-permission-observation.test.ts` 校验，防止将来有人新增裸注册
+ * 却既不接观测、也不登记在此。
+ *
+ * 本版（v1.3.0）按 §6 拍板**不开启 `IPC_PERMISSION_STRICT`** —— 观测只记录不拒绝。
+ */
 export const EXTERNALLY_REGISTERED_CHANNELS = [
   'audio-spectrum:subscribe',
   'audio-spectrum:unsubscribe',
