@@ -60,8 +60,12 @@ test('W-4：sanitizeHtml 必须为带 target 的外链补 rel=noopener noreferre
     '未挂 afterSanitizeAttributes 钩子 —— 外链会缺失 rel（window.opener 反向操纵面）',
   );
   assert.ok(
-    /setAttribute\('rel', 'noopener noreferrer'\)/.test(source),
-    '钩子未写入 rel="noopener noreferrer"',
+    /getAttribute\('rel'\)/.test(source),
+    '补 rel 必须**合并**已有 token（读一下现有 rel），直接覆盖会冲掉 nofollow 等',
+  );
+  assert.ok(
+    /tokens\.add\('noopener'\)/.test(source) && /tokens\.add\('noreferrer'\)/.test(source),
+    '钩子未同时补上 noopener 与 noreferrer',
   );
   assert.ok(
     /hasAttribute\('target'\)/.test(source),

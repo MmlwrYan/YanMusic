@@ -12,6 +12,7 @@ import { getMainWindow, hideMainWindow, showMainWindow } from './window';
 import { getActiveWindowMode, setActiveWindowMode } from './windowMode';
 import { registerWindowKind } from './ipc/permissions';
 import { getMainAppSettings, setMainAppSetting } from './storage/settings';
+import { attachLoadFailureRecovery } from './loadFailureRecovery';
 
 const MINI_PLAYER_WIDTH = MINI_PLAYER_DIMENSIONS.width;
 const MINI_PLAYER_HEIGHT = MINI_PLAYER_DIMENSIONS.collapsedHeight;
@@ -557,6 +558,16 @@ export const ensureMiniPlayerWindow = async () => {
   } else {
     win.on('move', persistMiniPlayerBounds);
   }
+
+  // S-2：mini 播放器是辅助窗口（常常没有焦点），弹框会变成看不见的模态 ——
+  // 改为自动重载一次并记日志，避免「白窗口 + 无提示」。
+  attachLoadFailureRecovery(win, {
+    label: 'mini 播放器',
+    promptUser: false,
+    onGiveUp: () => {
+      if (!win.isDestroyed()) win.destroy();
+    },
+  });
 
   await loadMiniPlayerWindow(win);
   return win;

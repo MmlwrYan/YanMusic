@@ -42,6 +42,7 @@ import { getActiveWindowMode } from './windowMode';
 import { closeMiniPlayerWindow } from './miniPlayer';
 import { ipcRegistry } from './ipc/registry';
 import { refreshTrayMenus } from './tray';
+import { attachLoadFailureRecovery } from './loadFailureRecovery';
 
 export { getDesktopLyricWindow } from './desktopLyric/window';
 
@@ -393,7 +394,9 @@ const unbindMainWindowEvents = () => {
   }
 };
 
-const destroyDesktopLyricWindowFromFailure = (reason: 'unresponsive' | 'render-process-gone') => {
+const destroyDesktopLyricWindowFromFailure = (
+  reason: 'unresponsive' | 'render-process-gone' | 'load-failed',
+) => {
   const win = getDesktopLyricWindow();
   if (!win || win.isDestroyed() || desktopLyricClosingFromFailure) return;
   desktopLyricClosingFromFailure = true;
@@ -457,6 +460,14 @@ export const ensureDesktopLyricWindow = async () => {
 
   win.webContents.on('render-process-gone', () => {
     destroyDesktopLyricWindowFromFailure('render-process-gone');
+  });
+
+  // S-2：桌面歌词是无边框置顶辅助窗口，不适合弹模态框 —— 自动重载一次并记日志；
+  // 仍失败则按既有失败路径销毁窗口（与 render-process-gone 的处理保持一致）。
+  attachLoadFailureRecovery(win, {
+    label: '桌面歌词',
+    promptUser: false,
+    onGiveUp: () => destroyDesktopLyricWindowFromFailure('load-failed'),
   });
 
   await loadDesktopLyricWindow();

@@ -20,6 +20,7 @@ import { ipcRegistry } from './ipc/registry';
 import { registerWindowKind } from './ipc/permissions';
 import { applyWindowAppIcon, resolveWindowIconPath } from './appIcons';
 import { logMainMemory } from './diagnostics/memory';
+import { attachLoadFailureRecovery } from './loadFailureRecovery';
 
 const minWidth: number = 1100;
 const defaultWidth: number = 1150;
@@ -461,6 +462,9 @@ export async function createWindow() {
   win.on('unresponsive', () => {
     reportPluginRendererFailure('unresponsive', '主界面渲染进程无响应，已记录插件救援信息。');
   });
+
+  // S-2：加载失败兜底（弹框 + 重试）。必须在 loadURL/loadFile 之前挂上，否则漏掉首次失败。
+  attachLoadFailureRecovery(win, { label: '主界面', promptUser: true });
 
   if (url) {
     win.loadURL(url);

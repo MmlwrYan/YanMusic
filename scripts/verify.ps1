@@ -83,6 +83,15 @@ else {
     Write-Host '==> 已跳过 vite build（-SkipBuild）' -ForegroundColor Yellow
 }
 
+# 3.5) 首屏体积守卫（S-5）。**必须在 build 之后**：它读 dist/index.html，无产物即失败。
+# 单测里的同名用例在 CI 里必然 skip（CI 的 unit tests 早于 build），真正把关在这里。
+if (-not $SkipBuild) {
+    Invoke-Step -Name '首屏体积守卫 check-bundle-size' -Exe 'node' -Arguments @('scripts/check-bundle-size.mjs') | Out-Null
+}
+else {
+    Write-Host '==> 已跳过首屏体积守卫（-SkipBuild，未重新构建产物）' -ForegroundColor Yellow
+}
+
 # 4) Lint（自 v1.2.3 起不带 --fix，须 0 error / 0 warning）
 Invoke-Step -Name 'Lint eslint .' -Exe 'node' -Arguments @('node_modules/eslint/bin/eslint.js', '.') | Out-Null
 

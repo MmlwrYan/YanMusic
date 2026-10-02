@@ -19,6 +19,7 @@ import {
 import { getKvStorage } from './storage/kv';
 import log from './logger';
 import { WindowDragController } from './pluginWindowInteraction';
+import { attachLoadFailureRecovery } from './loadFailureRecovery';
 
 type PluginWindowRecord = {
   pluginId: string;
@@ -213,6 +214,13 @@ const loadPluginWindow = async (win: BrowserWindow, descriptor: PluginWindowDesc
     pluginId: descriptor.pluginId,
     windowId: descriptor.id,
   };
+  // S-2：插件窗口加载失败兜底。插件窗口常有焦点问题，弹框可能看不见，
+  // 但它同样是用户主动打开的界面 —— 仍然给用户一次「重试」的机会。
+  attachLoadFailureRecovery(win, {
+    label: `插件窗口 ${query.pluginId}`,
+    promptUser: true,
+  });
+
   if (pluginWindowUrl) {
     const target = new URL('plugin-window.html', pluginWindowUrl);
     target.searchParams.set('pluginId', query.pluginId);

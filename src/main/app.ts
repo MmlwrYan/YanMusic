@@ -1,6 +1,7 @@
 import { app, BrowserWindow, globalShortcut } from 'electron';
 import { initLogger, setDiagnosticStateListener } from './logger';
 import log from './logger';
+import { installFatalErrorGuard } from './fatalErrorGuard';
 import { startEventLoopMonitor, stopEventLoopMonitor } from './eventLoopMonitor';
 import { initApiServer } from './server';
 import { registerIpcHandlers } from './ipc';
@@ -49,6 +50,11 @@ const DEV_SERVER_ORIGIN = process.env.VITE_DEV_SERVER_URL ?? null;
 
 // --- 初始化日志 ---
 initLogger();
+
+// --- 未捕获异常兜底（S-1，v1.3.0）---
+// 紧跟 initLogger 之后安装：越早覆盖越广。此前没有任何 uncaughtException /
+// unhandledRejection 处理，主进程未捕获异常会让应用凭空消失且日志来不及落盘。
+installFatalErrorGuard();
 
 // --- 主进程事件循环卡顿探测器（仅诊断模式期间运行，避免常驻定时器开销）---
 setDiagnosticStateListener((active) => {

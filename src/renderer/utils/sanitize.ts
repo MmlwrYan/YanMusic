@@ -21,7 +21,14 @@ const ensureNoopenerHook = (): void => {
   DOMPurify.addHook('afterSanitizeAttributes', (node) => {
     if (node.nodeName !== 'A') return;
     const anchor = node as unknown as Element;
-    if (anchor.hasAttribute('target')) anchor.setAttribute('rel', 'noopener noreferrer');
+    if (!anchor.hasAttribute('target')) return;
+    // **合并**而不是覆盖：`rel` 允许携带多个以空格分隔的 token（如 `nofollow`、
+    // `external`）。直接 setAttribute('rel', 'noopener noreferrer') 会把它们冲掉 ——
+    // v1.2.9 首版即如此，本次（v1.3.0）改为保留已有 token 并补齐缺失的两个。
+    const tokens = new Set((anchor.getAttribute('rel') ?? '').split(/\s+/).filter(Boolean));
+    tokens.add('noopener');
+    tokens.add('noreferrer');
+    anchor.setAttribute('rel', [...tokens].join(' '));
   });
 };
 
