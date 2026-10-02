@@ -72,6 +72,7 @@ import { registerPluginLyricResolver, type PluginLyricResolverContribution } fro
 import { registerPluginLyricEffect, type PluginLyricEffectContribution } from './lyricEffects';
 import { createKugouApi, type PluginKugouApi } from './kugou';
 import { createPluginNetworkApi } from './network';
+import { createSubtreeQuarantineRegistry } from './subtreeQuarantine';
 import {
   createWindowDragHandlers,
   createWindowResizeHandlers,
@@ -1789,6 +1790,87 @@ const insertMountContainer = (
   target.appendChild(container);
 };
 
+/**
+ * P-5（v1.3.0）：插件 UI 子树隔离注册表（模块级单例）。
+ *
+ * 之所以放在模块级而不是每个挂载点各自持有：宿主 app 的 errorHandler
+ *（见 `installPluginRuntime`）拿到的是 pluginId，需要据此找到**该插件的所有**挂载点。
+ *
+ * 注册表逻辑本身抽在零依赖的 `./subtreeQuarantine` 里（可在 node 下真行为单测），
+ * 此处只负责把「隔离动作」接到 DOM 渲染上。
+ */
+const pluginSubtreeQuarantine = createSubtreeQuarantineRegistry();
+
+/**
+ * P-5（v1.3.0）：在插件崩溃处渲染一个**自包含**的占位提示。
+ *
+ * 刻意用**原生 DOM + 内联样式**而不是 Vue 组件：
+ * 崩溃场景下该插件的 Vue app 刚刚出错，不应再往它的渲染链路里塞东西；
+ * 内联样式也避免依赖外部 CSS（崩溃时样式表状态未必可信）。
+ */
+const renderPluginCrashPlaceholder = (
+  container: HTMLElement,
+  details: { pluginId: string; error: unknown; info?: string },
+) => {
+  try {
+    container.textContent = '';
+    container.setAttribute('data-yan-plugin-crashed', 'true');
+
+    const box = document.createElement('div');
+    box.setAttribute('role', 'alert');
+    Object.assign(box.style, {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '6px',
+      padding: '14px 16px',
+      margin: '8px',
+      borderRadius: '10px',
+      border: '1px solid rgba(220, 38, 38, 0.35)',
+      background: 'rgba(220, 38, 38, 0.08)',
+      fontSize: '13px',
+      lineHeight: '1.5',
+    } satisfies Partial<CSSStyleDeclaration>);
+
+    const title = document.createElement('div');
+    title.textContent = '插件界面出错，已停用该区域';
+    title.style.fontWeight = '600';
+
+    const detail = document.createElement('div');
+    detail.style.opacity = '0.8';
+    const message =
+      details.error instanceof Error ? details.error.message : String(details.error ?? '');
+    detail.textContent = [details.pluginId, message].filter(Boolean).join(' · ');
+
+    const hint = document.createElement('div');
+    hint.style.opacity = '0.8';
+    hint.textContent = '宿主与其他插件不受影响。可在「插件」页停用或重新加载该插件。';
+
+    const action = document.createElement('button');
+    action.type = 'button';
+    action.textContent = '打开插件管理';
+    Object.assign(action.style, {
+      alignSelf: 'flex-start',
+      marginTop: '2px',
+      padding: '5px 12px',
+      borderRadius: '8px',
+      border: '1px solid currentColor',
+      background: 'transparent',
+      color: 'inherit',
+      cursor: 'pointer',
+      fontSize: '12px',
+    } satisfies Partial<CSSStyleDeclaration>);
+    action.addEventListener('click', () => {
+      void Promise.resolve(hostRef?.router?.push('/main/settings/plugins')).catch(() => {});
+    });
+
+    box.append(title, detail, hint, action);
+    container.appendChild(box);
+  } catch {
+    // 占位渲染失败**不得**再抛：否则会把「一个插件坏了」升级成宿主级异常级联，
+    // 而那正是 P-5 要防的事。
+  }
+};
+
 const createMountedComponentDisposer = (
   pluginId: string,
   host: PluginRuntimeHost,
@@ -1817,6 +1899,38 @@ const createMountedComponentDisposer = (
   mountedApp.component('Icon', Icon);
   mountedApp.config.globalProperties.$echo = host.app.config.globalProperties.$echo;
   mountedApp.config.globalProperties.$yanmusic = host.app.config.globalProperties.$yanmusic;
+  // P-5（v1.3.0）：出错后**隔离该子树**，而不只是记录。
+  //
+  // 此前 errorHandler 只做记录 + 上报，出错的组件树仍留在页面上（半渲染状态，
+  // 并会在后续更新中反复抛错）—— 用户看到的是「某块坏了但没有任何说明」。
+  // 现在在**首次**出错时：卸载该子树 → 原位渲染明确提示（宿主与其他插件不受影响）。
+  //
+  // 一次性标志是必需的：一个反复抛错的插件不得把主线程拖进
+  //「出错 → 卸载 → 再出错」的循环。
+  let subtreeQuarantined = false;
+  const quarantineThisSubtree = (error: unknown, info?: string) => {
+    if (subtreeQuarantined) return;
+    subtreeQuarantined = true;
+    // 不能在 errorHandler 的同步栈里 unmount（此刻仍处于渲染流程中）
+    queueMicrotask(() => {
+      try {
+        mountedApp.unmount();
+      } catch (unmountError) {
+        logger.warn('PluginRuntime', 'Unmount during quarantine failed', {
+          pluginId,
+          unmountError,
+        });
+      }
+      renderPluginCrashPlaceholder(container, { pluginId, error, info });
+    });
+  };
+  // 登记进隔离注册表：宿主 app 的 errorHandler 用**同一张表**定位该插件的挂载点
+  //（见 installPluginRuntime）。
+  const unregisterSubtreeQuarantine = pluginSubtreeQuarantine.register(
+    pluginId,
+    quarantineThisSubtree,
+  );
+
   mountedApp.config.errorHandler = (error, _instance, info) => {
     logger.error('PluginRuntime', 'Plugin mounted component failed', {
       pluginId,
@@ -1824,10 +1938,16 @@ const createMountedComponentDisposer = (
       error,
     });
     void reportPluginRuntimeError(pluginId, error, `Vue 组件: ${info || '未知位置'}`);
+    quarantineThisSubtree(error, `Vue 组件: ${info || '未知位置'}`);
   };
   mountedApp.mount(container);
 
   return () => {
+    // P-5（v1.3.0）：正常卸载时注销隔离回调 —— 注册表若只增不减，
+    // 长跑（反复挂载/卸载插件）会让它持续占用内存，也会让后续隔离动作
+    // 作用到已不存在的挂载点上。
+    unregisterSubtreeQuarantine();
+
     // 卸载应用。迷你 app 与主应用共享同一个 pinia 实例，
     // 这里只能卸载自身组件树（unmount 会清理该子树的 watcher/effect），
     // 绝不能去 $dispose 共享的全局 store，否则会连带销毁主应用的
@@ -2888,6 +3008,12 @@ export const installPluginRuntime = (host: PluginRuntimeHost) => {
         error,
       });
       void reportPluginRuntimeError(pluginId, error, `Vue 组件: ${info || '未知位置'}`);
+      // P-5（v1.3.0）：不只记录 —— 把该插件的 UI 子树隔离掉。
+      // 宿主 errorHandler 拿到的是 pluginId（不是挂载点），
+      // 故必须经注册表找到该插件的**所有**活动挂载点。
+      // 若该插件当前没有 UI 挂载点（纯后台插件），quarantine 返回 false，
+      // 此时不额外做事 —— 记录与上报已经在上面完成了。
+      pluginSubtreeQuarantine.quarantine(pluginId, error, `Vue 组件: ${info || '未知位置'}`);
       return;
     }
     previousErrorHandler?.(error, instance, info);
