@@ -60,12 +60,22 @@ const withBlobContentType = (
 /**
  * 创建插件网络 API。
  *
- * - `fetch`：渲染进程原生 fetch，**当前不受 `unrestrictedNetwork` 门禁**（仅 `request` 分支受门禁）。
- *   注：注释曾称其「受同源与禁用请求头规则约束」，但本项目四类窗口均为 `webSecurity: false`
- *   （见 `src/main/window.ts` 等），Chromium 的同源策略已关闭，该说法与事实不符，已于 v1.2.9 订正。
- *   是否给 `fetch` 补能力门禁属对外行为变更，记为待定项（W-17），本版不改行为；
- * - `request`：走主进程原生 HTTP 适配器，需清单显式声明 `capabilities.unrestrictedNetwork === true`，
- *   未声明时明确拒绝（与主进程 `hasUnrestrictedNetwork` 判定一致）。
+ * ## 能力门禁（F-1，v1.3.0：`fetch` 已补门禁）
+ *
+ * 两个分支**都**要求清单显式声明 `capabilities.unrestrictedNetwork === true`：
+ *
+ * - `request`：走主进程原生 HTTP 适配器（`plugins:net:request|cancel`）；
+ * - `fetch`：渲染进程原生 `fetch`。
+ *
+ * **这是对外行为变更**：此前 `fetch` 不受门禁约束（仅 `request` 受约束），
+ * 未声明该能力的插件可直接发起任意网络请求 —— 门禁因此形同虚设。
+ * v1.2.9 把该问题记为 W-17 待定项；v1.3.0 经维护者拍板**补门禁**，
+ * 与 P-1（收窄 preload 桥）同批发布，破坏性变更一次公告完。
+ * 受影响的插件 API 已在 CHANGELOG「说明」段列出。
+ *
+ * 历史注释订正（v1.2.9）：`fetch` 的注释曾称其「受同源与禁用请求头规则约束」，
+ * 但本项目四类窗口均为 `webSecurity: false`，Chromium 的同源策略已关闭，
+ * 该说法与事实不符 —— 这正是不给 `fetch` 留例外的原因。
  */
 export const createPluginNetworkApi = (
   descriptor: EchoPluginDescriptor,
@@ -73,6 +83,18 @@ export const createPluginNetworkApi = (
 ) => {
   const pendingRequestIds = new Set<string>();
   const getNativeApi = () => window.electron.plugins?.net;
+
+  /**
+   * 能力判定 —— `request` 与 `fetch` **共用的唯一口径**。
+   *
+   * 刻意抽成函数而不是在两处各写一遍：F-1 的根因正是「两个分支各判各的，
+   * 其中一个漏了」。抽出来之后，门禁只有一处可改错。
+   */
+  const hasUnrestrictedNetwork = (): boolean =>
+    descriptor.manifest.capabilities?.unrestrictedNetwork === true;
+
+  /** 与 `request` 分支同文案，避免插件作者看到两套说法。 */
+  const UNRESTRICTED_NETWORK_DENIED = '插件未声明不受限网络能力';
 
   // 插件停用时取消所有尚未落地的请求，避免卸载后回调继续触发。
   addDisposable(() => {
@@ -86,8 +108,8 @@ export const createPluginNetworkApi = (
   });
 
   const request = (async (options: PluginNetworkRequestInit): Promise<PluginNetworkResponse> => {
-    if (descriptor.manifest.capabilities?.unrestrictedNetwork !== true) {
-      throw new Error('插件未声明不受限网络能力');
+    if (!hasUnrestrictedNetwork()) {
+      throw new Error(UNRESTRICTED_NETWORK_DENIED);
     }
     const api = getNativeApi();
     if (!api) throw new Error('原生网络 API 不可用');
@@ -127,11 +149,23 @@ export const createPluginNetworkApi = (
 
   return {
     /**
-     * 浏览器 Fetch 语义（含 Chromium 的禁用请求头规则）。
-     * ⚠️ 在 `webSecurity: false` 下同源策略已关闭，因此它**不**受同源约束，
-     * 也**不**受 `unrestrictedNetwork` 能力门禁限制（见上方文档注释与 W-17）。
+     * 浏览器 Fetch 语义。
+     *
+     * ⚠️ 在 `webSecurity: false` 下同源策略已关闭，因此它**不**受同源约束 ——
+     * 正因如此，它**必须**受 `unrestrictedNetwork` 能力门禁约束，
+     * 否则门禁可被一句 `ctx.net.fetch(...)` 绕过（F-1，v1.3.0 已补）。
      */
-    fetch: window.fetch.bind(window),
+    fetch: ((...args: Parameters<typeof window.fetch>) => {
+      if (!hasUnrestrictedNetwork()) {
+        // 保持与 `request` 分支一致的**同步抛错**语义：调用方无需 await 即可感知被拒
+        // （用 rejected Promise 会让「未声明能力」变成难以定位的 unhandled rejection）。
+        throw new Error(UNRESTRICTED_NETWORK_DENIED);
+      }
+      // 用「方法调用 + 展开」而非 `.apply(window, args)`：
+      // `window.fetch(...)` 的方法调用形式已把 `this` 绑定到 `window`，
+      // 与原 `window.fetch.bind(window)` 的语义一致，且满足 `prefer-spread`。
+      return window.fetch(...args);
+    }) as typeof window.fetch,
     /** 主进程原生 HTTP 请求，用于 Fetch 受限于同源/禁用头的场景。 */
     request,
   };
