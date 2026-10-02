@@ -29,10 +29,22 @@ import { buildZipBuffer, crc32 } from '../src/main/diagnostics/zipWriter.ts';
  *（读取器会报无法定位条目数据）。
  */
 
-const withTempDir = <T>(fn: (dir: string) => T): T => {
+/**
+ * 建一个临时目录跑 `fn`，结束后删除。
+ *
+ * ⚠️ **必须 `await fn(dir)` 之后再删** —— 这里踩过一个**平台相关的坑**
+ *（CI 的 macOS 腿抓到，Windows/Linux 放过）：
+ * 初版签名是同步的 `<T>(fn: (dir: string) => T): T`，而 `readBack` 传的是 **async 回调**，
+ * 于是 `return fn(dir)` 拿到的是一个 Promise，`finally` 紧接着就把临时目录（连同
+ * `bundle.zip`）删掉了，`StreamZip` 随后才去打开文件 →
+ * macOS 上稳定报 `ENOENT: no such file or directory, open '.../bundle.zip'`；
+ * Windows/Linux 因删除与打开的时序不同而**侥幸通过**。
+ * 也就是说初版这些用例是**构造性地 flaky** —— 本机全绿不代表别的平台也绿。
+ */
+const withTempDir = async <T>(fn: (dir: string) => T | Promise<T>): Promise<T> => {
   const dir = mkdtempSync(path.join(tmpdir(), 'yanmusic-zip-test-'));
   try {
-    return fn(dir);
+    return await fn(dir);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

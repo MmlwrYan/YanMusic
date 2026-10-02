@@ -6,6 +6,9 @@
 
 - **三级 · 外链缺 `rel="noopener noreferrer"`（F-5）**。`utils/sanitize.ts` 的 `ALLOWED_ATTR` 放行了 `target`，但未挂 DOMPurify 钩子补 `rel` —— `target="_blank"` 会让新页面拿到 `window.opener` 句柄。现加 `afterSanitizeAttributes` 钩子（带「只注册一次」保护）。**属性级纵深防御**：渲染层已有 `setWindowOpenHandler`（仅放行 `https:` 且一律 `deny`）兜底，本改动不改变现有行为。
 - **二级 · `ctx.net.fetch` 漏能力门禁（F-1）**。`renderer/plugins/network.ts` 的 `request` 有 `unrestrictedNetwork` 能力门禁，而**同一模块的 `fetch` 没有** —— 插件可绕过能力声明直接发起不受限网络请求，且更隐蔽（`fetch` 通常是首选 API）。现两条路径**共用同一个门禁**（新增 `hasUnrestrictedNetwork()`，未声明时**同步抛错**，与 `request` 的失败语义一致）。详见「变更」段的破坏性影响。
+- **测试自身缺陷 · S-6 的 zip 往返用例是「平台相关 flaky」（由 CI 抓到，产品代码无缺陷）**。`tests/diagnostics-zip.test.ts` 的临时目录助手初版签名是**同步**的 `<T>(fn: (dir: string) => T): T`，而 `readBack` 传的是 **async 回调** —— 于是 `return fn(dir)` 只执行到回调的第一个 `await` 就返回了一个 Promise，`finally` 紧接着就把临时目录（连同 `bundle.zip`）删掉了，`StreamZip` 随后才去打开文件。CI 上 macOS-x64 与 Linux-x64 的 `Run unit tests` 因此报 `ENOENT: no such file or directory, open '.../bundle.zip'`（3 例），而 Windows-x64 / Windows-arm64 / Linux-arm64 因**删除与打开的相对时序不同而侥幸通过**。现改为 `async` + `await fn(dir)`，删除只会在 `zip.close()` 之后发生。
+  - **教训（已写入该文件头注释）**：本机（Windows）全绿**不等于**跨平台全绿；临时目录 + 异步回调这类组合必须显式 `await` 后再清理，否则就是**构造性 flaky**。
+  - 相关：本机首次运行 `verify.ps1` 时曾出现 **261/262**（1 例失败）而重跑即绿 —— **高度可能**就是这同一个竞态在 Windows 上偶尔输掉（同一文件、同一机制、竞态本就依赖时序）；但当时失败用例名被输出过滤吞掉、未留证，故**不当作已证实**，仅记录为同一根因的**疑似**表现。
 - **工具两处缺陷（随本版发布）**。`scripts/verify.ps1` 首版**根本跑不起来**（UTF-8 无 BOM → Windows PowerShell 5.1 按 GBK 解析中文注释致语法错误；且 `$root` 多剥一层目录），以及 `scripts/scan-dead-modules.mjs` 捕获组下标写死导致漏掉 `require()` 分支。两处均已修复并实测；**详细复盘见下方 v1.2.9 段的「发布后补充」**（该段已记录，此处不重复）。
 
 ### 新增
@@ -60,7 +63,9 @@
   - `node scripts/check-bundle-size.mjs` → **93 个入口资源 / 1,131,029 B**，预算 1,151,504 B（基线 1,128,926 + 2%）→ **增长 2,103 B（+0.19%），在预算内**；
   - `node node_modules/eslint/bin/eslint.js .` → **退出码 0**（0 error / 0 warning）。
   - **鉴别力验证（喂回修复前代码必须变红；均已做并恢复全绿）**：F-5（去掉钩子调用 → 红）、F-6（短路 `needsEncryptionMigration` → 红）、F-1（门禁恒真 → 3 例红）、P-1（加回 `ipcRenderer` → 红）、P-3（判定恒 `allow` → 2 例红；白名单删一条 → 2 例红）、P-4a（删 `media-control` 规则 → 红；改用裸注册 → 红；基线内不得开启 strict → 守住）、S-4（`update:install` 改回 handler → 2 例红）、S-6（`zip` 中央目录偏移置 0 → 往返验证红；卡顿解析只匹配不收集 → 5 例红）、P-5（隔离改为不调用回调 → 4 例红）、S-3（降级记录改为不记录 → 5 例红）。
-  - **一次未复现的单例失败（如实记录，未当作已解决）**：首次运行 `verify.ps1` 时单测为 **261/262**（1 例失败），但失败用例名被当时的输出过滤吞掉、未能留证；随后**同一状态连续两次重跑均 262/262 全绿**，`verify.ps1` 整体 exit 0。**未定位根因**。可考虑的诱因是环境内存压力 —— 本机总内存 8 GB、期间可用一度仅约 575 MB，同批 `vue-tsc` 曾报 `JavaScript heap out of memory`（exit 134，加 `--max-old-space-size=4096` 后通过）。**本版不声称该问题已修复**；若后续复现，请以完整输出（`verify.ps1 *>&1 | Tee-Object 文件`）留存失败用例名再定位。
+  - **本机首次门禁的 261/262**：见上方「修复」段第三条 —— 已定位为**测试自身的平台相关竞态**（不再归因于内存压力；也无证据表明与内存有关，此处纠正先前记录）。
+  - **首轮 CI 的单测失败与处置（如实记录）**：tag `v1.3.0` 推送后首轮 CI（run `37012845281`）**失败于三条腿的 `Run unit tests`**（macOS-x64、macOS-arm64、Linux-x64），根因即上面「修复」段第三条 —— **测试自身的平台相关竞态**，与产品代码无关；Linux-arm64 与 Windows-x64/arm64 三条腿通过。**失败范围正好是竞态的两端**：Windows 两条腿与 Linux-arm64 赢下时序、macOS 两条腿与 Linux-x64 输掉，与「时序竞态、而非平台功能缺陷」的判断一致。失败发生在单测阶段，故 `Create Release` 步骤**未执行、v1.3.0 Release 从未创建**，Latest 仍是 v1.2.9（**没有发布出任何坏产物**）。处置按发布 SOP §8：**未删除已推送 tag**；本机定位并修复后连跑 10 次全绿 + 全量 262/262，随后经维护者**显式授权**（§8.4 的「人工决策」路径）**重发 tag `v1.3.0`** 指向含修复的提交，由 CI 重新完整构建并生成 Release。
+  - ⚠️ **本版发布流程的一处教训**：`verify.ps1` 与 CI 都只在**单一平台**上跑过单测（本机 Windows），而该竞态恰好在 Windows 上难以触发 —— 说明「本机全绿」对**跨平台时序类**缺陷的鉴别力有限。跨平台用例的验收应尽量依赖 CI 的多腿矩阵，而不是本机。
 - **未验证项**：
   - **无 GUI 会话**：本机无法运行应用，所有改动**均未做运行时端到端复核**。其中 S-1/S-2/S-3（异常兜底与降级路径）、P-5（崩溃占位渲染）、S-6（托盘对话框交互与 zip 落地）的**触发路径**依赖真实运行；S-6 的 ZIP 写入与脱敏、S-4/P-6/P-3/P-4a 的契约与判定逻辑已用真行为单测覆盖（含格式往返与真实形态凭据），但**UI 与原生交互部分无法单测**，此处如实标注。
   - `cargo check --workspace --release` **始终未能执行**（本机走代理返回 `CONNECT tunnel failed, response 502`，`--offline` 又缺缓存）。本版**零 `.rs` 改动、原生产物未变**，但按 SOP 这一项应记为「**未验证**」而非「通过」；相应地，原生层批次（N 组）**整体未做**（按「先复现再修复」与「不做只改源码的假完成」的纪律）。
