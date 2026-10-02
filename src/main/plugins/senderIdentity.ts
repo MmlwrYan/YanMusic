@@ -202,6 +202,20 @@ export interface IpcSenderGuardParams {
 
 export type IpcSenderGuardResult = { ok: true } | { ok: false; error: string };
 
+/**
+ * 放行结果的**单例**。
+ *
+ * 守卫在**每一次 IPC 调用**上执行（含 `storage:kv:get` 这类高频通道），
+ * 故放行路径不应分配对象 —— 每次都 `return { ok: true }` 会产生一个小对象，
+ * 虽大概率被 V8 标量替换掉，但没有理由留下这笔可避免的热路径开销
+ *（对应规划 DoD 第 4 条「热路径不留同步开销」）。
+ *
+ * 刻意在本模块内定义而非从 `ipc/registry.ts` 导入：registry 依赖 electron，
+ * 而本模块必须保持**零依赖**（否则 `tests/plugin-identity-binding.test.ts`
+ * 无法在纯 Node 下加载并做真行为断言）。
+ */
+const ALLOW: IpcSenderGuardResult = Object.freeze({ ok: true });
+
 export type IpcSenderGuard = (params: IpcSenderGuardParams) => IpcSenderGuardResult;
 
 export interface PluginIdentityMismatchInfo {
@@ -221,11 +235,13 @@ export const createPluginSenderGuard = (
   onMismatch?: (info: PluginIdentityMismatchInfo) => void,
 ): IpcSenderGuard => {
   return (params: IpcSenderGuardParams): IpcSenderGuardResult => {
-    if (!PLUGIN_IDENTITY_CHANNELS.has(params.channel)) return { ok: true };
+    // 放行路径零分配（单例常量）——本函数在每一次 IPC 调用上执行，
+    // 见 registry.ts 中 IPC_SENDER_GUARD_ALLOW 的说明。
+    if (!PLUGIN_IDENTITY_CHANNELS.has(params.channel)) return ALLOW;
 
     const resolvedPluginId = resolvePluginIdByWebContentsId(params.webContentsId);
     const claimed = params.args[0];
-    if (evaluatePluginIdentity(resolvedPluginId, claimed) === 'allow') return { ok: true };
+    if (evaluatePluginIdentity(resolvedPluginId, claimed) === 'allow') return ALLOW;
 
     const claimedPluginId = String(claimed);
     onMismatch?.({
