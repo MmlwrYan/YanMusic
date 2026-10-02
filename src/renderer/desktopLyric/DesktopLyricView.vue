@@ -557,10 +557,10 @@ watch([renderLyricLines, lyricsMode, lyricLayout, isPlaying], () => {
 });
 
 // 拖拽
-// EchoMusic 的 preload send 只接受 (channel, data)，多参数包装成数组
-const sendToMain = (channel: string, ...args: any[]) => {
-  window.electron?.ipcRenderer?.send(channel, ...args);
-};
+// P-2（v1.3.0）：原先这里是一个通用转发器
+//   const sendToMain = (channel, ...args) => window.electron?.ipcRenderer?.send(channel, ...args);
+// 它让通道名在调用点仍可自由指定，与 P-1「通道名不再由调用方决定」相悖。
+// 其 4 处调用已全部改为具名 API（desktopLyric.toggleFixedSize / move / setHeight），故删除。
 
 // 缓存窗口和屏幕边界
 const cachedBounds = reactive({
@@ -577,8 +577,8 @@ const cachedBounds = reactive({
 const updateCachedBounds = async () => {
   try {
     const [winBounds, screenBounds] = await Promise.all([
-      window.electron.ipcRenderer.invoke('desktop-lyric:get-bounds'),
-      window.electron.ipcRenderer.invoke('desktop-lyric:get-virtual-screen-bounds'),
+      window.electron.appControl.getDesktopLyricBounds(),
+      window.electron.appControl.getDesktopLyricVirtualScreenBounds(),
     ]);
     cachedBounds.x = winBounds?.x ?? 0;
     cachedBounds.y = winBounds?.y ?? 0;
@@ -614,7 +614,7 @@ const onDocPointerDown = async (event: PointerEvent) => {
 
   // 同步获取最新窗口位置，避免缓存过时导致瞬移
   try {
-    const winBounds = await window.electron.ipcRenderer.invoke('desktop-lyric:get-bounds');
+    const winBounds = await window.electron.appControl.getDesktopLyricBounds();
     if (winBounds) {
       cachedBounds.x = winBounds.x;
       cachedBounds.y = winBounds.y;
@@ -652,7 +652,7 @@ const onDocPointerMove = useThrottleFn(
     if (!dragState.hasMoved && (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3)) {
       dragState.hasMoved = true;
       // 只有真正开始拖动时才固定尺寸
-      sendToMain('desktop-lyric:toggle-fixed-size', {
+      window.electron.desktopLyric.toggleFixedSize({
         width: dragState.winWidth,
         height: dragState.winHeight,
         fixed: true,
@@ -661,7 +661,7 @@ const onDocPointerMove = useThrottleFn(
     if (dragState.hasMoved) {
       const newX = Math.round(dragState.startWinX + deltaX);
       const newY = Math.round(dragState.startWinY + deltaY);
-      sendToMain('desktop-lyric:move', newX, newY, dragState.winWidth, dragState.winHeight);
+      window.electron.desktopLyric.move(newX, newY, dragState.winWidth, dragState.winHeight);
     }
   },
   16,
@@ -686,7 +686,7 @@ const onDocPointerUp = (event?: PointerEvent | Event) => {
   if (wasDragging) {
     requestAnimationFrame(() => {
       // 恢复窗口最大尺寸限制（取消 fixed 状态）
-      sendToMain('desktop-lyric:toggle-fixed-size', {
+      window.electron.desktopLyric.toggleFixedSize({
         width: dragState.winWidth,
         height: dragState.winHeight,
         fixed: false,
@@ -759,7 +759,7 @@ const fontSizeToHeight = (size: number) => {
 const pushWindowHeight = (nextHeight: number) => {
   if (!Number.isFinite(nextHeight) || dragState.isDragging || lyricLayout.value !== 'horizontal')
     return;
-  sendToMain('desktop-lyric:set-height', nextHeight);
+  window.electron.desktopLyric.setHeight(nextHeight);
 };
 
 let initialized = false;

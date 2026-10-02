@@ -1,4 +1,4 @@
-﻿import { computed, nextTick, onMounted, ref, watch, type Ref } from 'vue';
+import { computed, nextTick, onMounted, ref, watch, type Ref } from 'vue';
 import type { RouteLocationNormalizedLoaded } from 'vue-router';
 import { reloadOtherPluginRuntimes, refreshPlugins } from '@/plugins/runtime';
 import { useSettingStore } from '@/stores/setting';
@@ -341,7 +341,7 @@ export const usePluginMarketplace = ({ route, activeView }: UsePluginMarketplace
 
   const openExternalUrl = (url: string) => {
     if (!url) return;
-    window.electron.ipcRenderer.send('open-external', url);
+    window.electron.appControl.openExternal(url);
   };
 
   const shareMarketplacePlugin = async (plugin: PluginMarketplacePlugin) => {

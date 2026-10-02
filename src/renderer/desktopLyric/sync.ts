@@ -334,7 +334,14 @@ export const initDesktopLyricSync = async () => {
     if (isDesktopLyricCommand(command)) handleDesktopLyricCommand(command);
   };
 
-  window.electron.ipcRenderer.on('desktop-lyric:command', handleDesktopLyricIpcCommand);
+  // P-2（v1.3.0）：原为 `window.electron.ipcRenderer.on('desktop-lyric:command', …)`。
+  // 具名域返回清理函数；**顺手修掉既有的监听器泄漏** ——
+  // 原实现注册后从不移除，每次 init 都会在底层 ipcRenderer 上多留一个监听器
+  //（Electron 超过 10 个会打印 MaxListenersExceededWarning）。
+  const disposeDesktopLyricCommandListener = window.electron.appControl.onDesktopLyricCommand(
+    handleDesktopLyricIpcCommand,
+  );
+  stops.push(disposeDesktopLyricCommandListener);
 
   stops.push(
     watch(
@@ -405,7 +412,9 @@ export const initDesktopLyricSync = async () => {
 
   return () => {
     disposeSnapshotListener();
-    window.electron?.ipcRenderer?.off('desktop-lyric:command', handleDesktopLyricIpcCommand);
+    // P-2（v1.3.0）：`desktop-lyric:command` 的监听器已通过
+    // `stops` 中的 `disposeDesktopLyricCommandListener` 清理
+    //（即下方 `stops.forEach(...)`），此处不再重复 off。
     if (progressSyncTimer) {
       clearTimeout(progressSyncTimer);
       progressSyncTimer = null;

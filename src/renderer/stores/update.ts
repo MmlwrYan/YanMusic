@@ -23,7 +23,10 @@ export const useUpdateStore = defineStore('update', {
     dialogOpen: false,
     initialized: false,
     disposeDownload: null as null | (() => void),
-    checkResultListener: null as null | ((payload: unknown) => void),
+    // P-2（v1.3.0）：原为 `checkResultListener`（保存 listener 本体，再用
+    // `ipcRenderer.off(channel, listener)` 注销）。具名域改返回**清理函数**，
+    // 因此字段语义改为「持有负责注销的回调」，不再依赖裸 off。
+    disposeCheckResult: null as null | (() => void),
   }),
   actions: {
     /** 注册 IPC 监听并从主进程拉取当前状态（恢复进度）。幂等。 */
@@ -32,8 +35,7 @@ export const useUpdateStore = defineStore('update', {
       this.initialized = true;
 
       const listener = (payload: unknown) => this.handleCheckResult(payload);
-      this.checkResultListener = listener;
-      window.electron?.ipcRenderer?.on('update-check-result', listener);
+      this.disposeCheckResult = window.electron?.appControl?.onUpdateCheckResult(listener) ?? null;
 
       this.disposeDownload =
         window.electron?.updater?.onDownloadStatus((result) => {
@@ -52,9 +54,9 @@ export const useUpdateStore = defineStore('update', {
     },
 
     dispose() {
-      if (this.checkResultListener) {
-        window.electron?.ipcRenderer?.off('update-check-result', this.checkResultListener);
-        this.checkResultListener = null;
+      if (this.disposeCheckResult) {
+        this.disposeCheckResult();
+        this.disposeCheckResult = null;
       }
       this.disposeDownload?.();
       this.disposeDownload = null;
@@ -133,13 +135,13 @@ export const useUpdateStore = defineStore('update', {
     openRelease() {
       const url = this.checkResult?.releaseUrl;
       if (!url) return;
-      window.electron?.ipcRenderer?.send('open-external', url);
+      window.electron?.appControl?.openExternal(url);
     },
 
     openDownload() {
       const url = this.checkResult?.downloadUrl || this.checkResult?.releaseUrl;
       if (!url) return;
-      window.electron?.ipcRenderer?.send('open-external', url);
+      window.electron?.appControl?.openExternal(url);
     },
 
     /** 关闭弹窗仅隐藏，不取消下载、不清空状态，便于稍后重新打开查看进度。 */

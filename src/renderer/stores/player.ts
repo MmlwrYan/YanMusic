@@ -87,7 +87,7 @@ export const usePlayerStore = defineStore(
     watch(
       () => state.isPlaying,
       (isPlaying) => {
-        window.electron?.ipcRenderer?.send('thumbar:update-play-state', isPlaying);
+        window.electron?.appControl?.syncThumbarPlayState(isPlaying);
       },
     );
 

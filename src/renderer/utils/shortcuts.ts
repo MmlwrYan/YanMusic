@@ -509,7 +509,7 @@ export const executeShortcutCommand = (command: ShortcutCommand) => {
   } else if (command === 'toggleMiniPlayer') {
     void window.electron?.miniPlayer?.toggle?.();
   } else if (command === 'toggleWindow') {
-    window.electron?.ipcRenderer?.send('window-toggle', null);
+    window.electron?.appControl?.toggleWindow();
   } else if (command === 'toggleSidebar') {
     if (settingStore.sidebarCollapseEnabled) {
       const handledByLayout = !window.dispatchEvent(

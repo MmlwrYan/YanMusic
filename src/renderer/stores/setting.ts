@@ -279,13 +279,15 @@ export const useSettingStore = defineStore('setting', {
       });
     },
     openLogDirectory() {
-      if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.send('open-log-directory', null);
+      // P-2（v1.3.0）：原先经 `window.electron.ipcRenderer.send(...)` 裸调用；
+      // P-1 已移除通用桥，改用具名 `appControl` 域。
+      if (window.electron?.appControl) {
+        window.electron.appControl.openLogDirectory();
       }
     },
     clearAppData() {
-      if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.send('clear-app-data', null);
+      if (window.electron?.appControl) {
+        window.electron.appControl.clearAppData();
       }
       void window.electron?.storage?.resetAll?.();
       localStorage.clear();
@@ -296,8 +298,8 @@ export const useSettingStore = defineStore('setting', {
       }, 80);
     },
     checkForUpdates(silent = false) {
-      if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.send('check-for-updates', {
+      if (window.electron?.appControl) {
+        window.electron.appControl.checkForUpdates({
           prerelease: this.checkPrerelease,
           silent,
           githubProxyUrl: this.githubProxyUrl,
@@ -315,68 +317,65 @@ export const useSettingStore = defineStore('setting', {
       }
     },
     openRepo() {
-      if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.send('open-external', 'https://github.com/MmlwrYan/YanMusic');
+      if (window.electron?.appControl) {
+        window.electron.appControl.openExternal('https://github.com/MmlwrYan/YanMusic');
       }
     },
     openDisclaimer() {
-      if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.send('open-disclaimer', null);
+      if (window.electron?.appControl) {
+        window.electron.appControl.openDisclaimer();
       }
     },
     syncCloseBehavior() {
-      if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.send('update-close-behavior', this.closeBehavior);
+      if (window.electron?.appControl) {
+        window.electron.appControl.syncCloseBehavior(this.closeBehavior);
       }
     },
     syncTheme() {
-      if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.send('update-theme', this.theme);
+      if (window.electron?.appControl) {
+        window.electron.appControl.syncTheme(this.theme);
       }
     },
     syncRememberWindowSize() {
-      if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.send('update-remember-window-size', this.rememberWindowSize);
+      if (window.electron?.appControl) {
+        window.electron.appControl.syncRememberWindowSize(this.rememberWindowSize);
       }
     },
     syncPreventSleep(isPlaying = false) {
-      if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.send('update-power-save-blocker', {
+      if (window.electron?.appControl) {
+        window.electron.appControl.syncPreventSleep({
           enabled: this.preventSleep,
           isPlaying,
         });
       }
     },
     syncDisableGpuAcceleration() {
-      if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.send(
-          'update-disable-gpu-acceleration',
-          this.disableGpuAcceleration,
-        );
+      if (window.electron?.appControl) {
+        window.electron.appControl.syncDisableGpuAcceleration(this.disableGpuAcceleration);
       }
     },
     syncHighDpiSettings() {
       this.dpiScale = Math.min(2, Math.max(0.5, Number(this.dpiScale) || 1));
-      if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.send('update-high-dpi-settings', {
+      if (window.electron?.appControl) {
+        window.electron.appControl.syncHighDpi({
           enabled: this.highDpiEnabled,
           dpiScale: this.dpiScale,
         });
       }
     },
     syncAutoLaunch() {
-      if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.send('update-auto-launch', this.autoLaunch);
+      if (window.electron?.appControl) {
+        window.electron.appControl.syncAutoLaunch(this.autoLaunch);
       }
     },
     syncStartMinimized() {
-      if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.send('update-start-minimized', this.startMinimized);
+      if (window.electron?.appControl) {
+        window.electron.appControl.syncStartMinimized(this.startMinimized);
       }
     },
     syncDevToolsEnabled() {
-      if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.send('update-devtools-enabled', this.devToolsEnabled);
+      if (window.electron?.appControl) {
+        window.electron.appControl.syncDevToolsEnabled(this.devToolsEnabled);
       }
     },
     getLogSettings(): LogSettings {
@@ -391,8 +390,11 @@ export const useSettingStore = defineStore('setting', {
       configureRendererLogger(settings);
       if (window.electron?.logging) {
         void window.electron.logging.update(settings);
-      } else if (window.electron?.ipcRenderer) {
-        window.electron.ipcRenderer.send('logging:update-settings', settings);
+      } else if (window.electron?.appControl) {
+        // P-2（v1.3.0）：原为 `ipcRenderer.send('logging:update-settings', …)`。
+        // 该通道在主进程是 `registerHandler`（ipcMain.handle，期望 invoke），
+        // 故走具名域时用 invoke 语义，与主进程注册方式对齐。
+        void window.electron.appControl.updateLoggingSettings(settings);
       }
     },
     setLogLevel(level: AppLogLevel) {
@@ -430,10 +432,10 @@ export const useSettingStore = defineStore('setting', {
       this.outputDeviceStatusMessage = message;
     },
     syncTaskbarCoverPreview() {
-      window.electron?.ipcRenderer?.send('update-taskbar-cover-preview', this.taskbarCoverPreview);
+      window.electron?.appControl?.syncTaskbarCoverPreview(this.taskbarCoverPreview);
     },
     syncTaskbarProgress() {
-      window.electron?.ipcRenderer?.send('update-taskbar-progress', this.taskbarProgress);
+      window.electron?.appControl?.syncTaskbarProgress(this.taskbarProgress);
     },
     addImpulseResponseFile(file: SpatialAudioEffectEntry, options?: { select?: boolean }) {
       this.addImpulseResponseFiles([file], options);

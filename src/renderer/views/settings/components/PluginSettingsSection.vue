@@ -22,10 +22,7 @@ const handleOpenPluginManagement = () => {
 };
 
 const handleOpenDocs = () => {
-  window.electron.ipcRenderer.send(
-    'open-external',
-    'https://github.com/hoowhoami/EchoMusicPlugins',
-  );
+  window.electron.appControl.openExternal('https://github.com/hoowhoami/EchoMusicPlugins');
 };
 </script>
 

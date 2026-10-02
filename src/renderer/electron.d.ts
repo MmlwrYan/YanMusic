@@ -131,11 +131,58 @@ import type {
 export interface IElectronAPI {
   platform: string;
   isWayland?: boolean;
-  ipcRenderer: {
-    send: (channel: string, ...args: unknown[]) => void;
-    invoke: (channel: string, ...args: unknown[]) => Promise<any>;
-    on: (channel: string, func: (...args: unknown[]) => void) => void;
-    off: (channel: string, func: (...args: unknown[]) => void) => void;
+  /**
+   * P-1（v1.3.0）：通用 `ipcRenderer` 桥已从 preload 暴露面**移除**。
+   *
+   * 原先这里是 `ipcRenderer: { send, invoke, on, off }` —— 通道名由调用方自由指定，
+   * 且经 `plugins/runtime.ts` 被**插件原样拿到**（`electron: window.electron`），
+   * 于是 `ctx.electron.ipcRenderer.invoke('storage:kv:get','pinia:user')`
+   * 可整条绕过能力门禁。四类窗口均 `contextIsolation:true` + `nodeIntegration:false`，
+   * 插件没有 `require`，只能经 contextBridge 触达 IPC —— 故这是**唯一**越权入口。
+   *
+   * 移除后，渲染层与插件都只能走**具名、可审计**的 API 域。
+   * 原先经该通用桥发起的 22 处裸调用已迁至下方 `appControl`。
+   */
+  appControl: {
+    openLogDirectory: () => void;
+    clearAppData: () => void;
+    checkForUpdates: (payload: {
+      prerelease: boolean;
+      silent: boolean;
+      githubProxyUrl: string;
+    }) => void;
+    openExternal: (url: string) => void;
+    openDisclaimer: () => void;
+    quitApp: () => void;
+    syncCloseBehavior: (value: string) => void;
+    syncTheme: (value: string) => void;
+    syncRememberWindowSize: (value: boolean) => void;
+    syncPreventSleep: (payload: { enabled: boolean; isPlaying: boolean }) => void;
+    syncHighDpi: (payload: { enabled: boolean; dpiScale: number }) => void;
+    syncDisableGpuAcceleration: (value: boolean) => void;
+    syncAutoLaunch: (value: boolean) => void;
+    syncStartMinimized: (value: boolean) => void;
+    syncDevToolsEnabled: (value: boolean) => void;
+    syncThumbarPlayState: (isPlaying: boolean) => void;
+    syncTaskbarCoverPreview: (enabled: boolean) => void;
+    syncTaskbarProgress: (enabled: boolean) => void;
+    toggleWindow: () => void;
+    onUpdateCheckResult: (func: (payload: unknown) => void) => () => void;
+    getLoggingSettings: () => Promise<LogSettings>;
+    updateLoggingSettings: (settings: LogSettings) => Promise<void>;
+    getDesktopLyricBounds: () => Promise<{
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }>;
+    getDesktopLyricVirtualScreenBounds: () => Promise<{
+      minX: number;
+      minY: number;
+      maxX: number;
+      maxY: number;
+    }>;
+    onDesktopLyricCommand: (func: (command: DesktopLyricCommand) => void) => () => void;
   };
   shortcuts: {
     register: (payload: {
@@ -218,6 +265,11 @@ export interface IElectronAPI {
     setIgnoreMouseEvents: (ignore: boolean) => void;
     onHover: (func: (hovered: boolean) => void) => () => void;
     command: (command: DesktopLyricCommand) => void;
+    // P-2（v1.3.0）：原由 DesktopLyricView.vue 的 sendToMain 动态转发器发出，
+    // 改为具名方法（通道名不再由调用方决定）。
+    toggleFixedSize: (payload: { fixed: boolean; width?: number; height?: number }) => void;
+    move: (x: number, y: number, width?: number, height?: number) => void;
+    setHeight: (height: number) => void;
   };
   nowPlaying: {
     getSnapshot: () => Promise<NowPlayingSnapshot>;

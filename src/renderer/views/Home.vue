@@ -349,7 +349,7 @@ const handleAcceptAgreement = () => {
 };
 
 const handleRejectAgreement = () => {
-  window.electron.ipcRenderer.send('quit-app', null);
+  window.electron.appControl.quitApp();
 };
 </script>
 

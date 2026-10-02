@@ -1,6 +1,7 @@
-import { BrowserWindow, nativeImage, ipcMain } from 'electron';
+import { BrowserWindow, nativeImage } from 'electron';
 import { deflateSync } from 'zlib';
 import log from './logger';
+import { ipcRegistry } from './ipc/registry';
 
 let currentIsPlaying = false;
 let thumbarSetup = false;
@@ -295,7 +296,13 @@ export function setupThumbarButtons(win: BrowserWindow) {
   if (!thumbarSetup) {
     thumbarSetup = true;
 
-    ipcMain.on('thumbar:update-play-state', (_event, isPlaying: boolean) => {
+    // P-2（v1.3.0）：原为裸 `ipcMain.on('thumbar:update-play-state', …)`。
+    // 裸注册**绕过 ipcRegistry**，代价有二：
+    //   ① 不进入 `tests/ipc-channel-contract.test.ts` 的通道清单 —— 该守卫因此
+    //      报「preload 调用了主进程未注册的通道」（静态扫描只认 registerXxx）；
+    //   ② 不经过注册表观测层（IMP-01 的 observeIpcCall），该通道调用不可观测。
+    // 语义不变：`thumbarSetup` 保证本段只执行一次，故监听器仍只注册一个。
+    ipcRegistry.registerListener('thumbar:update-play-state', (_event, isPlaying: boolean) => {
       if (currentIsPlaying === isPlaying) return;
       currentIsPlaying = isPlaying;
       if (!win.isDestroyed()) {

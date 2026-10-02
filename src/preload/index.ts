@@ -137,25 +137,11 @@ import type {
   StorageUpdateQueueMetaPayload,
 } from '../shared/storage';
 
-const ipcListenerMap = new Map<
-  string,
-  WeakMap<(...args: any[]) => void, (...args: any[]) => void>
->();
-
-const getWrappedListener = (channel: string, func: (...args: any[]) => void) => {
-  let channelMap = ipcListenerMap.get(channel);
-  if (!channelMap) {
-    channelMap = new WeakMap();
-    ipcListenerMap.set(channel, channelMap);
-  }
-
-  const existing = channelMap.get(func);
-  if (existing) return existing;
-
-  const wrapped = (_event: Electron.IpcRendererEvent, ...args: any[]) => func(...args);
-  channelMap.set(func, wrapped);
-  return wrapped;
-};
+// P-1（v1.3.0）：原先此处有 `ipcListenerMap` + `getWrappedListener`，
+// 供已移除的通用桥的 `ipcRenderer.on/off` 去重与注销使用。
+// 通用桥移除后二者已无调用方（eslint no-unused-vars 抓出），故删除。
+// 各具名域的 onXxx 现在各自持有 listener 引用并返回清理函数，
+// 不依赖「按 channel+func 反查 wrapper」这套机制。
 
 const toMbFromKb = (kb: unknown) =>
   typeof kb === 'number' && Number.isFinite(kb) ? Math.round((kb / 1024) * 10) / 10 : null;
@@ -279,18 +265,86 @@ const isWayland =
 contextBridge.exposeInMainWorld('electron', {
   platform: process.platform,
   isWayland,
-  ipcRenderer: {
-    send: (channel: string, ...args: any[]) => sendWithPlainPayload(channel, ...args),
-    invoke: (channel: string, ...args: any[]) => invokeWithPlainPayload(channel, ...args),
-    on: (channel: string, func: (...args: any[]) => void) => {
-      const wrapped = getWrappedListener(channel, func);
-      ipcRenderer.on(channel, wrapped);
+  // ── P-1（v1.3.0）：通用 `ipcRenderer` 桥已从暴露面移除 ──────────────────
+  //
+  // 原此处为：
+  //   ipcRenderer: { send, invoke, on, off }
+  // 一个**通道名由调用方自由指定**的通用桥。它经 `renderer/plugins/runtime.ts`
+  // 的 `electron: window.electron` 被**插件原样拿到**，于是
+  //   ctx.electron.ipcRenderer.invoke('storage:kv:get', 'pinia:user')
+  // 就能整条绕过能力门禁 —— 这是 H-1「插件与宿主同 realm」里**唯一**的越权入口
+  // （四类窗口均 contextIsolation:true + nodeIntegration:false，
+  //  见 main/window.ts、pluginWindows.ts、miniPlayer.ts），
+  // 因为没有 `require`，插件只能经 contextBridge 触达 IPC。
+  //
+  // 移除该键即**结构性**堵死这条路径，无需重做插件执行上下文。
+  //
+  // 残余面（不得据此宣称 H-1 已彻底修复）：插件仍在宿主主世界同一 realm 求值，
+  // 仍可访问 window、读写宿主 DOM、污染全局与原型链；`sandbox:false` 也未变。
+  // 本版是「能力边界收口」，不是「执行隔离」—— 真隔离属 v1.4.0。
+  //
+  // 下方 `appControl` 取代了渲染层原先经该通用桥发起的 22 处裸调用
+  //（见 §2.1 P-2）。每个方法都是**具名、可审计**的单一通道，
+  // 且与既有域一致地复用 `sendWithPlainPayload` / `invokeWithPlainPayload`
+  // —— 后者会把参数经 `toPlainIpcPayload` 归一，否则渲染层直接传 Vue 响应式
+  // Proxy 时 IPC 结构化克隆会失败。
+  appControl: {
+    openLogDirectory: () => sendWithPlainPayload('open-log-directory', null),
+    clearAppData: () => sendWithPlainPayload('clear-app-data', null),
+    checkForUpdates: (payload: { prerelease: boolean; silent: boolean; githubProxyUrl: string }) =>
+      sendWithPlainPayload('check-for-updates', payload),
+    openExternal: (url: string) => sendWithPlainPayload('open-external', url),
+    openDisclaimer: () => sendWithPlainPayload('open-disclaimer', null),
+    quitApp: () => sendWithPlainPayload('quit-app', null),
+    syncCloseBehavior: (value: string) => sendWithPlainPayload('update-close-behavior', value),
+    syncTheme: (value: string) => sendWithPlainPayload('update-theme', value),
+    syncRememberWindowSize: (value: boolean) =>
+      sendWithPlainPayload('update-remember-window-size', value),
+    syncPreventSleep: (payload: { enabled: boolean; isPlaying: boolean }) =>
+      sendWithPlainPayload('update-power-save-blocker', payload),
+    syncHighDpi: (payload: { enabled: boolean; dpiScale: number }) =>
+      sendWithPlainPayload('update-high-dpi-settings', payload),
+    syncDisableGpuAcceleration: (value: boolean) =>
+      sendWithPlainPayload('update-disable-gpu-acceleration', value),
+    syncAutoLaunch: (value: boolean) => sendWithPlainPayload('update-auto-launch', value),
+    syncStartMinimized: (value: boolean) => sendWithPlainPayload('update-start-minimized', value),
+    syncDevToolsEnabled: (value: boolean) => sendWithPlainPayload('update-devtools-enabled', value),
+    // 以下三项来自「可选链写法」的裸调用（`window.electron?.ipcRenderer?.send(...)`），
+    // 首轮 grep 因正则只匹配 `ipcRenderer.` 后紧跟方法名而遗漏，由类型检查兜住。
+    syncThumbarPlayState: (isPlaying: boolean) =>
+      sendWithPlainPayload('thumbar:update-play-state', isPlaying),
+    syncTaskbarCoverPreview: (enabled: boolean) =>
+      sendWithPlainPayload('update-taskbar-cover-preview', enabled),
+    syncTaskbarProgress: (enabled: boolean) =>
+      sendWithPlainPayload('update-taskbar-progress', enabled),
+    toggleWindow: () => sendWithPlainPayload('window-toggle', null),
+    onUpdateCheckResult: (func: (payload: unknown) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => func(payload);
+      ipcRenderer.on('update-check-result', listener);
+      return () => ipcRenderer.removeListener('update-check-result', listener);
     },
-    off: (channel: string, func: (...args: any[]) => void) => {
-      const wrapped = ipcListenerMap.get(channel)?.get(func);
-      if (wrapped) {
-        ipcRenderer.removeListener(channel, wrapped);
-      }
+    getLoggingSettings: () => ipcRenderer.invoke('logging:get-settings') as Promise<LogSettings>,
+    updateLoggingSettings: (settings: LogSettings) =>
+      invokeWithPlainPayload<void>('logging:update-settings', settings),
+    getDesktopLyricBounds: () =>
+      ipcRenderer.invoke('desktop-lyric:get-bounds') as Promise<{
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      }>,
+    getDesktopLyricVirtualScreenBounds: () =>
+      ipcRenderer.invoke('desktop-lyric:get-virtual-screen-bounds') as Promise<{
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      }>,
+    onDesktopLyricCommand: (func: (command: DesktopLyricCommand) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, command: DesktopLyricCommand) =>
+        func(command);
+      ipcRenderer.on('desktop-lyric:command', listener);
+      return () => ipcRenderer.removeListener('desktop-lyric:command', listener);
     },
   },
   shortcuts: {
@@ -452,6 +506,15 @@ contextBridge.exposeInMainWorld('electron', {
       return () => ipcRenderer.removeListener('desktop-lyric:hover', listener);
     },
     command: (command: DesktopLyricCommand) => ipcRenderer.send('desktop-lyric:command', command),
+    // ── P-2（v1.3.0）：以下四项原经 `DesktopLyricView.vue` 的 `sendToMain(channel, …)`
+    // 动态转发器发出（`window.electron?.ipcRenderer?.send(channel, ...args)`）。
+    // 该转发器使通道名在调用点仍可自由指定，与 P-1「通道名不再由调用方决定」相悖，
+    // 故改为四条具名方法。
+    toggleFixedSize: (payload: { fixed: boolean; width?: number; height?: number }) =>
+      sendWithPlainPayload('desktop-lyric:toggle-fixed-size', payload),
+    move: (x: number, y: number, width?: number, height?: number) =>
+      sendWithPlainPayload('desktop-lyric:move', x, y, width, height),
+    setHeight: (height: number) => sendWithPlainPayload('desktop-lyric:set-height', height),
   },
   nowPlaying: {
     getSnapshot: () =>
