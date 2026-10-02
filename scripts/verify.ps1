@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     YanMusic 发布前五项全量验证（docs/release-process.md §2 的固化脚本）。
 
@@ -11,6 +11,10 @@
     本机无头环境下 `cargo` 可能离线，用 -SkipNative 跳过原生检查
     （但**本版若触碰 native/ 则必须跑**，或在能联网的机器上跑）。
 
+    编码要求：本文件含中文，**必须以 UTF-8 with BOM 保存**。
+    Windows PowerShell 5.1 在没有 BOM 时按 ANSI/GBK 解读 .ps1，
+    中文注释会被解成乱码并导致**语法解析失败**（v1.2.9 首版即栽在此）。
+
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts/verify.ps1
     powershell -ExecutionPolicy Bypass -File scripts/verify.ps1 -SkipNative
@@ -21,10 +25,20 @@ param(
     [switch]$SkipBuild
 )
 
-$ErrorActionPreference = 'Stop'
+# 刻意用 Continue 而不是 Stop：本脚本靠**显式断言 $LASTEXITCODE** 判断成败，
+# 而 native 命令（node / cargo）会往 stderr 写正常日志（警告、进度），
+# 在 Stop 下会被包装成 terminating error 而中断脚本 —— 那是误报，不是失败。
+$ErrorActionPreference = 'Continue'
 
-$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+# 本文件位于 <repo>/scripts/verify.ps1，故仓库根 = $PSScriptRoot 的父目录。
+# （v1.2.9 首版误写成连剥两层 → 根目录变成 <repo>/.. ，tests/ 找不到而立即退出。）
+$root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+
+if (-not (Test-Path (Join-Path $root 'package.json'))) {
+    Write-Host "[FAIL] 仓库根判定错误：$root 下没有 package.json" -ForegroundColor Red
+    exit 1
+}
 
 $script:failed = 0
 
@@ -36,7 +50,7 @@ function Invoke-Step {
     )
 
     Write-Host "==> $Name" -ForegroundColor Cyan
-    & $Exe @Arguments
+    & $Exe @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
     $code = $LASTEXITCODE
     if ($null -eq $code) { $code = 0 }
     if ($code -ne 0) {
@@ -64,6 +78,9 @@ Invoke-Step -Name '类型检查 vue-tsc --noEmit' -Exe 'node' -Arguments @('node
 # 3) 构建（渲染层 + 主进程 + preload）
 if (-not $SkipBuild) {
     Invoke-Step -Name '构建 vite build' -Exe 'node' -Arguments @('node_modules/vite/bin/vite.js', 'build') | Out-Null
+}
+else {
+    Write-Host '==> 已跳过 vite build（-SkipBuild）' -ForegroundColor Yellow
 }
 
 # 4) Lint（自 v1.2.3 起不带 --fix，须 0 error / 0 warning）

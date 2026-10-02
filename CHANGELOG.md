@@ -31,15 +31,15 @@
 
 - **三级 · Worker 限流表与错误回显（W-7）**：`cloudflare/plugin-marketplace-worker` 的限流表是 per-isolate 内存 Map 且**只增不减**，现加兜底上限（达到上限先清过期桶，清完仍满则放行但不入表）；顶层 `catch` 原样回显 `error.message`，现改为统一文案 `internal error`，真实错误只进 Workers 日志。
 
-- **三级 · CI secret 插值（W-9）**：`build.yml` 中 `${{ secrets.GITHUB_TOKEN }}` 原被直接插值进 `run:` 命令正文，现改由 `env: MPV_RELEASES_TOKEN` 传入。现全仓 11 处 secret 引用**全部位于 `env:` 块**，`run:` 正文零插值。
+- **三级 · CI secret 插值（W-9）**：`build.yml` 中 `${{ secrets.GITHUB_TOKEN }}` 原被直接插值进 `run:` 命令正文，现改由 `env: MPV_RELEASES_TOKEN` 传入。现全仓 **12 处** secret 引用（`build.yml` 11 + `issue-ai-labeler.yml` 1）**全部位于 `env:` / `with:` 块**，`run:` 正文零插值。
 
 ### 新增
 
 - **零引用模块扫描脚本 `scripts/scan-dead-modules.mjs`**。以 5 个入口（`renderer/main.ts`、`main/index.ts`、`desktop-lyric/main.ts`、`plugin-window/main.ts`、`preload/index.ts`）做 import 图 BFS，解析 `import/export from`、`import()`、`require()` 与 Vue SFC 的 `<style src=>`，别名 `@/` → `src/renderer/`，并把 `import.meta.glob` 覆盖的两处目录单列为 **B 类（插件 API 面，不可删）**。输出分 A/B/T 三类，支持 `--json`，也可作为模块被测试直接调用。
-  - 扫描器本身在本次开发中修掉两个漏边 bug（CRLF 下 `;\r\nimport` 前缀只消耗一个字符；`import './style.css'` 无 `from` 时被带 `from` 的惰性分支吞掉），两者都会把**活文件误判为死代码**。
+  - 扫描器本身在本次开发中修掉三个漏边 bug（前两个在发布前发现、第三个在发布后审计时发现）：① CRLF 下 `;\r\nimport` 前缀只消耗一个字符；② `import './style.css'` 无 `from` 时被带 `from` 的惰性分支吞掉；③ **捕获组下标写死** —— 正则有 4 个分支（无 `from` 的副作用导入 / 带 `from` / `import()` / `require()`），而取 `m[1] ?? m[2] ?? m[3]` 会漏掉 `require()` 的第 4 组。前两个会把**活文件误判为死代码**；第三个方向相同，但经核验本仓库当前所有字面量 `require()` 都指向 `src/` 之外的 `native/`，故未造成实际误判（修复后复扫结果不变：A 类仍为 9）。
 - **配套类型声明 `scripts/scan-dead-modules.d.mts`**（**必须保留，勿当冗余文件删掉**）。`tsconfig.json` 的 `include` 覆盖 `tests/**/*.ts`，而 `tests/source-level-guards.test.ts` 直接 `import` 该 `.mjs`；在 `moduleResolution: bundler` 且未开 `allowJs` 的配置下会触发 `TS7016`「找不到声明文件」+ 3 处 `TS7006`（返回值退化为 any）。CI 构建步骤是 `vue-tsc --noEmit && vite build`（`&&` 短路）→ 类型检查非 0 会让 **`vite build` 压根不执行**，症状却表现为「`dist-electron/main/index.js` 不在 asar 里」的**打包失败**，排查时极易被误导到产物/打包配置上。**v1.2.9 首轮干跑六条腿全红即因此**（详见「说明」段）。
 - **发布前验证脚本 `scripts/verify.ps1`**。本机 `pnpm` / `npx` / `npm` 的 `.ps1` 垫片会被 PowerShell 执行策略拦截**且退出码为 0** —— 只检查 `$LASTEXITCODE` 会把「压根没执行」误判成「通过」。该脚本一律**直调 JS 入口**并逐步显式断言退出码，任一失败即整体非 0（支持 `-SkipNative` / `-SkipBuild`）。
-  - ⚠️ **本机的鉴别力验证未完成**：当前会话无法取得 PowerShell 的回显输出（返回值不可见），因此**没有**实证「故意断一步 → 脚本退出非 0」。**首次使用时请自行验证一次**（把任一步改成必然失败的命令，确认脚本非 0 退出且不继续往下跑）。在此之前，请勿把它当作已验证通过的防线。
+  - ⚠️ **发布时未验证，发布后已修复并实测（见下方「发布后补充」）**：该脚本首版实际上**根本无法运行** —— 原因不是「取不到 PowerShell 回显」，而是脚本自身有两处缺陷（编码与仓库根判定）。已经在 2026-10-02 修复并跑通，细节与实测证据见本版「说明」段末尾。
 - **守卫用例 9 条**：`tests/kv-sensitive-keys.test.ts`（5 例：加密白名单、与 `sensitiveKv` 的运行时敏感键**两处不得漂移**、迁移纯函数的边界、迁移必须挂在 `get()` 上且失败不影响读取、迁移必须复用 `encodeForWrite`）；`tests/source-level-guards.test.ts`（4 例：统计常量不得内联、`sanitizeHtml` 必须**调用** `ensureNoopenerHook()`、不得出现同值三元、A 类零引用模块不得超出「刻意保留」白名单）。
   - **鉴别力验证（已做，喂回修复前代码必须变红）**：W-3 摘掉 `pinia:device` / 去掉迁移调用 → 3 条变红；W-6 改回字面量 → 变红；W-4 短路钩子调用 → 变红（**第一版只断言字符串存在，短路后仍绿，已加强为断言「被调用」**）；W-2 改回死分支 → 变红；W-1 新增一个未被引用的样例文件 → 变红。撤销后恢复全绿。
 
@@ -72,6 +72,21 @@
   - **B-2（首屏体积阈值守卫）**：已实测 CI 中 `Run unit tests`（`build.yml:511`）**早于** `Build desktop app`（`:531`）→ 体积守卫在 CI 里读不到产物，需先定「无产物时如何处理」（跳过 = 假绿，硬失败 = 阻塞）→ **待核定**；
   - **H-1（插件隔离）、M-3（`webSecurity`）、M-5、L-9/L-10、L-14、巨型文件拆分、插件运行时懒加载**：按既有结论维持「明确不做」，重启条件见规划文档 §5。
 - **仍推后续版本**：上述全部「待核定」项，以及 `docs`/规划文档里已记的原生层与性能项。
+- **发布后补充（2026-10-02 复核）**：发布流程本身（tag、Release 标题与正文、三平台产物）逐项核对无问题，但对**本版自建的两个工具**做了复核，发现并修掉两处缺陷，如实记录如下，以免错误结论继续往下传：
+
+  1. **`scripts/verify.ps1` 首版根本无法运行** —— 发布时把它记作「鉴别力验证未完成（取不到 PowerShell 回显）」，**该归因是错的**。真实原因是脚本自身两处缺陷：
+     - 文件以 **UTF-8 无 BOM** 保存。Windows PowerShell 5.1 在无 BOM 时按 ANSI/GBK 解读 `.ps1`，中文注释被解成乱码 → **语法解析失败**（`ParserError: 字符串缺少终止符`）；
+     - `$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)` **多剥了一层**，仓库根被算成 `<repo>/..`，`tests/` 找不到。
+
+     顺带修正：`$ErrorActionPreference` 由 `Stop` 改为 `Continue`（native 命令的正常 stderr 在 `Stop` 下会被当作终止性错误而中断脚本），并把子进程 stderr 显式回显。
+     **修复后实测**（`-SkipNative`）：单元测试 197 例（192 通过 / 0 失败 / 5 跳过）✔、`vue-tsc` ✔、`eslint` ✔；`vite build` 一步在本沙箱内失败 → 脚本正确打印 `[FAIL] 构建 vite build (exit=1)`、**继续跑完后续步骤**、最后 `验证失败：1 项未通过` 且整体 **exit 1**。**这同时构成鉴别力实证**：脚本对失败步骤确实会非 0 退出。
+     该 build 失败**不是项目缺陷**：本沙箱的 `node-safe-delete` 保护会拦截 `dist/assets`（249 个文件 > 阈值 50）的批量删除，vite 的 `prepare-out-dir` 因此报错；把 `dist/` 移走后同一条命令 **exit 0**（`1316 modules transformed`），已复现确认。
+
+  2. **`scripts/scan-dead-modules.mjs` 的第三个漏边 bug**：捕获组下标写死为 `m[1] ?? m[2] ?? m[3]`，而正则有 4 个分支 → 漏掉 `require()` 的边（方向同样是「把活文件判成死代码」）。核验结论：本仓库当前所有字面量 `require()` 都指向 `src/` 之外的 `native/`，**未造成实际误判**（修复后复扫结果不变，A 类仍 9 个 / 725 行）。已改为 `m.slice(1).find(Boolean)`。
+
+  3. **顺带订正本段两处数字**：全仓 secret 引用由「11 处」订正为 **12 处**（`build.yml` 11 + `issue-ai-labeler.yml` 1；均已位于 `env:` / `with:` 块，`run:` 正文零插值）；扫描器漏边 bug 由「两个」订正为 **三个**。
+
+- **发布后仍属「未验证」的项**：`cargo check --workspace --release` 在本机因代理 502、离线又缺缓存，**始终未能执行**。本版零 `.rs` 改动、原生产物未变，但按 SOP 这一项应记为「未验证」而非「通过」。
 
 ## [1.2.8]
 

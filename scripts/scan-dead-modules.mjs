@@ -94,7 +94,13 @@ const collectEdges = (file) => {
   let m;
   IMPORT_RE.lastIndex = 0;
   while ((m = IMPORT_RE.exec(code))) {
-    const spec = m[1] ?? m[2] ?? m[3];
+    // 用 `m.slice(1).find(Boolean)` 而不是写死 `m[1] ?? m[2] ?? m[3]`：
+    // 上面的正则有 **4 个**分支（无 from 的副作用导入 / 带 from / import() / require()），
+    // 写死下标会在新增分支时漏掉末尾的捕获组 —— 本脚本首版就漏掉了 `require()`（第 4 组），
+    // 后果是「只在 src 内用 require 引用的文件」被判成死代码（危险方向）。
+    // 本仓库当前所有字面量 require 都指向 src 之外的 native/，故实际未造成误判，
+    // 但这是潜伏缺陷，已修。
+    const spec = m.slice(1).find(Boolean);
     if (!spec) continue;
     const t = resolve(spec, file);
     if (t) targets.add(t);
