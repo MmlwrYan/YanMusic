@@ -4,6 +4,9 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+// F-6（v1.3.0）：敏感键清单的单一真源已移到零依赖模块，可**直接 import 断言真实集合**。
+import { ENCRYPTED_KV_KEYS, shouldEncryptKvKey } from '../src/shared/kvEnvelope.ts';
+
 /**
  * 一级漏洞的**结构性回归守卫**（v1.2.4）。
  *
@@ -127,10 +130,10 @@ test('H-3：KvStorage 必须对敏感键启用 safeStorage 加密', () => {
   const source = read('src/main/storage/kv.ts');
 
   assert.ok(/safeStorage/.test(source), 'kv.ts 未引入 safeStorage');
-  assert.ok(
-    /ENCRYPTED_KV_KEYS[\s\S]{0,300}?pinia:user/.test(source),
-    '敏感键清单里没有 pinia:user（登录态）',
-  );
+  // F-6（v1.3.0）：敏感键清单已抽到零依赖模块 `shared/kvEnvelope.ts`，
+  // 故此处改为**直接 import 断言真实集合**，不再靠正则扫 kv.ts 源码
+  //（原先用 `/ENCRYPTED_KV_KEYS[\s\S]{0,300}?pinia:user/`，清单一旦搬走即误报）。
+  assert.ok(ENCRYPTED_KV_KEYS.has('pinia:user'), '敏感键清单里没有 pinia:user（登录态）');
   assert.ok(/encryptString\(/.test(source), '未调用 safeStorage.encryptString');
   assert.ok(/decryptString\(/.test(source), '未调用 safeStorage.decryptString');
   // 加密不可用时必须拒绝写入，而不是静默落明文
@@ -164,14 +167,10 @@ test('H-3：敏感键读写都必须过编解码变换（set/applyBatch/get 三�
 });
 
 test('H-3：非敏感键不得被误加密（避免无谓的解密失败面）', () => {
-  const source = read('src/main/storage/kv.ts');
-  // 敏感键清单应保持「白名单」语义：只有 pinia:user 等少数键
-  const listMatch = source.match(/ENCRYPTED_KV_KEYS[^=]*=\s*new Set<string>\(\[([\s\S]*?)\]\)/);
-  assert.ok(listMatch, '未找到 ENCRYPTED_KV_KEYS 清单');
-  const entries = listMatch[1]
-    .split(',')
-    .map((s) => s.replace(/\/\/.*$/gm, '').trim())
-    .filter((s) => /^['"]/.test(s));
+  // F-6（v1.3.0）：改为直接断言真实集合。
+  // 原先靠正则解析 kv.ts 源码再看 `entries.length <= 6` —— 清单搬到
+  // `shared/kvEnvelope.ts` 后正则失配即误报「未找到清单」。
+  const entries = [...ENCRYPTED_KV_KEYS];
   assert.ok(entries.length > 0, '敏感键清单为空 —— 加密形同虚设');
   assert.ok(
     entries.length <= 6,
@@ -181,4 +180,8 @@ test('H-3：非敏感键不得被误加密（避免无谓的解密失败面）',
     entries.every((e) => !/setting|theme|player|playlist/i.test(e)),
     '敏感键清单里出现了普通设置键',
   );
+  // 断言普通设置键确实不在白名单内（行为等价于原先对清单内容的检查）
+  assert.equal(shouldEncryptKvKey('pinia:setting'), false, '普通设置键不得加密');
+  assert.equal(shouldEncryptKvKey('pinia:playlist'), false, '播放列表不得加密');
+  assert.equal(shouldEncryptKvKey('pinia:theme'), false, '主题设置不得加密');
 });
