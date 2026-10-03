@@ -36,7 +36,7 @@
   - `scripts/verify.ps1 -SkipNative` → **单次运行全程通过、exit 0**（单元测试 / 类型检查 / 构建 / 首屏体积守卫 / Lint 五项）。
   - `node --test tests/*.test.ts`（有产物直跑）→ **281 例 / 276 通过 / 0 失败 / 5 跳过**；**不含本版新增测试文件的基线为 262 例 / 257 通过 / 0 失败 / 5 跳过** → 本版净增 **19** 例。5 例跳过**全部**来自 `tests/native-engine-options.test.ts`（需真实播放引擎子进程，本机子进程启动即异常终止，按设计 skip 并打印原因），**与本版改动无关**。
   - `vue-tsc --noEmit` → 退出码 0；`eslint .` → **0 error / 0 warning**。
-  - `vite build` → 退出码 0；**主进程产物仍是单文件**（`dist-electron/main/` 仅 `index.js` 一个文件，881,035 B）—— 未复发 v1.2.4 的多 chunk 启动崩溃。preload `29,104 B`。
+  - `vite build` → 退出码 0；**主进程产物仍是单文件**（`dist-electron/main/` 仅 `index.js` 一个文件，881,068 B）—— 未复发 v1.2.4 的多 chunk 启动崩溃。preload `29,104 B`。
   - `scripts/check-bundle-size.mjs` → **93 个入口资源 / 1,131,029 B**，预算 1,151,504 B → **通过**，且与 v1.3.0 发布的数字**逐字节相同**（本版改动全在主进程侧，**首屏零增长**）。
   - 自有插件仓库 `tests/*.test.mjs` → **79/79 全绿**（修复前 78/79）。
   - **鉴别力验证（变异测试，逐条改回失败形态必须变红）**：加速器闸门（放行 Gitee）✅ / Gitee 归档地址形态 ✅ / Gitee 下载 UA ✅ / 伪装域名（去掉前导点）✅ / **ZIP 魔数校验 ❌ → 暴露测试盲区**：原用例只有 HTML 输入，第二字节即被挡下，**第三/四字节判定完全没有覆盖**，把签名判定改成 `return true` 仍然 19/19 全绿。补 `Buffer.from('PKxxxx')` 与 `Buffer.from([0x50,0x4b,0x03,0x05])` 两例后重做得 `18 pass / 1 fail`（**成功变红**），还原后 19/19。
