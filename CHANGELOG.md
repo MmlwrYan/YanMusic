@@ -51,7 +51,10 @@
   - **本机 `github.com` 不可达，`git push` 无法使用。** 实测：`github.com` 直连 connection reset、经本机代理（`http://127.0.0.1:8805`）一律 `502 CONNECT tunnel failed`（**重试 3 次全部失败**）；而 `api.github.com` 两种方式均 `200`。**故本版对 GitHub 的推送改走 Git Data API**（blobs → tree → commit → ref）。远端内容与本地**逐字节一致**，由两条独立证据确认：① 369 个 blob 的返回 sha 与本地 sha **不一致 0 个**；② 远端 tree `b7e92d49ad76be5825f1a0d0dd9d3bc45a7fb0dd` 与本地 `HEAD^{tree}` 相同，远端 `main` 与本地 HEAD 同为 `18dc4c793bf6e9e59d163768fc6e2d571a6a3a7b`。本地 `git status` 为 `## main...origin/main`（无 ahead/behind）。
   - ⚠️ **踩坑留档（可复用的方法论）**：Git Data API 会**原样保存所发的提交信息字节**，而 `git log --pretty=%B` 比 commit 对象**多输出一个换行** —— 首轮推送因此得到一个**内容相同但 sha 不同**的提交。定位方式：用 API 返回的字段在本地重建 commit 对象并自算 sha1，穷举「时区偏移 × 尾换行数」，**精确复现出远端 sha**（`+0800` / 尾换行 2 个）。这同时**反向证明**了本地重建方法正确（`+0800` / 尾换行 1 个精确复现本地 sha）。修正后远端 sha 与本地一致。另一条同类坑：Git Data API 拒绝在**空仓库**里创建 blob（`409 Git Repository is empty`），需先用 Contents API 落一个占位提交激活仓库，再把 `main` 强制移到真实根提交（占位提交成为不可达对象，已核验远端无残留文件）。
   - **无 GUI 会话**：本机无法运行应用，「插件源添加 → 同步索引 → 下载插件包 → 安装」的**运行时行为未做端到端复核**；Gitee 下载路径的 UA 分派虽有真行为单测 + 公开仓库实测双层证据，仍**缺真机安装验证**。
-- **发布流程说明**：因 `git push` 不可用，本版的 `main` 提交与 `v1.3.1` tag **均需经 API 创建**；`api.github.com` 可达，故 CI 与 Release 仍由 GitHub 侧正常执行。
+- **Gitee 的 `/blob/` 端点对程序化 GET 一律 405（平台行为，本次实测发现）**。三个不同公开仓库（`mirrors/git`、`oschina/git-osc`、`openharmony/docs`）的 `https://gitee.com/<owner>/<repo>/blob/<ref>/<path>` 全部返回 `405 text/html` —— UA 换成 `Mozilla/5.0` 或 `curl/8.4.0` 都一样，且不加 `-L` 也是 405（非重定向所致）。而 **`/raw/<ref>/<path>` 与 `/raw/HEAD/<path>` 均为 `200 text/plain`**。
+  - **影响评估：无功能影响。** 客户端拉插件索引与 manifest 走的是 **raw** 端点（`src/main/plugins.ts:1436`），Gitee 侧形态为 `gitee.com/<o>/<r>/raw/HEAD/<file>`（实测 200）。`indexUrl` 字段**只写不读** —— 全仓无任何 `.indexUrl` 读取点，只有 4 处写入与 1 处类型声明（`src/shared/plugins.ts:733`），故它即便指向一个 405 地址也不会被应用访问。
+  - **重启条件**：若将来要在界面上展示或跳转「源地址」，Gitee 侧不要用 `/blob/`，改用 `/raw/` 或仓库首页。
+- **发布流程说明**：本机**`git push` 到 `github.com` 不可用**（见上），故本版的 `main` 提交与 `v1.3.1` tag **均需经 API 创建**；`api.github.com` 可达，故 CI 与 Release 仍由 GitHub 侧正常执行。**对照：`gitee.com` 完全可用** —— `git ls-remote https://gitee.com/...` 正常返回（即 `git push` 到 Gitee 这条路是通的），`gitee.com` 的 HTTP 端点直连与代理均 200。
 
 ## [1.3.0]
 
