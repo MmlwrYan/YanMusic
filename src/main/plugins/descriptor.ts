@@ -2,12 +2,12 @@
 import { existsSync, readFileSync, statSync } from 'fs';
 import { basename, extname, join } from 'path';
 import { pathToFileURL } from 'url';
+import { coerce as semverCoerce, satisfies as semverSatisfies, valid as semverValid } from 'semver';
 import {
-  coerce as semverCoerce,
-  satisfies as semverSatisfies,
-  valid as semverValid,
-  validRange as semverValidRange,
-} from 'semver';
+  normalizePluginVersionRange,
+  readPluginVersionRequirement,
+  shouldEnforcePluginVersionRequirement,
+} from '../../shared/plugin-compatibility';
 import type {
   EchoPluginCompatibility,
   EchoPluginDescriptor,
@@ -16,7 +16,6 @@ import type {
   PluginWindowManifest,
 } from '../../shared/plugins';
 import {
-  BARE_SEMVER_PATTERN,
   PLUGIN_IMAGE_EXTENSIONS,
   PLUGIN_MANIFEST_FILE,
   PLUGIN_WINDOW_MAX_HEIGHT,
@@ -179,39 +178,16 @@ const getHostVersion = () =>
   semverValid(app.getVersion()) ?? semverCoerce(app.getVersion())?.version ?? '';
 
 /**
- * 读取主程序版本要求：优先 yanmusicVersion；该键缺失或为空时回退到旧版清单键
- * echoMusicVersion（上游插件清单沿用旧键），保证旧插件仍按原语义做版本门槛判断。
- * 错误文案统一使用当前主程序键名，避免把兼容键名暴露到界面。
+ * 主程序版本要求的读取与判定规则见 `shared/plugin-compatibility`（纯函数，已有单测）。
+ * 本文件只负责：取宿主版本 → 判断该要求是否参与比较 → 必要时交给 semver。
  */
-const getVersionRequirement = (manifest: EchoPluginManifest): unknown => {
-  const requires = manifest.requires;
-  if (!requires || typeof requires !== 'object') return undefined;
-  const primary = requires.yanmusicVersion;
-  if (primary !== undefined && primary !== null && String(primary).trim()) return primary;
-  return requires.echoMusicVersion;
-};
-
-const normalizeyanmusicVersionRequirement = (value: unknown) => {
-  const text = String(value ?? '').trim();
-  if (!text) return { range: '', error: '' };
-
-  if (BARE_SEMVER_PATTERN.test(text)) {
-    const version = semverValid(text) ?? semverCoerce(text)?.version;
-    return version
-      ? { range: `>=${version}`, error: '' }
-      : { range: '', error: `requires.yanmusicVersion 主程序版本要求无效: ${text}` };
-  }
-
-  const range = semverValidRange(text);
-  if (!range) return { range: '', error: `requires.yanmusicVersion 主程序版本范围无效: ${text}` };
-  return { range, error: '' };
-};
-
 const validateyanmusicVersionRequirement = (manifest: EchoPluginManifest) => {
-  const requirement = getVersionRequirement(manifest);
-  if (!requirement) return '';
+  const requirement = readPluginVersionRequirement(manifest.requires);
+  // 旧键（上游 EchoMusic 的 2.x 编号）不参与判定，格式怪异也不该拦人。
+  if (!requirement || !shouldEnforcePluginVersionRequirement(requirement.source)) return '';
 
-  return normalizeyanmusicVersionRequirement(requirement).error;
+  const { error } = normalizePluginVersionRange(requirement.value);
+  return error ? `requires.yanmusicVersion ${error}` : '';
 };
 
 const validateManifestCapabilities = (manifest: EchoPluginManifest) => {
@@ -263,8 +239,8 @@ const validateManifestCapabilities = (manifest: EchoPluginManifest) => {
 };
 
 export const getyanmusicCompatibility = (manifest: EchoPluginManifest): EchoPluginCompatibility => {
-  const requirement = String(getVersionRequirement(manifest) ?? '').trim();
   const hostVersion = getHostVersion();
+  const requirement = readPluginVersionRequirement(manifest.requires);
 
   if (!requirement) {
     return {
@@ -275,13 +251,27 @@ export const getyanmusicCompatibility = (manifest: EchoPluginManifest): EchoPlug
     };
   }
 
-  const { range, error } = normalizeyanmusicVersionRequirement(requirement);
+  const raw = String(requirement.value ?? '').trim();
+
+  // 上游旧键只记录、不判定：它写的是 EchoMusic 的 2.x 编号，与本项目 1.x **不可比**，
+  // 硬比会把所有继承自上游的插件判成「版本不兼容」——而该判定同时是安装与
+  // 插件窗口打开的硬门禁，后果远大于一句提示。
+  if (!shouldEnforcePluginVersionRequirement(requirement.source)) {
+    return {
+      compatible: true,
+      currentyanmusicVersion: hostVersion,
+      requiredyanmusicVersion: raw,
+      message: '',
+    };
+  }
+
+  const { range, error } = normalizePluginVersionRange(requirement.value);
   if (error || !range || !hostVersion) {
     return {
       compatible: false,
       currentyanmusicVersion: hostVersion,
-      requiredyanmusicVersion: requirement,
-      message: error || '无法确认当前 YanMusic 版本',
+      requiredyanmusicVersion: raw,
+      message: error ? `requires.yanmusicVersion ${error}` : '无法确认当前 YanMusic 版本',
     };
   }
 

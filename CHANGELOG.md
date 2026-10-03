@@ -1,3 +1,40 @@
+## [1.3.3]
+
+> 本次为**插件兼容判定修复版**。上游插件清单里的版本要求键写的是 **EchoMusic 的 2.x 编号**（`>=2.2.6-beta.9` 之类），本项目却是 1.x —— 两套编号不可比，拿去做 semver 比较**恒不满足**，于是**全部继承自上游的插件**都被判成「版本不兼容」。而该判定不只是提示：它同时是**安装与插件窗口打开的硬门禁**。本版让旧键只作参考记录、不参与判定；本项目自有键 `requires.yanmusicVersion` 仍照常比较。**不改插件 API**，插件作者的写法无需任何改动。
+
+### 修复
+
+- **二级 · 上游插件的版本要求被永久判为不兼容，导致插件装不上、插件窗口打不开**（`src/main/plugins/descriptor.ts` 的 `getyanmusicCompatibility`）。
+  插件清单用 `requires.echoMusicVersion` 写 `>=2.2.6-beta.9` 这类要求，而本项目版本是 `1.3.2` —— **1.x 永远小于 2.x**，`satisfies('1.3.2', '>=2.2.6-beta.9')` 恒为 `false`。这不是偶发误判，而是**这条判定从来就没有可能通过**。
+  **实测证据**（2026-10-03，逐条读镜像仓库 14 个插件的 `manifest.json`）：13 个插件带 `requires`，**全部**用旧键，取值跨 `>=2.2.6-beta.9` ~ `>=2.3.2-beta.7`（共 8 个不同取值）—— **13/13 全部会被判为不兼容**；剩下 1 个（`mv-enhancer`）不设版本要求。
+  后果远大于一句提示：`compatibility.compatible` 是**硬门禁** —— `showPluginWindow` / `getPluginWindowContext` / 安装流程 / 设置对话框都据它拒绝，判定点遍布主进程与渲染层共 20 余处。
+  规则现固定为：**旧键只作参考记录、不参与判定；本项目自有键 `requires.yanmusicVersion`（同一套编号）照常比较**。既解决当下，也为将来的插件生态留住正确的门槛机制 —— 否则只剩两个极端：要么全体放行、要么全体拦住。
+
+### 新增
+
+- **`src/shared/plugin-compatibility.ts`**：把「版本要求的读取 / 是否参与判定 / 范围规范化」收成一个纯函数模块（`descriptor.ts` 依赖 electron、跑不了真行为单测，故逻辑抽到 shared）。导出 `readPluginVersionRequirement`、`shouldEnforcePluginVersionRequirement`、`normalizePluginVersionRange`、`BARE_SEMVER_PATTERN`。
+- **`tests/plugin-compatibility.test.ts`（15 例）**：读取优先级（自有键优先、空白回退旧键、无要求返回 `null`）、判定规则（旧键恒不参与 / 自有键照常参与）、**真实清单回归**（13 个插件的真实取值：既断言「拿本项目版本比 13/13 全部不满足」，又断言「改按来源判定后全部放行」）、范围规范化，以及一条 **`descriptor.ts` 的生效点守卫**。
+
+### 变更
+
+- `descriptor.ts` 里内联的 `getVersionRequirement` / `normalizeyanmusicVersionRequirement` 删除，改调 shared 模块；`BARE_SEMVER_PATTERN` 由 `src/main/plugins/common.ts` 迁至 shared 模块。
+- **格式校验同样只针对自有键**：旧键既已不参与判定，其格式（哪怕写歪）也不应再拦人 —— 此前一个 `echoMusicVersion` 写得不合法的上游插件会被 `validateManifest` 判为「清单无效」。
+- `EchoPluginManifest.requires.echoMusicVersion` 的类型注释补充说明「只作参考记录、不参与判定」。
+
+### 说明
+
+- **验证结果**（本机实跑，全部真实执行）：
+  - `node --test tests/*.test.ts`：**306 例 / 301 通过 / 0 失败 / 5 跳过**（v1.3.2 为 291/286/0/5，**净增 15**，与本版新增用例数一致）。
+  - `vue-tsc --noEmit` 退出码 0；`eslint .` **0 error / 0 warning**。
+  - `vite build` 退出码 0；主进程产物**仍为单文件** `dist-electron/main/index.js` **881,788 B**（v1.3.2 为 881,425 B，+363 B）；preload `29,104 B`；首屏 **93 个入口资源 / 1,131,029 B**（预算 1,151,504 B）—— 未改渲染层，与 v1.3.2 **逐字节相同**。
+- **鉴别力验证**：两条变异均按预期变红，并**修掉了一条守卫自身的缺陷**。
+  - 变异 1：把 `shouldEnforcePluginVersionRequirement` 退化为「所有键都判断」→ **2 例变红**（判定规则 + 13 插件回归）。
+  - 变异 2：短路 `getyanmusicCompatibility` 内的来源分派 → 生效点守卫变红。
+    ⚠️ 第一版守卫**没抓住**这个变异：它只断言「文件里存在 `shouldEnforcePluginVersionRequirement(requirement.source)` 这个字符串」，而该标识符在同一个文件的 `validateyanmusicVersionRequirement`（格式校验）里也出现 —— 把真正的判定短路掉，守卫**仍然是绿的**。现改为**先截取 `getyanmusicCompatibility` 函数体再断言**。这条是实测踩出来的。
+- **未验证项（如实标注）**：
+  - **GUI 运行时行为未复核**（本机无 Electron 二进制）。本次改动的直接效果是「插件不再被判不兼容 → 卡片不再禁用、窗口可打开、可安装」，这一步**未在真实窗口里跑过**；已用真行为单测 + 生效点守卫覆盖判定逻辑本身。
+  - **第三方非镜像插件未逐个核对**：其清单若也用旧键，同样不再被拦 —— 这是本版有意为之的统一规则，但没有逐份检查它们的清单。
+
 ## [1.3.2]
 
 > 本次为**可用性修复版**。v1.3.1 引入的 Gitee 提供方在真实仓库上**端到端不可用**：把源换成 Gitee 后，只有索引 JSON 走 Gitee，manifest、图标与插件包仍回到 GitHub 取。本版修掉它，并把**默认官方源切到 Gitee**。**不改插件 API**，对插件作者无破坏性影响。

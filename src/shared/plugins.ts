@@ -675,7 +675,11 @@ export interface EchoPluginManifest {
   requires?: {
     yanmusicVersion?: string;
     /**
-     * 旧版插件清单使用的主程序版本键，仅在 yanmusicVersion 缺失时作为兼容回退读取。
+     * 上游旧版插件清单使用的主程序版本键，仅在 yanmusicVersion 缺失时作为回退读取。
+     *
+     * 注意：其取值是 **EchoMusic 的 2.x 版本号**（如 `>=2.2.6-beta.9`），与本项目的
+     * 1.x 版本号不是同一套编号体系、互相比较没有意义，因此**只作参考记录，
+     * 不参与版本兼容判定**。规则见 `shared/plugin-compatibility`。
      */
     echoMusicVersion?: string;
   };
@@ -715,7 +719,9 @@ export interface EchoPluginDescriptor {
  * 这些类型是**已对外暴露的公共契约**（第三方插件与插件开发文档会引用），因此：
  *   - 旧名 `Echo*` 一律保留，不改任何调用点，避免破坏既有插件与文档；
  *   - 新增 `Yan*` 作为当前推荐名，二者为同一类型，可互换使用。
- * 同理，插件清单中的 `requires.echoMusicVersion` 兼容键继续保留。
+ * 同理，插件清单中的 `requires.echoMusicVersion` 兼容键继续保留；但按
+ * `shared/plugin-compatibility` 的规则，它只作参考记录，**不参与版本兼容判定**
+ * ——它写的是 EchoMusic 的 2.x 编号，与本项目 1.x 不具备可比性。
  */
 /** @deprecated 使用 `YanPluginManifest`。保留仅为兼容既有插件与文档。 */
 export type YanPluginManifest = EchoPluginManifest;
