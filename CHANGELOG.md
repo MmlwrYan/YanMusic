@@ -1,3 +1,58 @@
+## [1.3.1]
+
+> 本次为**插件源自主可控版**：把内置官方插件源从上游 `hoowhoami/EchoMusicPlugins` 切到自有仓库 `MmlwrYan/YanMusicPlugins`，并为插件源增加 **Gitee 提供方**支持。**不改插件 API**，对插件作者无破坏性影响。
+
+### 修复
+
+- **三级 · 插件包下载不校验内容，把「拿到网页」当成「拿到压缩包」**（`src/main/plugins.ts`）。下载结果直接交给解压器，若服务端返回的是 HTML，错误会以「不是有效的 zip」在**解压阶段**浮现，指不到根因。现加 `isZipArchiveBuffer`（PK 魔数 + 第三/四字节签名）前置校验，明确报出「插件源返回的不是压缩包（HTTP `<状态码>`，`<content-type>`）」。**刻意不做**重试与地址回落 —— 保持行为可预测。
+- **二级 · 索引地址写死 GitHub 形态**（`src/main/plugins.ts` 的 `createDefaultMarketplaceSource`）。原先硬拼 `.../blob/HEAD/<索引文件>`；换成 Gitee 仓库后该形态**必然 404**（Gitee 是 `.../blob/<ref>/<path>`；归档是 `.../repository/archive/<ref>.zip`，**不是** `/archive/<ref>.zip`）。现按提供方分派。
+- **测试工具链**：`.workbuddy/**` 加入 `eslint.config.js` 的 `ignores`。它是本地过程数据目录（`.gitignore` 已排除，与 `docs/agent/` 同性质），对其 lint 只会让发布门禁因「未使用的临时变量」这类噪声变红。
+- **随镜像一并修复的上游遗留失败用例**（`tests/playback-control-order.test.mjs`，自有插件仓库内）：原断言 `entry.repo === entry.homepage`，与索引实际形态（`homepage = repo + '/tree/main/' + path`）矛盾，**在上游仓库本来就是失败的**（未改动的副本复跑同为 15/16）。现改为断言实际形态。
+
+### 新增
+
+- **插件源提供方抽象**（`src/shared/plugin-source.ts`，新文件 245 行）。把 GitHub / Gitee 的 URL 形态差异收到一处**零依赖纯函数**模块，`src/main/plugins.ts` 只做转调（该文件净减约 100 行）。导出 15 个函数 + 4 个常量：
+  - **解析与归一**：`parsePluginRepository`（含 `.git` 后缀、无 scheme、`owner/repo` 简写按 GitHub 解释）、`toRepositoryUrl` / `toRepositorySourceId` / `toRepositoryKey`；
+  - **取文件与归档**：`toRepositoryRawFileUrl`（GitHub `raw.githubusercontent.com/<o>/<r>/<ref>/<p>` vs Gitee `gitee.com/<o>/<r>/raw/<ref>/<p>`）、`toRepositoryBlobUrl`、`toRepositoryArchiveUrl`；
+  - **加速器闸门**：`isProviderHostedUrl` / `isKnownPluginSourceHostedUrl` / `applyPluginSourceProxy` / `normalizePluginSourceProxyUrl`；
+  - **下载期**：`resolvePluginDownloadUserAgent`、`isZipArchiveBuffer`；
+  - **路径安全**：`normalizeRepositoryFilePath` / `isSafeRepositoryFilePath` —— **同一个纯函数同时服务 URL 拼装与解压穿越防护**（此前是两套各自实现）。
+- **Gitee 提供方的下载 UA 分派**。Gitee 归档端点在 UA 不被识别为「下载工具」时**返回 200 + `text/html`（约 45 KB 的「下载仓库」落地页）而不是 zip** → 表现为「下载成功、解压失败」。实测规则（公开仓库上复现）：UA 含 `curl/<任意版本>` → `application/zip`；`Mozilla/5.0` / `python-requests/2.31.0` 等浏览器与常规客户端 UA → `text/html`。故仅在 **Gitee 托管地址**上把 UA 追加为 `YanMusic-Plugin-Marketplace (curl/8.4.0)`（保留自身标识，便于对端统计）。
+- **守卫测试** `tests/plugin-source-provider.test.ts`（**19 例**）：提供方解析、**伪装域名拒绝**（`mygithub.com` / `gitee.com.evil.example` 不得被当作相应提供方 —— 后缀匹配必须带前导点）、raw 与归档形态差异、路径规范化与穿越防护、**加速器闸门（Gitee 不套加速器）**、下载 UA 按提供方分派、ZIP 签名校验。
+- **自有插件仓库**（工作区外 `C:\coding\YanMusicPlugins`，已推送至 `MmlwrYan/YanMusicPlugins`）：镜像上游自带 **14** 个插件 + **10** 个已授权第三方插件，逐个保留各自 `LICENSE`/`NOTICE`；**15 个来源仓库无任何许可证的条目一律不复制**，索引中保留原指向并标注 `licenseStatus:"unlicensed"` / `mirrored:false`（删掉会让用户目录凭空少 15 条且无说明）。逐条判定依据见该仓库 `THIRD-PARTY.md`。
+
+### 变更
+
+- **内置官方插件源切到自有仓库**（`src/main/plugins/common.ts`）：`DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL` 由 `https://github.com/hoowhoami/EchoMusicPlugins` 改为 `https://github.com/MmlwrYan/YanMusicPlugins`，源 ID 改为 `github:mmlwryan/yanmusicplugins`。**上游仓库仍可作为普通可选源手动添加** —— 只换默认值，不砍能力。
+- **索引缓存版本 5 → 6**。旧缓存来自今已 404 的上游索引，不换版本会把换源后的新索引挡在缓存之外。
+- **新增 Gitee 镜像地址常量** `GITEE_PLUGIN_MARKETPLACE_MIRROR_URL`，**刻意不内置为默认源** —— 默认只保留一个官方源，避免同一份索引被拉两次；用户可在「插件管理 → 插件源」手动添加，或把默认源的 `github.com` 直接换成 `gitee.com`。
+- **界面文案**：`PluginSourceDialog.vue` 的描述与占位符补上 Gitee（`https://github.com/owner/repo 或 https://gitee.com/owner/repo`）；`PluginSettingsSection.vue` 的「文档」外链改指自有仓库。
+- **新增 `src/shared/plugin-source.ts`** 使 `src/main/plugins.ts` 由 3390 行降至 3339 行（净减 51 行，其中 141 行删除 / 109 行新增），巨型文件债略减，但**仍属巨型文件**（> 800 行，见「已知技术债」）。
+
+### 说明
+
+- **验证结果**（本机实跑，全部真实执行）：
+  - `scripts/verify.ps1 -SkipNative` → **单次运行全程通过、exit 0**（单元测试 / 类型检查 / 构建 / 首屏体积守卫 / Lint 五项）。
+  - `node --test tests/*.test.ts`（有产物直跑）→ **281 例 / 276 通过 / 0 失败 / 5 跳过**；**不含本版新增测试文件的基线为 262 例 / 257 通过 / 0 失败 / 5 跳过** → 本版净增 **19** 例。5 例跳过**全部**来自 `tests/native-engine-options.test.ts`（需真实播放引擎子进程，本机子进程启动即异常终止，按设计 skip 并打印原因），**与本版改动无关**。
+  - `vue-tsc --noEmit` → 退出码 0；`eslint .` → **0 error / 0 warning**。
+  - `vite build` → 退出码 0；**主进程产物仍是单文件**（`dist-electron/main/` 仅 `index.js` 一个文件，881,035 B）—— 未复发 v1.2.4 的多 chunk 启动崩溃。preload `29,104 B`。
+  - `scripts/check-bundle-size.mjs` → **93 个入口资源 / 1,131,029 B**，预算 1,151,504 B → **通过**，且与 v1.3.0 发布的数字**逐字节相同**（本版改动全在主进程侧，**首屏零增长**）。
+  - 自有插件仓库 `tests/*.test.mjs` → **79/79 全绿**（修复前 78/79）。
+  - **鉴别力验证（变异测试，逐条改回失败形态必须变红）**：加速器闸门（放行 Gitee）✅ / Gitee 归档地址形态 ✅ / Gitee 下载 UA ✅ / 伪装域名（去掉前导点）✅ / **ZIP 魔数校验 ❌ → 暴露测试盲区**：原用例只有 HTML 输入，第二字节即被挡下，**第三/四字节判定完全没有覆盖**，把签名判定改成 `return true` 仍然 19/19 全绿。补 `Buffer.from('PKxxxx')` 与 `Buffer.from([0x50,0x4b,0x03,0x05])` 两例后重做得 `18 pass / 1 fail`（**成功变红**），还原后 19/19。
+  - **本版首次 `verify.ps1` 运行失败于 Lint（exit 1，5 个 prettier 格式错误，全在新增测试文件内）** —— 该轮 lint 绿是在补 ZIP 用例**之前**跑的，补用例时带进了格式问题。已修并复检为 0 error / 0 warning 后重跑通过。**教训：新增测试文件后必须重跑 lint 与 `vue-tsc`，二者都不在 `node --test` 的覆盖范围内。**
+- **未验证项（如实标注）**：
+  - **Gitee 侧的端到端安装流程未跑通。** 本机 `gitee.com` **可达**（直连与代理均 200），且归档端点的 UA 规则已在**公开仓库**上完整复现（见下表）；但**自有 Gitee 仓库尚未创建**，因此「从自有 Gitee 源同步索引 → 下载插件包 → 安装」这条链路**未做端到端验证**。代码注释里已写明这一依据边界。
+    | 请求 | 结果 |
+    |---|---|
+    | `UA: YanMusic-Plugin-Marketplace` | `200 text/html` 45,776 B，首 4 字节 `3c 21 44 4f`（`<!DO`） |
+    | `UA: YanMusic-Plugin-Marketplace (curl/8.4.0)` | `200 application/zip` 579,162 B，首 4 字节 `50 4b 03 04` ✅ |
+    | `UA: Mozilla/5.0` / `python-requests/2.31.0` | 同为 `text/html` 落地页 |
+    | `GET /archive/<ref>.zip`（缺 `repository` 段） | **404** —— 证实归档路径没有第二种写法 |
+  - **本机 `github.com` 不可达，`git push` 无法使用。** 实测：`github.com` 直连 connection reset、经本机代理（`http://127.0.0.1:8805`）一律 `502 CONNECT tunnel failed`（**重试 3 次全部失败**）；而 `api.github.com` 两种方式均 `200`。**故本版对 GitHub 的推送改走 Git Data API**（blobs → tree → commit → ref）。远端内容与本地**逐字节一致**，由两条独立证据确认：① 369 个 blob 的返回 sha 与本地 sha **不一致 0 个**；② 远端 tree `b7e92d49ad76be5825f1a0d0dd9d3bc45a7fb0dd` 与本地 `HEAD^{tree}` 相同，远端 `main` 与本地 HEAD 同为 `18dc4c793bf6e9e59d163768fc6e2d571a6a3a7b`。本地 `git status` 为 `## main...origin/main`（无 ahead/behind）。
+  - ⚠️ **踩坑留档（可复用的方法论）**：Git Data API 会**原样保存所发的提交信息字节**，而 `git log --pretty=%B` 比 commit 对象**多输出一个换行** —— 首轮推送因此得到一个**内容相同但 sha 不同**的提交。定位方式：用 API 返回的字段在本地重建 commit 对象并自算 sha1，穷举「时区偏移 × 尾换行数」，**精确复现出远端 sha**（`+0800` / 尾换行 2 个）。这同时**反向证明**了本地重建方法正确（`+0800` / 尾换行 1 个精确复现本地 sha）。修正后远端 sha 与本地一致。另一条同类坑：Git Data API 拒绝在**空仓库**里创建 blob（`409 Git Repository is empty`），需先用 Contents API 落一个占位提交激活仓库，再把 `main` 强制移到真实根提交（占位提交成为不可达对象，已核验远端无残留文件）。
+  - **无 GUI 会话**：本机无法运行应用，「插件源添加 → 同步索引 → 下载插件包 → 安装」的**运行时行为未做端到端复核**；Gitee 下载路径的 UA 分派虽有真行为单测 + 公开仓库实测双层证据，仍**缺真机安装验证**。
+- **发布流程说明**：因 `git push` 不可用，本版的 `main` 提交与 `v1.3.1` tag **均需经 API 创建**；`api.github.com` 可达，故 CI 与 Release 仍由 GitHub 侧正常执行。
+
 ## [1.3.0]
 
 > 本次为**插件可信度与可靠性版**，**含破坏性变更**（插件 API 三处，见「说明」段第一项 —— 升级前请先读）。范围与顺序见 `docs/agent/v1.3.0/14-plugin-trust-and-reliability-plan-2026-10-02.md`（本地留痕，不入库）。完成 M1 底座（批次 1）、M2 插件信任链（P-1 / P-2 / P-3 / P-4a），以及 M3 中**可全量实现**的 S-3 / S-4 / S-6 与 P-5。**P-4b（开启 `IPC_PERMISSION_STRICT`）按拍板不在本版开启**，理由与依据见「说明」段。

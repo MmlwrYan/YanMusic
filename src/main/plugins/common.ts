@@ -18,10 +18,22 @@ export const PLUGIN_MANIFEST_FILE = 'manifest.json';
  * 详见 `docs/agent/02-echo-cleanup.md` 的「有意保留项」。
  */
 export const PLUGIN_MARKETPLACE_INDEX_FILE = 'echo-plugins.json';
-export const PLUGIN_MARKETPLACE_CACHE_VERSION = 5;
-export const DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL =
-  'https://github.com/hoowhoami/EchoMusicPlugins';
-export const DEFAULT_PLUGIN_MARKETPLACE_SOURCE_ID = 'github:hoowhoami/echomusicplugins';
+export const PLUGIN_MARKETPLACE_CACHE_VERSION = 6;
+/**
+ * 内置官方插件源。
+ *
+ * v1.3.1 起指向**自有仓库**（此前是上游 `hoowhoami/EchoMusicPlugins`）：
+ * 自有仓库重建了索引，使插件包由自己的仓库分发，不再依赖上游仓库的可用性与改名。
+ * 上游仓库仍可作为**普通可选源**手动添加。
+ */
+export const DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL = 'https://github.com/MmlwrYan/YanMusicPlugins';
+export const DEFAULT_PLUGIN_MARKETPLACE_SOURCE_ID = 'github:mmlwryan/yanmusicplugins';
+/**
+ * 官方源在 Gitee 的镜像地址（供国内网络环境使用）。
+ * **不内置为默认源**：默认只保留一个官方源，避免同一份索引被拉两次；
+ * 用户可在「插件管理 → 插件源」手动添加，或把默认源的 `github.com` 换成 `gitee.com`。
+ */
+export const GITEE_PLUGIN_MARKETPLACE_MIRROR_URL = 'https://gitee.com/mmlwryan/yanmusicplugins';
 export const DEFAULT_PLUGIN_MARKETPLACE_STATS_API_URL =
   'https://echomusic-plugin-marketplace.hoowhoami.dpdns.org';
 /**

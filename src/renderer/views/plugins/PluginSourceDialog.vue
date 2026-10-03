@@ -40,7 +40,7 @@ const sourceAddressLabel = (source: PluginMarketplaceSource) =>
   <Dialog
     :open="open"
     title="插件源"
-    description="添加 GitHub 仓库地址后，YanMusic 会读取仓库内的插件索引文件并同步插件清单。"
+    description="添加插件源仓库地址后，YanMusic 会读取仓库内的插件索引文件并同步插件清单。支持 GitHub 与 Gitee。"
     show-close
     content-class="plugin-source-dialog"
     body-class="plugin-source-dialog-body"
@@ -50,7 +50,7 @@ const sourceAddressLabel = (source: PluginMarketplaceSource) =>
       <div class="plugin-source-add">
         <Input
           :model-value="sourceUrl"
-          placeholder="https://github.com/owner/repo"
+          placeholder="https://github.com/owner/repo 或 https://gitee.com/owner/repo"
           input-class="!h-9 !rounded-lg !pl-3 !pr-8 !text-sm"
           @update:model-value="emit('update:sourceUrl', $event)"
         />

@@ -18,12 +18,27 @@ import {
 } from 'fs';
 import { createHash } from 'crypto';
 import { tmpdir } from 'os';
-import { basename, dirname, extname, isAbsolute, join, resolve } from 'path';
+import { basename, dirname, extname, join, resolve } from 'path';
 import { pathToFileURL } from 'url';
 import StreamZip from 'node-stream-zip';
 import { coerce as semverCoerce, gt as semverGt, valid as semverValid } from 'semver';
 import { findUnsafeArchiveEntries } from '../shared/archiveEntry';
 import { PLUGIN_STATS_KEY_ENV, PLUGIN_STATS_KEY_HEADER } from '../shared/pluginStatsAuth';
+import {
+  applyPluginSourceProxy,
+  isSafeRepositoryFilePath,
+  isZipArchiveBuffer,
+  normalizeRepositoryFilePath,
+  parsePluginRepository,
+  resolvePluginDownloadUserAgent,
+  toRepositoryArchiveUrl,
+  toRepositoryBlobUrl,
+  toRepositoryKey,
+  toRepositoryRawFileUrl,
+  toRepositorySourceId,
+  toRepositoryUrl,
+  type PluginRepository,
+} from '../shared/plugin-source';
 import type {
   EchoPluginDescriptor,
   EchoPluginManifest,
@@ -180,10 +195,6 @@ type PluginRuntimeSession = {
   sessionId?: string;
 };
 type PluginInstallTimes = Record<string, number>;
-type GithubRepository = {
-  owner: string;
-  repo: string;
-};
 type PluginMarketplaceIndex = {
   name?: string;
   homepage?: string;
@@ -774,20 +785,26 @@ export const closePluginWebServerForPlugin = async (
 ): Promise<PluginWebServerCloseResult> =>
   closePluginWebServer(normalizePluginId(pluginId), webContents);
 
-const createDefaultMarketplaceSource = (): PluginMarketplaceSource => ({
-  id: DEFAULT_PLUGIN_MARKETPLACE_SOURCE_ID,
-  name: OFFICIAL_PLUGIN_MARKETPLACE_SOURCE_NAME,
-  url: DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL,
-  enabled: true,
-  official: true,
-  indexUrl: `${DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL}/blob/HEAD/${PLUGIN_MARKETPLACE_INDEX_FILE}`,
-  homepage: DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL,
-  pluginCount: 0,
-  addedAt: Date.now(),
-  updatedAt: Date.now(),
-  lastFetchedAt: 0,
-  lastError: '',
-});
+const createDefaultMarketplaceSource = (): PluginMarketplaceSource => {
+  const repo = parsePluginRepository(DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL);
+  return {
+    id: DEFAULT_PLUGIN_MARKETPLACE_SOURCE_ID,
+    name: OFFICIAL_PLUGIN_MARKETPLACE_SOURCE_NAME,
+    url: DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL,
+    enabled: true,
+    official: true,
+    // 按提供方拼索引地址（此前是写死的 GitHub `/blob/HEAD/` 前缀，换源即失效）
+    indexUrl: repo
+      ? toGithubBlobUrl(repo, PLUGIN_MARKETPLACE_INDEX_FILE)
+      : `${DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL}/blob/HEAD/${PLUGIN_MARKETPLACE_INDEX_FILE}`,
+    homepage: DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL,
+    pluginCount: 0,
+    addedAt: Date.now(),
+    updatedAt: Date.now(),
+    lastFetchedAt: 0,
+    lastError: '',
+  };
+};
 
 const getSavedMarketplaceSources = () => {
   const saved = getKvStorage().get<PluginMarketplaceSource[]>(PLUGIN_MARKETPLACE_SOURCES_KEY);
@@ -834,94 +851,33 @@ const setMarketplaceCache = (cache: PluginMarketplaceCache) => {
   getKvStorage().set(PLUGIN_MARKETPLACE_CACHE_KEY, cache);
 };
 
-const parseGithubRepository = (value: unknown): GithubRepository | null => {
-  const text = String(value ?? '')
-    .trim()
-    .replace(/\.git$/i, '');
-  if (!text) return null;
+// ↓ 提供方相关的 URL 拼装一律转调 `shared/plugin-source`（唯一事实源，纯函数可直接单测）。
+//   本文件不再自己拼 GitHub 专有地址 —— 那是 Gitee 源会被拼错的原因。
 
-  const shorthandMatch = text.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/);
-  if (shorthandMatch) {
-    return {
-      owner: shorthandMatch[1],
-      repo: shorthandMatch[2],
-    };
-  }
+const toPluginRepositoryUrl = (repo: PluginRepository) => toRepositoryUrl(repo);
 
-  try {
-    const parsed = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);
-    if (parsed.hostname.toLowerCase() !== 'github.com') return null;
-    const [owner, repo] = parsed.pathname.split('/').filter(Boolean);
-    if (!owner || !repo) return null;
-    return {
-      owner,
-      repo: repo.replace(/\.git$/i, ''),
-    };
-  } catch {
-    return null;
-  }
-};
+const toMarketplaceSourceId = (repo: PluginRepository) => toRepositorySourceId(repo);
 
-const toGithubRepositoryUrl = (repo: GithubRepository) =>
-  `https://github.com/${repo.owner}/${repo.repo}`;
-
-const toMarketplaceSourceId = (repo: GithubRepository) =>
-  `github:${repo.owner.toLowerCase()}/${repo.repo.toLowerCase()}`;
-
-const normalizeGithubRepositoryUrl = (value: unknown) => {
-  const repo = parseGithubRepository(value);
+const normalizePluginRepositoryUrl = (value: unknown) => {
+  const repo = parsePluginRepository(value);
   if (!repo) return null;
   return {
     repo,
     id: toMarketplaceSourceId(repo),
-    url: toGithubRepositoryUrl(repo),
+    url: toPluginRepositoryUrl(repo),
   };
 };
 
-const toRawGithubUrl = (repo: GithubRepository, filePath: string, ref = 'HEAD') => {
-  const normalizedPath = normalizeMarketplacePackagePath(filePath);
-  const normalizedRef = String(ref || 'HEAD').trim() || 'HEAD';
-  return `https://raw.githubusercontent.com/${repo.owner}/${repo.repo}/${encodeURIComponent(normalizedRef)}/${normalizedPath}`;
-};
+const toRawGithubUrl = (repo: PluginRepository, filePath: string, ref = 'HEAD') =>
+  toRepositoryRawFileUrl(repo, normalizeMarketplacePackagePath(filePath), ref);
 
-const toGithubArchiveUrl = (repo: GithubRepository) =>
-  `https://github.com/${repo.owner}/${repo.repo}/archive/HEAD.zip`;
+const toGithubArchiveUrl = (repo: PluginRepository) => toRepositoryArchiveUrl(repo);
 
-const toGithubBlobUrl = (repo: GithubRepository, filePath: string) => {
-  const normalizedPath = normalizeMarketplacePackagePath(filePath);
-  return `https://github.com/${repo.owner}/${repo.repo}/blob/HEAD/${normalizedPath}`;
-};
+const toGithubBlobUrl = (repo: PluginRepository, filePath: string) =>
+  toRepositoryBlobUrl(repo, normalizeMarketplacePackagePath(filePath));
 
-const isGithubHostedUrl = (value: string) => {
-  try {
-    const { hostname } = new URL(value);
-    return (
-      hostname === 'github.com' ||
-      hostname === 'raw.githubusercontent.com' ||
-      hostname === 'codeload.github.com' ||
-      hostname.endsWith('.githubusercontent.com')
-    );
-  } catch {
-    return false;
-  }
-};
-
-const normalizeGithubProxyUrl = (githubProxyUrl?: string) =>
-  String(githubProxyUrl || '')
-    .trim()
-    .replace(/\/+$/, '');
-
-const toGithubProxyUrl = (url: string, githubProxyUrl: string) =>
-  `${normalizeGithubProxyUrl(githubProxyUrl)}/${url}`;
-
-const applyGithubProxyUrl = (url: string, githubProxyUrl?: string) => {
-  const target = String(url || '').trim();
-  const proxy = normalizeGithubProxyUrl(githubProxyUrl);
-  if (!target || !proxy || !/^https?:\/\//i.test(target) || !isGithubHostedUrl(target)) {
-    return target;
-  }
-  return toGithubProxyUrl(target, proxy);
-};
+const applyGithubProxyUrl = (url: string, githubProxyUrl?: string) =>
+  applyPluginSourceProxy(url, githubProxyUrl);
 
 const normalizeMarketplaceStatsApiUrl = (value?: string) =>
   String(
@@ -1189,7 +1145,7 @@ const removeTemporaryDirectory = (directory: string) => {
 const normalizeMarketplaceSource = (
   source: Partial<PluginMarketplaceSource> | null | undefined,
 ): PluginMarketplaceSource | null => {
-  const normalized = normalizeGithubRepositoryUrl(source?.url);
+  const normalized = normalizePluginRepositoryUrl(source?.url);
   if (!normalized) return null;
   const now = Date.now();
   const isOfficial = normalized.id === DEFAULT_PLUGIN_MARKETPLACE_SOURCE_ID;
@@ -1211,22 +1167,12 @@ const normalizeMarketplaceSource = (
   };
 };
 
-const normalizeMarketplacePackagePath = (value: unknown) =>
-  String(value ?? '')
-    .trim()
-    .replace(/\\/g, '/')
-    .split('/')
-    .filter((segment) => segment && segment !== '.')
-    .join('/')
-    .replace(/^\/+/, '')
-    .replace(/\/+$/, '');
+// 转调 `shared/plugin-source`（唯一事实源）。别在这里重新实现——
+// 这套路径规则同时用于「URL 拼装」与「解压时的目录穿越防护」，
+// 两处一旦不一致就会变成安全缺口。
+const normalizeMarketplacePackagePath = (value: unknown) => normalizeRepositoryFilePath(value);
 
-const isSafeMarketplacePackagePath = (value: string) =>
-  value === '' ||
-  (value !== '.' &&
-    !value.split('/').includes('..') &&
-    !value.startsWith('..') &&
-    !isAbsolute(value));
+const isSafeMarketplacePackagePath = (value: string) => isSafeRepositoryFilePath(value);
 
 const normalizeMarketplaceTags = (value: unknown) => {
   if (!Array.isArray(value)) return [];
@@ -1240,15 +1186,7 @@ const normalizeMarketplaceTags = (value: unknown) => {
   );
 };
 
-const getMarketplaceRepositoryKey = (value: unknown) => {
-  const normalized = normalizeGithubRepositoryUrl(value);
-  return (
-    normalized?.id ??
-    String(value ?? '')
-      .trim()
-      .toLowerCase()
-  );
-};
+const getMarketplaceRepositoryKey = (value: unknown) => toRepositoryKey(value);
 
 const getMarketplacePluginIdKey = (sourceId: string, pluginId: string) =>
   `${sourceId}:id:${pluginId}`;
@@ -1257,9 +1195,9 @@ const getMarketplacePluginPathKey = (sourceId: string, repo: unknown, packagePat
   `${sourceId}:path:${getMarketplaceRepositoryKey(repo)}:${normalizeMarketplacePackagePath(packagePath)}`;
 
 const getMarketplaceEntryRepository = (
-  sourceRepo: GithubRepository,
+  sourceRepo: PluginRepository,
   entry: PluginMarketplaceIndexEntry,
-) => parseGithubRepository(entry.repo) ?? sourceRepo;
+) => parsePluginRepository(entry.repo) ?? sourceRepo;
 
 const normalizeMarketplaceDownloadUrl = (value: unknown) => {
   const text = String(value ?? '').trim();
@@ -1275,7 +1213,7 @@ const normalizeMarketplaceDownloadUrl = (value: unknown) => {
 const normalizeMarketplaceChecksum = (value: unknown) => String(value ?? '').trim();
 
 const getMarketplaceEntryDownloadUrl = (
-  pluginRepo: GithubRepository,
+  pluginRepo: PluginRepository,
   entry: PluginMarketplaceIndexEntry,
   manifest: EchoPluginManifest,
 ) =>
@@ -1284,7 +1222,7 @@ const getMarketplaceEntryDownloadUrl = (
   toGithubArchiveUrl(pluginRepo);
 
 const resolveMarketplaceAssetUrl = (
-  sourceRepo: GithubRepository,
+  sourceRepo: PluginRepository,
   packagePath: string,
   assetPath: unknown,
 ) => {
@@ -1299,14 +1237,14 @@ const resolveMarketplaceAssetUrl = (
   return toRawGithubUrl(sourceRepo, normalizedAssetPath);
 };
 
-const getMarketplaceManifestUrl = (pluginRepo: GithubRepository, packagePath: string) =>
+const getMarketplaceManifestUrl = (pluginRepo: PluginRepository, packagePath: string) =>
   toRawGithubUrl(
     pluginRepo,
     packagePath ? `${packagePath}/${PLUGIN_MANIFEST_FILE}` : PLUGIN_MANIFEST_FILE,
   );
 
 const fetchMarketplaceManifest = async (
-  pluginRepo: GithubRepository,
+  pluginRepo: PluginRepository,
   packagePath: string,
   githubProxyUrl?: string,
   forceNetwork = false,
@@ -1321,7 +1259,7 @@ const fetchMarketplaceManifest = async (
 
 const normalizeMarketplaceIndexPlugin = async (
   source: PluginMarketplaceSource,
-  sourceRepo: GithubRepository,
+  sourceRepo: PluginRepository,
   rawEntry: PluginMarketplaceIndexEntry,
   githubProxyUrl?: string,
   forceNetwork = false,
@@ -1386,7 +1324,7 @@ const normalizeMarketplaceIndexPlugins = async (
   previousPlugins: PluginMarketplaceCatalogPlugin[] = [],
   forceNetwork = false,
 ): Promise<PluginMarketplaceIndexPluginsResult> => {
-  const sourceRepo = parseGithubRepository(source.url);
+  const sourceRepo = parsePluginRepository(source.url);
   if (!sourceRepo || !Array.isArray(index.plugins)) {
     return { plugins: [], failedCount: 0, recoveredCount: 0 };
   }
@@ -1413,7 +1351,7 @@ const normalizeMarketplaceIndexPlugins = async (
     return {
       idKey: expectedPluginId ? getMarketplacePluginIdKey(source.id, expectedPluginId) : '',
       pathKey: isSafeMarketplacePackagePath(packagePath)
-        ? getMarketplacePluginPathKey(source.id, toGithubRepositoryUrl(pluginRepo), packagePath)
+        ? getMarketplacePluginPathKey(source.id, toPluginRepositoryUrl(pluginRepo), packagePath)
         : '',
     };
   });
@@ -1493,7 +1431,7 @@ const fetchMarketplaceIndex = async (
   previousPlugins: PluginMarketplaceCatalogPlugin[] = [],
   forceNetwork = false,
 ) => {
-  const sourceRepo = parseGithubRepository(source.url);
+  const sourceRepo = parsePluginRepository(source.url);
   if (!sourceRepo) throw new Error('仅支持 GitHub 仓库地址');
   const indexUrl = toRawGithubUrl(sourceRepo, PLUGIN_MARKETPLACE_INDEX_FILE);
   const raw = await fetchMarketplaceText(indexUrl, githubProxyUrl, forceNetwork);
@@ -1532,7 +1470,7 @@ const fetchMarketplaceSourceCatalog = async (
       forceNetwork,
     );
     const now = Date.now();
-    const sourceRepo = parseGithubRepository(source.url);
+    const sourceRepo = parsePluginRepository(source.url);
     const isOfficialSource = source.id === DEFAULT_PLUGIN_MARKETPLACE_SOURCE_ID;
     const inferredName = isOfficialSource
       ? OFFICIAL_PLUGIN_MARKETPLACE_SOURCE_NAME
@@ -1668,9 +1606,9 @@ export const addPluginMarketplaceSource = async (
   input: PluginMarketplaceSourceInput,
   options: PluginMarketplaceRequestOptions = {},
 ): Promise<PluginMarketplaceSourceMutationResult> => {
-  const normalized = normalizeGithubRepositoryUrl(input?.url);
+  const normalized = normalizePluginRepositoryUrl(input?.url);
   const sources = getSavedMarketplaceSources();
-  if (!normalized) return { ok: false, error: '请输入有效的 GitHub 仓库地址', sources };
+  if (!normalized) return { ok: false, error: '请输入有效的仓库地址（GitHub 或 Gitee）', sources };
 
   const now = Date.now();
   const candidate = normalizeMarketplaceSource({
@@ -1798,17 +1736,19 @@ const downloadMarketplacePackage = async (
   log.info('[PluginMarketplace] package download started', {
     pluginId: plugin.id,
     sourceId: plugin.sourceId,
+    provider: parsePluginRepository(plugin.repo)?.provider ?? 'unknown',
   });
   const response = await fetchWithTimeout(
     downloadUrl,
     {
       headers: {
         Accept: 'application/zip,application/octet-stream,*/*',
-        'User-Agent': 'YanMusic-Plugin-Marketplace',
+        // ⚠️ 按提供方区分 UA：Gitee 的归档端点对不认识的 UA 会返回 HTML 落地页（见 shared/plugin-source 注释）。
+        'User-Agent': resolvePluginDownloadUserAgent(downloadUrl),
       },
     },
     PLUGIN_MARKETPLACE_DOWNLOAD_TIMEOUT_MS,
-    '插件安装包下载超时，请检查网络或 GitHub 代理',
+    '插件安装包下载超时，请检查网络或插件源代理',
   );
   if (!response.ok) throw new Error(`插件下载失败 (${response.status})`);
   const buffer = Buffer.from(await response.arrayBuffer());
@@ -1819,6 +1759,15 @@ const downloadMarketplacePackage = async (
   });
   if (buffer.byteLength > MAX_PLUGIN_PACKAGE_SIZE_BYTES) {
     throw new Error('插件安装包超过 80 MB');
+  }
+  // 拿到了 200 也未必是压缩包：Gitee 在 UA 不合规时会回一个 HTML 落地页。
+  // 不校验的话，后面解压阶段只会报一个指向不明的错误，把根因盖掉。
+  if (!isZipArchiveBuffer(buffer)) {
+    throw new Error(
+      `插件源返回的不是压缩包（HTTP ${response.status}，${
+        response.headers.get('content-type') || '未知类型'
+      }），请确认插件源仓库地址与网络代理设置`,
+    );
   }
 
   const zipPath = join(directory, `${plugin.id}.zip`);

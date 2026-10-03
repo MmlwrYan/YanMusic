@@ -22,7 +22,9 @@ const handleOpenPluginManagement = () => {
 };
 
 const handleOpenDocs = () => {
-  window.electron.appControl.openExternal('https://github.com/hoowhoami/EchoMusicPlugins');
+  // 指向自有插件源仓库：开发文档已随该仓库分发（docs/），
+  // 且用户在这里想找的是「当前默认源」的说明，而不是上游仓库。
+  window.electron.appControl.openExternal('https://github.com/MmlwrYan/YanMusicPlugins');
 };
 </script>
 

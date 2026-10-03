@@ -19,6 +19,11 @@ export default [
       '**/*.d.ts',
       'public/**',
       'server/**',
+      // 本地工具数据目录（.gitignore:61 已排除，与 docs/agent/ 同性质）。
+      // 里面的脚本是**一次性过程工具**，不是产品代码：对它们跑 lint
+      // 只会让 `pnpm lint` 因为「没用到的临时变量」「格式化」这类噪声变红，
+      // 而 lint 在本项目是发布前的硬门禁（必须 0 error / 0 warning）。
+      '.workbuddy/**',
       '.gitignore',
       '.DS_Store',
     ],
