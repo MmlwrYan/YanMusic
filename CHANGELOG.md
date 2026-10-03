@@ -12,7 +12,7 @@
 
 ### 新增
 
-- **插件源提供方抽象**（`src/shared/plugin-source.ts`，新文件 245 行）。把 GitHub / Gitee 的 URL 形态差异收到一处**零依赖纯函数**模块，`src/main/plugins.ts` 只做转调（该文件净减约 100 行）。导出 15 个函数 + 4 个常量：
+- **插件源提供方抽象**（`src/shared/plugin-source.ts`，新文件 245 行）。把 GitHub / Gitee 的 URL 形态差异收到一处**零依赖纯函数**模块，`src/main/plugins.ts` 只做转调（该文件净减 51 行）。导出 15 个函数 + 4 个常量：
   - **解析与归一**：`parsePluginRepository`（含 `.git` 后缀、无 scheme、`owner/repo` 简写按 GitHub 解释）、`toRepositoryUrl` / `toRepositorySourceId` / `toRepositoryKey`；
   - **取文件与归档**：`toRepositoryRawFileUrl`（GitHub `raw.githubusercontent.com/<o>/<r>/<ref>/<p>` vs Gitee `gitee.com/<o>/<r>/raw/<ref>/<p>`）、`toRepositoryBlobUrl`、`toRepositoryArchiveUrl`；
   - **加速器闸门**：`isProviderHostedUrl` / `isKnownPluginSourceHostedUrl` / `applyPluginSourceProxy` / `normalizePluginSourceProxyUrl`；
@@ -25,10 +25,10 @@
 ### 变更
 
 - **内置官方插件源切到自有仓库**（`src/main/plugins/common.ts`）：`DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL` 由 `https://github.com/hoowhoami/EchoMusicPlugins` 改为 `https://github.com/MmlwrYan/YanMusicPlugins`，源 ID 改为 `github:mmlwryan/yanmusicplugins`。**上游仓库仍可作为普通可选源手动添加** —— 只换默认值，不砍能力。
-- **索引缓存版本 5 → 6**。旧缓存来自今已 404 的上游索引，不换版本会把换源后的新索引挡在缓存之外。
+- **索引缓存版本 5 → 6**。旧缓存条目在换源后已无意义（仍指向上游源），不换版本会把换源后的新索引挡在缓存之外。
 - **新增 Gitee 镜像地址常量** `GITEE_PLUGIN_MARKETPLACE_MIRROR_URL`，**刻意不内置为默认源** —— 默认只保留一个官方源，避免同一份索引被拉两次；用户可在「插件管理 → 插件源」手动添加，或把默认源的 `github.com` 直接换成 `gitee.com`。
 - **界面文案**：`PluginSourceDialog.vue` 的描述与占位符补上 Gitee（`https://github.com/owner/repo 或 https://gitee.com/owner/repo`）；`PluginSettingsSection.vue` 的「文档」外链改指自有仓库。
-- **新增 `src/shared/plugin-source.ts`** 使 `src/main/plugins.ts` 由 3390 行降至 3339 行（净减 51 行，其中 141 行删除 / 109 行新增），巨型文件债略减，但**仍属巨型文件**（> 800 行，见「已知技术债」）。
+- **新增 `src/shared/plugin-source.ts`** 使 `src/main/plugins.ts` 由 3390 行降至 3339 行（净减 51 行，其中 136 行删除 / 85 行新增），巨型文件债略减，但**仍属巨型文件**（> 800 行，见「已知技术债」）。
 
 ### 说明
 
