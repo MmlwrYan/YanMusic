@@ -18,22 +18,52 @@ export const PLUGIN_MANIFEST_FILE = 'manifest.json';
  * 详见 `docs/agent/02-echo-cleanup.md` 的「有意保留项」。
  */
 export const PLUGIN_MARKETPLACE_INDEX_FILE = 'echo-plugins.json';
-export const PLUGIN_MARKETPLACE_CACHE_VERSION = 6;
+export const PLUGIN_MARKETPLACE_CACHE_VERSION = 7;
+/** 官方源在 Gitee 的地址（**v1.3.2 起为默认**）。 */
+export const GITEE_PLUGIN_MARKETPLACE_MIRROR_URL = 'https://gitee.com/mmlwryan/yanmusicplugins';
+/** 官方源在 GitHub 的地址（v1.3.2 起**降级为可选源**，不再是默认）。 */
+export const GITHUB_PLUGIN_MARKETPLACE_MIRROR_URL = 'https://github.com/MmlwrYan/YanMusicPlugins';
 /**
  * 内置官方插件源。
  *
- * v1.3.1 起指向**自有仓库**（此前是上游 `hoowhoami/EchoMusicPlugins`）：
- * 自有仓库重建了索引，使插件包由自己的仓库分发，不再依赖上游仓库的可用性与改名。
- * 上游仓库仍可作为**普通可选源**手动添加。
+ * - v1.3.1 起由上游 `hoowhoami/EchoMusicPlugins` 换到**自有仓库**（重建索引，
+ *   使插件包由自己的仓库分发，不再依赖上游仓库的可用性与改名）。
+ * - **v1.3.2 起默认改用 Gitee 镜像**：`gitee.com` 在国内可直连，而 `github.com`
+ *   实测常不可达（2026-10-03：直连 reset/timeout、经代理 `502`）。两个地址内容一致，
+ *   由同名索引指向同一批插件（镜像内容逐字节一致，见
+ *   `docs/agent/v1.3.1/gitee-plugin-source-endpoints-2026-10-03.md`）。
+ *
+ * 上游仓库与 GitHub 形态的自有仓库仍可作为**普通可选源**手动添加 —— 只换默认值，不砍能力。
  */
-export const DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL = 'https://github.com/MmlwrYan/YanMusicPlugins';
-export const DEFAULT_PLUGIN_MARKETPLACE_SOURCE_ID = 'github:mmlwryan/yanmusicplugins';
+export const DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL = GITEE_PLUGIN_MARKETPLACE_MIRROR_URL;
+export const DEFAULT_PLUGIN_MARKETPLACE_SOURCE_ID = 'gitee:mmlwryan/yanmusicplugins';
 /**
- * 官方源在 Gitee 的镜像地址（供国内网络环境使用）。
- * **不内置为默认源**：默认只保留一个官方源，避免同一份索引被拉两次；
- * 用户可在「插件管理 → 插件源」手动添加，或把默认源的 `github.com` 换成 `gitee.com`。
+ * **历史版本的官方源 id**（每切换一次内置官方源就会新增一条）。
+ *
+ * 官方源的 `id` 由 URL 派生（`<provider>:<owner>/<repo>`），所以换源会让**旧源不再是「官方」**，
+ * 但它落盘时带着 `official: true` —— 后果有两层：
+ * 1. 界面上它仍被当成「官方源」而**不可删除**（`plugins.ts` 的删除守卫按 `official` 判定），
+ *    用户被永久卡在一个自己不需要的源上；
+ * 2. 它默认仍处于启用状态，会与新官方源**重复同步同一份索引**。
+ *
+ * 因此读取源列表时把符合「落盘 `official === true` + id 在此清单中」的条目剔除。
+ * 只认「应用自己创建过」的（`official === true`）—— 手动添加同名 URL 的源 `official` 为 false，
+ * 不会被误删。
+ *
+ * 注：`github:hoowhoami/echomusicplugins` 这条是 v1.3.1 换源时留下的，属于**当时就存在**的遗留。
  */
-export const GITEE_PLUGIN_MARKETPLACE_MIRROR_URL = 'https://gitee.com/mmlwryan/yanmusicplugins';
+export const LEGACY_OFFICIAL_PLUGIN_MARKETPLACE_SOURCE_IDS: readonly string[] = [
+  'github:hoowhoami/echomusicplugins',
+  'github:mmlwryan/yanmusicplugins',
+];
+
+/** 该条目是否为「旧版本的官方源」（应被迁移剔除）。纯函数，便于直接单测。 */
+export const isLegacyOfficialMarketplaceSourceEntry = (
+  source: { official?: unknown; id?: unknown } | null | undefined,
+): boolean => {
+  if (!source || source.official !== true) return false;
+  return LEGACY_OFFICIAL_PLUGIN_MARKETPLACE_SOURCE_IDS.includes(String(source.id ?? '').trim());
+};
 export const DEFAULT_PLUGIN_MARKETPLACE_STATS_API_URL =
   'https://echomusic-plugin-marketplace.hoowhoami.dpdns.org';
 /**

@@ -1,3 +1,46 @@
+## [1.3.2]
+
+> 本次为**可用性修复版**。v1.3.1 引入的 Gitee 提供方在真实仓库上**端到端不可用**：把源换成 Gitee 后，只有索引 JSON 走 Gitee，manifest、图标与插件包仍回到 GitHub 取。本版修掉它，并把**默认官方源切到 Gitee**。**不改插件 API**，对插件作者无破坏性影响。
+
+### 修复
+
+- **二级 · 换到 Gitee 源后，只有索引走 Gitee，manifest / 图标 / 插件包仍回 GitHub 取**（`src/main/plugins.ts` 的 `getMarketplaceEntryRepository`）。
+  原实现是 `parsePluginRepository(entry.repo) ?? sourceRepo` —— **回退分支从不生效**：镜像索引里每条的 `repo` 都写成本体仓库的 GitHub 形态（`https://github.com/MmlwrYan/YanMusicPlugins`），解析永远成功。于是**恰好在最需要 Gitee 的场景（GitHub 不可达）下后果最严重**：每个条目的 manifest 都拉不到 → `normalizeMarketplaceIndexPlugin` 逐条返回 `null` → 界面报「`echo-plugins.json` 未提供可用插件」，而索引其实是能拉到的 —— **报错指向索引，根因却在 manifest**。
+  **实测证据**（2026-10-03，先用客户端自身的函数推导地址，再发真实请求）：索引 `200`；manifest 的 GitHub 地址 `CURLE_SSL_CONNECT_ERROR(35)`；插件包的 GitHub 地址 `CURLE_GOT_NOTHING(52)`；两者的 Gitee 等价地址分别为 `200` 与 `200 application/zip`。修复前 39 条条目**全部**解析为 `github`（39/39，一条都不走 Gitee）。
+  现抽成纯函数 `resolvePluginEntryRepository`（`src/shared/plugin-source.ts`）：**条目声明的仓库与「源」是同一个 `owner/repo` 时跟随源的提供方**；不同仓库的未镜像第三方条目照声明地址取，**不被劫持**。修复后 39 条 → `{gitee: 24, github: 15}`。
+  选客户端侧修而不是「改索引去掉 `repo`」的理由：**根因在客户端** —— 索引该描述「有哪些插件」，提供方该由用户选的**源**决定；改索引只能救自己这一份，且会让两个源的行为分叉。
+- **三级 · 换源后旧官方源会「自称官方」并被永久保留**（`src/main/plugins.ts`）。官方源的 `id` 由 URL 派生，换源后旧源不再是官方源，但落盘的 `official: true` 被 `Boolean(source?.official) || isOfficial` 原样沿用 → 界面上它**不可删除**（删除守卫按 `official` 判定），用户被永久卡在一个不需要的源上；且它默认仍启用，会与新官方源**重复同步同一份索引**。现「是否官方源」一律**由 id 推导**，并在读取源列表时剔除历史官方源。
+  注：`github:hoowhoami/echomusicplugins` 这条遗留是 **v1.3.1 换源时**留下的（当时没做迁移），本版一并处理。
+- **三级 · 下载日志的 `provider` 字段取错来源**（`src/main/plugins.ts`）。原按条目声明的 `plugin.repo` 输出，镜像源下会打出 `github` 而实际请求的是 Gitee —— 恰恰在最需要日志的诊断场景里给出错误信息。现按**实际下载地址**判定。
+
+### 新增
+
+- **`src/shared/plugin-source.ts`** 新增两个纯函数：`isSameRepository`（同 `owner/repo`，大小写不敏感、**不比较提供方**）、`resolvePluginEntryRepository`（上面的分派规则）。
+- **换源契约测试** `tests/plugin-marketplace-default-source.test.ts`（**5 例**）：**URL 与 ID 必须互相自洽**（只改 URL 不改 ID 时，存量用户库里那条同 ID 的旧源会被原样保留，换源对老用户静默失效）、默认源必须是 Gitee 且 GitHub 可选项指向同一个 `owner/repo`、**历史官方源清单不得包含当前默认 id**（否则默认源会被迁移逻辑自己剔掉）、两条历史 id 均能识别、**手动添加同名 URL 的源不得被误删**。
+- `tests/plugin-source-provider.test.ts` **+5 例**（19 → 24）：分派规则本身、由它拼出的 Gitee 地址形态、第三方条目不被劫持、空 `repo` 回落、**GitHub 源下行为与修复前逐字段一致（无回归）**。
+
+### 变更
+
+- **内置官方源默认切到 Gitee**（`src/main/plugins/common.ts`）：`DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL` 由 `https://github.com/MmlwrYan/YanMusicPlugins` 改为 `https://gitee.com/mmlwryan/yanmusicplugins`，源 ID 同步改为 `gitee:mmlwryan/yanmusicplugins`（**两个必须同改** —— id 由 URL 派生，只改一个会让换源对存量用户不生效）。`gitee.com` 在国内可直连，`github.com` 实测常不可达（直连 reset/timeout、经代理 `502`）。
+- **GitHub 形态的自有仓库保留为可选源**（新增常量 `GITHUB_PLUGIN_MARKETPLACE_MIRROR_URL`）—— 只换默认值，不砍能力。
+- **索引缓存版本 6 → 7**：缓存条目里记着 `sourceId`，换源后旧条目已无意义。
+- **升级迁移**：读取源列表时剔除历史官方源（`github:hoowhoami/echomusicplugins`、`github:mmlwryan/yanmusicplugins`），避免升级后同时挂着两个「官方源」。**只剔除应用自己创建过的**（落盘 `official === true`）；用户手动添加同名 URL 的源不受影响。
+
+### 说明
+
+- **验证结果**（本机实跑，全部真实执行）：
+  - `node --test tests/*.test.ts` → **291 例 / 286 通过 / 0 失败 / 5 跳过**；v1.3.1 发布时为 281 / 276 / 0 / 5 → 本版净增 **10** 例。5 例跳过全部来自 `tests/native-engine-options.test.ts`（需真实播放引擎子进程，本机子进程启动即异常终止，按设计 skip 并打印原因），**与本版改动无关**。
+  - **端到端实测**（真网络，使用客户端自身拼出的地址与 UA；镜像仓库已建并推送）：从 Gitee 源同步索引后，**24/24 条镜像插件的 manifest 全部取回且 `id` 与索引一致**（`example-plugin` v1.0.2 … `github-accelerator` v1.1.1）；插件包归档 `200 application/zip` / 25,235,182 B；用项目同款依赖 `node-stream-zip` 解压 → **369 个文件条目 / 0 个加密 / 0 个非法 entry 名**（`findUnsafeArchiveEntries`）/ 归档根 `yanmusicplugins-HEAD` / 解压后 27,780,776 B（< 80 MB 上限）；插件目录定位到 `water-lyrics/manifest.json`（v2.0.0）、`entry` 文件存在；**包内 manifest 与 HTTP 独立拉取的那份逐字段一致**。
+  - `tsc --noEmit` → 退出码 0；`vue-tsc --noEmit` → 退出码 0；`eslint .` → **0 error / 0 warning**。
+  - **鉴别力验证（变异测试，逐条改回缺陷形态必须变红）**：① 把 `resolvePluginEntryRepository` 还原成修复前行为 → `23 pass / 1 fail`；② 把 `isSameRepository` 改成大小写敏感 → `22 pass / 2 fail`；③ 把默认源 ID 改回 GitHub 形态（模拟「只改 URL 不改 ID」）→ `3 pass / 2 fail`。三条均按预期变红，还原后全绿。
+  - `vite build` → 退出码 0；**主进程产物仍是单文件**（`dist-electron/main/` 仅 `index.js`，**881,425 B**，v1.3.1 为 881,068 B —— 本版新增代码 +357 B），未复发 v1.2.4 的多 chunk 启动崩溃。preload `29,104 B`（未变）。
+  - `scripts/check-bundle-size.mjs` → **93 个入口资源 / 1,131,029 B**，预算 1,151,504 B → 通过。本版**未改动渲染层**，故与 v1.3.1 发布数字**逐字节相同**。
+- **Gitee 侧端点已实测**（匿名请求，使用客户端自身 UA）：`GET /mmlwryan/yanmusicplugins/raw/HEAD/echo-plugins.json` → `200 text/plain` 15,613 B，内容与本地 `echo-plugins.json` **逐字节一致**；`GET /mmlwryan/yanmusicplugins/repository/archive/HEAD.zip`（UA 带下载器标识）→ `200 application/zip` 25,235,182 B，首 4 字节 `50 4b 03 04`；**同一地址去掉下载器标识**则返回 `200 text/html` 46,442 B（首 4 字节 `3c 21 44 4f`）—— 证明 v1.3.1 的 UA 分派不是过度设计，在自有仓库上同样必需。
+- **未验证项（如实标注）**：
+  - **GUI 运行时的最终环节未复核**（本机无 Electron 二进制，跑不了真窗口）。已覆盖到「同步索引 → 取回全部 manifest → 下载归档 → 解压 → 定位插件目录 → 校验包内 manifest」；**未覆盖**：写入用户插件目录、插件注册与渲染层「已安装」状态。
+  - **本机 `github.com` 不可达**，故 GitHub 源侧的端到端**未复测**；该侧 URL 形态与 v1.3.1 相同，由单测保证无回归（见上「修复」第 1 条的最后一例）。
+  - 索引中 **15 条未镜像条目**仍指向各自上游 GitHub 仓库（上游无任何许可证，依法不复制）。在 GitHub 不可达的环境下这 15 条依旧取不到 manifest 会被丢弃 —— 这是**有意为之**，但界面上只表现为「条目变少」，没有任何解释。
+
 ## [1.3.1]
 
 > 本次为**插件源自主可控版**：把内置官方插件源从上游 `hoowhoami/EchoMusicPlugins` 切到自有仓库 `MmlwrYan/YanMusicPlugins`，并为插件源增加 **Gitee 提供方**支持。**不改插件 API**，对插件作者无破坏性影响。

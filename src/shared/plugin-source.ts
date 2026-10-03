@@ -126,6 +126,42 @@ export const toRepositoryKey = (value: unknown): string => {
     .toLowerCase();
 };
 
+/** 两个仓库是否指向同一个 `owner/repo`（大小写不敏感，**不比较提供方**）。 */
+export const isSameRepository = (a: PluginRepository, b: PluginRepository): boolean =>
+  a.owner.toLowerCase() === b.owner.toLowerCase() && a.repo.toLowerCase() === b.repo.toLowerCase();
+
+/**
+ * 决定「索引条目」应当从哪个仓库取文件（manifest / 图标 / 插件包）。
+ *
+ * 规则：条目自带 `repo` 时以它为准；**但若它与当前源指向同一个 `owner/repo`，
+ * 则改用「源」的提供方**。
+ *
+ * ⚠️ 这条规则是必需的，不是优化。镜像源（Gitee）里的索引条目仍按本体仓库的
+ * GitHub 形态书写（`https://github.com/<o>/<r>`），若直接照搬，用户把源换成
+ * Gitee 后**只有索引 JSON 走 Gitee**，manifest、图标与插件包仍会回到 GitHub 取。
+ * 后果恰好在最需要 Gitee 的场景（GitHub 不可达）下最严重：每个条目的 manifest
+ * 都拉不到 → 条目被逐条丢弃 → 界面报「索引未提供可用插件」，而索引其实是能拉到的。
+ * 实测证据（2026-10-03，自有镜像）：索引 200、manifest 的 GitHub 地址
+ * `CURLE_SSL_CONNECT_ERROR(35)`、插件包 GitHub 地址 `CURLE_GOT_NOTHING(52)`；
+ * 两者的 Gitee 等价地址分别为 200 与 200 application/zip。见
+ * `docs/agent/v1.3.1/gitee-plugin-source-endpoints-2026-10-03.md`。
+ *
+ * 不同 `owner/repo` 的条目（未镜像的第三方）**不受影响**，仍按声明地址取。
+ */
+export const resolvePluginEntryRepository = (
+  sourceRepo: PluginRepository,
+  entryRepoValue: unknown,
+): PluginRepository => {
+  const entryRepo = parsePluginRepository(entryRepoValue);
+  if (!entryRepo) return sourceRepo;
+  if (!isSameRepository(entryRepo, sourceRepo)) return entryRepo;
+  return {
+    provider: sourceRepo.provider,
+    owner: sourceRepo.owner,
+    repo: sourceRepo.repo,
+  };
+};
+
 export const toRepositoryRawFileUrl = (
   repo: PluginRepository,
   filePath: string,

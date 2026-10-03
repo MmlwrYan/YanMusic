@@ -31,6 +31,7 @@ import {
   normalizeRepositoryFilePath,
   parsePluginRepository,
   resolvePluginDownloadUserAgent,
+  resolvePluginEntryRepository,
   toRepositoryArchiveUrl,
   toRepositoryBlobUrl,
   toRepositoryKey,
@@ -146,6 +147,7 @@ import {
   WINDOWS_EXECUTABLE_EXTENSIONS,
   clamp,
   comparePluginText,
+  isLegacyOfficialMarketplaceSourceEntry,
   normalizePluginId,
 } from './plugins/common';
 import {
@@ -810,7 +812,13 @@ const getSavedMarketplaceSources = () => {
   const saved = getKvStorage().get<PluginMarketplaceSource[]>(PLUGIN_MARKETPLACE_SOURCES_KEY);
   if (!Array.isArray(saved)) return [createDefaultMarketplaceSource()];
   const sources = saved
-    .map(normalizeMarketplaceSource)
+    .map((entry) => {
+      // 迁移：剔除**旧版本的官方源**。官方源 id 由 URL 派生，换源后旧源不再是「官方」，
+      // 但它落盘带着 `official: true` —— 既在界面上不可删除，又会与新官方源重复同步。
+      // 判定只看落盘的 `official`，手动添加同名 URL 的源不受影响。见 common.ts 的注释。
+      if (isLegacyOfficialMarketplaceSourceEntry(entry)) return null;
+      return normalizeMarketplaceSource(entry);
+    })
     .filter(Boolean) as PluginMarketplaceSource[];
   if (!sources.some((source) => source.id === DEFAULT_PLUGIN_MARKETPLACE_SOURCE_ID)) {
     return [createDefaultMarketplaceSource(), ...sources];
@@ -1156,7 +1164,10 @@ const normalizeMarketplaceSource = (
       : String(source?.name || normalized.repo.repo).trim(),
     url: normalized.url,
     enabled: source?.enabled !== false,
-    official: Boolean(source?.official) || isOfficial,
+    // 「是否官方源」一律**由 id 推导**，不再沿用落盘的 `official`。
+    // 落盘标记会在换源后变陈旧：旧官方源会一直自称官方，而删除守卫正是按它判定的
+    // （见 §删除插件源），用户就被永久卡在一个不需要的源上。
+    official: isOfficial,
     indexUrl: toGithubBlobUrl(normalized.repo, PLUGIN_MARKETPLACE_INDEX_FILE),
     homepage: String(source?.homepage || normalized.url),
     pluginCount: Math.max(0, Number(source?.pluginCount) || 0),
@@ -1197,7 +1208,11 @@ const getMarketplacePluginPathKey = (sourceId: string, repo: unknown, packagePat
 const getMarketplaceEntryRepository = (
   sourceRepo: PluginRepository,
   entry: PluginMarketplaceIndexEntry,
-) => parsePluginRepository(entry.repo) ?? sourceRepo;
+) =>
+  // 不能只写 `parsePluginRepository(entry.repo) ?? sourceRepo`：条目声明的是本体仓库的
+  // GitHub 形态地址，直接照搬会让「换成 Gitee 源」只换了索引、manifest/图标/插件包
+  // 仍回 GitHub 取。分派规则见 shared/plugin-source 的 resolvePluginEntryRepository。
+  resolvePluginEntryRepository(sourceRepo, entry.repo);
 
 const normalizeMarketplaceDownloadUrl = (value: unknown) => {
   const text = String(value ?? '').trim();
@@ -1736,7 +1751,9 @@ const downloadMarketplacePackage = async (
   log.info('[PluginMarketplace] package download started', {
     pluginId: plugin.id,
     sourceId: plugin.sourceId,
-    provider: parsePluginRepository(plugin.repo)?.provider ?? 'unknown',
+    // 按**实际下载地址**判定提供方，而不是按条目声明的 `repo`：
+    // 两者在镜像源下可以不同（条目写 GitHub、实际走 Gitee），日志字段必须反映真实请求。
+    provider: parsePluginRepository(plugin.downloadUrl)?.provider ?? 'unknown',
   });
   const response = await fetchWithTimeout(
     downloadUrl,

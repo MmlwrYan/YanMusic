@@ -7,10 +7,12 @@ import {
   applyPluginSourceProxy,
   isProviderHostedUrl,
   isSafeRepositoryFilePath,
+  isSameRepository,
   isZipArchiveBuffer,
   normalizeRepositoryFilePath,
   parsePluginRepository,
   resolvePluginDownloadUserAgent,
+  resolvePluginEntryRepository,
   toRepositoryArchiveUrl,
   toRepositoryBlobUrl,
   toRepositoryKey,
@@ -258,4 +260,82 @@ test('isSafeRepositoryFilePath：挡住目录穿越与绝对路径', () => {
   assert.equal(isSafeRepositoryFilePath('/etc/passwd'), false);
   assert.equal(isSafeRepositoryFilePath('C:\\Windows'), false);
   assert.equal(isSafeRepositoryFilePath('.'), false);
+});
+
+// ── 索引条目的「取文件仓库」分派（镜像源可用性的关键） ──────────────────────
+
+test('isSameRepository：比 owner/repo，不比提供方，且大小写不敏感', () => {
+  const gh = { provider: 'github', owner: 'MmlwrYan', repo: 'YanMusicPlugins' } as const;
+  const ge = { provider: 'gitee', owner: 'mmlwryan', repo: 'yanmusicplugins' } as const;
+  assert.equal(isSameRepository(gh, ge), true, '同 owner/repo 不同提供方视为同一仓库');
+  assert.equal(isSameRepository(gh, { ...gh, repo: 'Other' }), false);
+  assert.equal(isSameRepository(gh, { ...gh, owner: 'Other' }), false);
+});
+
+test('resolvePluginEntryRepository：镜像源下必须改用源的提供方', () => {
+  // 这正是 v1.3.1 的真实缺陷：镜像索引里条目仍写成本体仓库的 GitHub 形态，
+  // 若照搬，用户换成 Gitee 源后 manifest / 图标 / 插件包**仍回 GitHub 取**，
+  // 在 GitHub 不可达时会把全部条目逐条丢弃（界面报「索引未提供可用插件」）。
+  const giteeSource = { provider: 'gitee', owner: 'mmlwryan', repo: 'yanmusicplugins' } as const;
+
+  const resolved = resolvePluginEntryRepository(
+    giteeSource,
+    'https://github.com/MmlwrYan/YanMusicPlugins',
+  );
+  assert.equal(resolved.provider, 'gitee', '同一仓库 → 跟随【源】的提供方');
+  assert.equal(resolved.owner, 'mmlwryan');
+
+  // 由它拼出的地址必须是 Gitee 形态 —— 这条才是用户真正会打到的 URL。
+  assert.equal(
+    toRepositoryRawFileUrl(resolved, 'water-lyrics/manifest.json'),
+    'https://gitee.com/mmlwryan/yanmusicplugins/raw/HEAD/water-lyrics/manifest.json',
+  );
+  assert.equal(
+    toRepositoryArchiveUrl(resolved),
+    'https://gitee.com/mmlwryan/yanmusicplugins/repository/archive/HEAD.zip',
+  );
+});
+
+test('resolvePluginEntryRepository：不同仓库的第三方条目不受影响', () => {
+  const giteeSource = { provider: 'gitee', owner: 'mmlwryan', repo: 'yanmusicplugins' } as const;
+
+  // 未镜像的第三方条目：仍按声明地址（GitHub）取，不能被源「劫持」。
+  const thirdParty = resolvePluginEntryRepository(
+    giteeSource,
+    'https://github.com/oneday5799/EchoMusicPlugins',
+  );
+  assert.equal(thirdParty.provider, 'github');
+  assert.equal(thirdParty.owner, 'oneday5799');
+
+  // 反向：GitHub 源下条目声明 Gitee 地址，同样不劫持（跟随条目声明）。
+  const githubSource = { provider: 'github', owner: 'MmlwrYan', repo: 'YanMusicPlugins' } as const;
+  const declared = resolvePluginEntryRepository(
+    githubSource,
+    'https://gitee.com/someone/other-repo',
+  );
+  assert.equal(declared.provider, 'gitee');
+  assert.equal(declared.owner, 'someone');
+});
+
+test('resolvePluginEntryRepository：条目未声明 repo 时回落到源', () => {
+  const giteeSource = { provider: 'gitee', owner: 'mmlwryan', repo: 'yanmusicplugins' } as const;
+  const empties: unknown[] = ['', '   ', undefined, null];
+  for (const empty of empties) {
+    const resolved = resolvePluginEntryRepository(giteeSource, empty);
+    assert.deepEqual(resolved, giteeSource, '空 repo 应回落到源');
+  }
+});
+
+test('resolvePluginEntryRepository：GitHub 源下行为与修复前完全一致（无回归）', () => {
+  // 修复不该改变 GitHub 源的表现：条目声明 GitHub 仓库时结果逐字段相同。
+  const githubSource = { provider: 'github', owner: 'MmlwrYan', repo: 'YanMusicPlugins' } as const;
+  const entryRepoValue = 'https://github.com/MmlwrYan/YanMusicPlugins';
+
+  const before = parsePluginRepository(entryRepoValue) ?? githubSource;
+  const after = resolvePluginEntryRepository(githubSource, entryRepoValue);
+  assert.deepEqual(after, before);
+  assert.equal(
+    toRepositoryArchiveUrl(after),
+    'https://github.com/MmlwrYan/YanMusicPlugins/archive/HEAD.zip',
+  );
 });
