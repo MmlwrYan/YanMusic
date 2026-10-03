@@ -1417,7 +1417,7 @@ const fetchMarketplaceText = async (url: string, githubProxyUrl?: string, forceN
     targetUrl,
     { headers },
     PLUGIN_MARKETPLACE_FETCH_TIMEOUT_MS,
-    '插件源请求超时，请检查网络或 GitHub 代理',
+    '插件源请求超时，请检查网络或插件源代理',
   );
   if (!response.ok) {
     throw new Error(`请求失败 (${response.status})`);
@@ -1432,7 +1432,7 @@ const fetchMarketplaceIndex = async (
   forceNetwork = false,
 ) => {
   const sourceRepo = parsePluginRepository(source.url);
-  if (!sourceRepo) throw new Error('仅支持 GitHub 仓库地址');
+  if (!sourceRepo) throw new Error('请输入有效的插件源仓库地址（GitHub 或 Gitee）');
   const indexUrl = toRawGithubUrl(sourceRepo, PLUGIN_MARKETPLACE_INDEX_FILE);
   const raw = await fetchMarketplaceText(indexUrl, githubProxyUrl, forceNetwork);
   const index = JSON.parse(raw) as PluginMarketplaceIndex;

@@ -152,7 +152,8 @@ const setDpiScale = (value: number) => {
       <div class="space-y-1">
         <h3 class="font-semibold">GitHub 加速地址</h3>
         <p class="text-sm text-text-secondary">
-          用于更新检测、在线插件源和插件下载，留空则直连 GitHub
+          用于更新检测、在线插件源和插件下载，留空则直连 GitHub（仅对 GitHub 地址生效，Gitee
+          源不走此加速）
         </p>
       </div>
       <Input

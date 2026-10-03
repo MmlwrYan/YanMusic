@@ -6,6 +6,7 @@
 
 - **三级 · 插件包下载不校验内容，把「拿到网页」当成「拿到压缩包」**（`src/main/plugins.ts`）。下载结果直接交给解压器，若服务端返回的是 HTML，错误会以「不是有效的 zip」在**解压阶段**浮现，指不到根因。现加 `isZipArchiveBuffer`（PK 魔数 + 第三/四字节签名）前置校验，明确报出「插件源返回的不是压缩包（HTTP `<状态码>`，`<content-type>`）」。**刻意不做**重试与地址回落 —— 保持行为可预测。
 - **二级 · 索引地址写死 GitHub 形态**（`src/main/plugins.ts` 的 `createDefaultMarketplaceSource`）。原先硬拼 `.../blob/HEAD/<索引文件>`；换成 Gitee 仓库后该形态**必然 404**（Gitee 是 `.../blob/<ref>/<path>`；归档是 `.../repository/archive/<ref>.zip`，**不是** `/archive/<ref>.zip`）。现按提供方分派。
+- **三级 · 支持 Gitee 后仍留着「仅支持 GitHub」的文案（与本版新增能力直接矛盾的同一类缺陷）**。`src/main/plugins.ts:1435` 在源地址解析失败时报「仅支持 GitHub 仓库地址」—— Gitee 地址打错时，用户会被告知「不支持 Gitee」，与实际能力相反。同批订正两处同源文案：① `fetchMarketplaceText` 的超时提示「请检查网络或 GitHub 代理」→「**插件源代理**」（加速器经闸门**只对 GitHub 地址放行**，Gitee 源下提「GitHub 代理」是错的）；② 设置界面「GitHub 加速地址」的说明补上「**仅对 GitHub 地址生效，Gitee 源不走此加速**」，避免被误读为也覆盖 Gitee 源。
 - **测试工具链**：`.workbuddy/**` 加入 `eslint.config.js` 的 `ignores`。它是本地过程数据目录（`.gitignore` 已排除，与 `docs/agent/` 同性质），对其 lint 只会让发布门禁因「未使用的临时变量」这类噪声变红。
 - **随镜像一并修复的上游遗留失败用例**（`tests/playback-control-order.test.mjs`，自有插件仓库内）：原断言 `entry.repo === entry.homepage`，与索引实际形态（`homepage = repo + '/tree/main/' + path`）矛盾，**在上游仓库本来就是失败的**（未改动的副本复跑同为 15/16）。现改为断言实际形态。
 
