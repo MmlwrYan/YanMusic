@@ -5,6 +5,7 @@ import {
   GITEE_ARCHIVE_UA_HINT,
   PLUGIN_MARKETPLACE_DOWNLOAD_USER_AGENT,
   applyPluginSourceProxy,
+  encodeRepositoryFilePath,
   isProviderHostedUrl,
   isSafeRepositoryFilePath,
   isSameRepository,
@@ -90,6 +91,27 @@ test('parsePluginRepository：空值与非仓库地址返回 null', () => {
   assert.equal(parsePluginRepository('https://github.com/onlyowner'), null);
 });
 
+test('parsePluginRepository：拒绝以 `.` 开头/结尾的 owner、repo（`..` 不是合法仓库名）', () => {
+  // ⚠️ 简写正则 `[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+` 会把 `..` / `.` / `.x` 全都放进来。
+  //    这不是域逃逸（拼出来仍在 github.com 域内，`new URL` 会在路径上折叠），
+  //    但「解析失败应返回 null」的语义漏了这些 —— 任何日后按「解析成功即可信」
+  //    写的消费点都会踩到。修复后这里必须一律返回 null。
+  for (const bad of ['../..', '.', '..', './x', 'x/.', '.a/b', 'a/.b', 'a/b.', 'a/.']) {
+    assert.equal(parsePluginRepository(bad), null, `简写「${bad}」必须判为非法`);
+  }
+  // URL 形态同样要过这一关：`github.com/./x` 的 owner 是 `.`，只护简写分支是不够的。
+  assert.equal(parsePluginRepository('https://github.com/./x'), null);
+  assert.equal(parsePluginRepository('https://github.com/a/.'), null);
+  assert.equal(parsePluginRepository('https://gitee.com/../x'), null);
+
+  // 合法段不受影响：`.` 在**段中**是允许的（`my.plugin`、`a.b`）。
+  assert.deepEqual(parsePluginRepository('a.b/my.plugin'), {
+    provider: 'github',
+    owner: 'a.b',
+    repo: 'my.plugin',
+  });
+});
+
 // ── 地址形态 ────────────────────────────────────────────────────────────────
 
 test('仓库地址与源 ID 按提供方生成', () => {
@@ -149,6 +171,55 @@ test('blob 地址（用于界面展示与 homepage 记录）', () => {
     toRepositoryBlobUrl(parsePluginRepository('gitee.com/a/b')!, 'echo-plugins.json'),
     'https://gitee.com/a/b/blob/HEAD/echo-plugins.json',
   );
+});
+
+test('路径段编码：ref 与路径口径一致（此前路径裸拼、ref 编码）', () => {
+  const repo = parsePluginRepository('gitee.com/a/b')!;
+  // 当前索引路径都是 ASCII 安全字符 → 与修复前逐字节相同（无回归）。
+  assert.equal(
+    toRepositoryRawFileUrl(repo, 'third-party/owner/repo/manifest.json'),
+    'https://gitee.com/a/b/raw/HEAD/third-party/owner/repo/manifest.json',
+  );
+  assert.equal(
+    toRepositoryBlobUrl(repo, 'third-party/owner/repo/manifest.json'),
+    'https://gitee.com/a/b/blob/HEAD/third-party/owner/repo/manifest.json',
+  );
+
+  // 含特殊字符的路径必须逐段编码 —— 尤其是 `#`，裸拼会让其后整段退化成 fragment，
+  // 拼出一个**语法合法但语义错误**的地址（请求打到别的资源上）。
+  assert.equal(
+    toRepositoryRawFileUrl(repo, 'my plugin/封面.png'),
+    'https://gitee.com/a/b/raw/HEAD/my%20plugin/%E5%B0%81%E9%9D%A2.png',
+  );
+  assert.equal(
+    toRepositoryRawFileUrl(repo, 'a#b/c?d.json'),
+    'https://gitee.com/a/b/raw/HEAD/a%23b/c%3Fd.json',
+  );
+  // 分隔符 `/` 本身不能被编码（逐段编码、段间保留）。
+  assert.ok(
+    toRepositoryRawFileUrl(repo, 'a/b/c.json').endsWith('/HEAD/a/b/c.json'),
+    '路径分隔符不得被编码掉',
+  );
+  // ⚠️ blob 也要单独喂一次特殊字符：只测 raw 会漏掉 blob 自己的实现
+  //    （实测：把 blob 的编码还原成裸拼，只测 raw 的用例**全绿**）。
+  assert.equal(
+    toRepositoryBlobUrl(repo, 'my plugin/封面.png'),
+    'https://gitee.com/a/b/blob/HEAD/my%20plugin/%E5%B0%81%E9%9D%A2.png',
+  );
+  assert.equal(
+    toRepositoryBlobUrl(repo, 'a#b/c?d.json'),
+    'https://gitee.com/a/b/blob/HEAD/a%23b/c%3Fd.json',
+  );
+});
+
+test('encodeRepositoryFilePath：逐段编码，分隔符保留，空段丢弃', () => {
+  assert.equal(encodeRepositoryFilePath('a/b/c.json'), 'a/b/c.json');
+  assert.equal(
+    encodeRepositoryFilePath('my plugin/封面.png'),
+    'my%20plugin/%E5%B0%81%E9%9D%A2.png',
+  );
+  assert.equal(encodeRepositoryFilePath(''), '');
+  assert.equal(encodeRepositoryFilePath('a//b'), 'a/b');
 });
 
 // ── 去重键 ──────────────────────────────────────────────────────────────────

@@ -21,6 +21,7 @@ import type {
   PluginHostWindowTarget,
 } from '../shared/plugins';
 import type { AudioSpectrumFrame, AudioSpectrumOptions } from '../shared/audio-spectrum';
+import { replaceEchoMusicBranding } from '../shared/plugin-branding';
 import { createFontApi } from '../shared/font';
 import {
   createWindowDragHandlers,
@@ -515,7 +516,11 @@ const buildContext = (
   id: descriptor.id,
   pluginId: descriptor.id,
   windowId: windowDescriptor.id,
-  manifest: descriptor.manifest,
+  manifest: {
+    ...descriptor.manifest,
+    // 插件窗口拿到的清单里，简介已按本项目品牌改写（其余字段原样透传）。
+    description: replaceEchoMusicBranding(descriptor.manifest.description),
+  },
   descriptor,
   windowDescriptor,
   vue: Vue,

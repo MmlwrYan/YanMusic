@@ -1,3 +1,48 @@
+## [1.3.4]
+
+> 本次为**插件源与兼容判定的收尾打磨版**。三条修复分别针对：仓库简写解析把 `..` 当成合法仓库名、插件 URL 拼装里路径段与 `ref` 的编码口径不一致、旧键场景下兼容性对象把 EchoMusic 的 2.x 编号塞进了「要求的本项目版本」字段。均为低危，**不改插件 API**，对插件作者无破坏性影响。
+
+### 修复
+
+- **三级 · `owner/repo` 简写会把 `..`、`.` 当成合法仓库名**（`src/shared/plugin-source.ts` 的 `parsePluginRepository`）。
+  简写正则 `^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$` 的字符集含 `.`，于是 `../..`、`.x`、`x.` 全部能匹配成功 —— 与本模块「解析失败应返回 `null`」的约定相悖。
+  **这不是安全缺口**（拼出来仍在 `github.com`/`gitee.com` 域内，`new URL` 会在路径上折叠 `..`，不构成域逃逸），而是**语义漏洞**：一个显然非法的输入被静默接受，任何日后按「解析成功即可信」写的消费点都会踩到。
+  现规定单段**首尾均不得为 `.`**（段中间的 `.` 照旧，`my.plugin`、`EchoMusicPlugins` 等合法名字不受影响）。**URL 形态同步过这道关**：`https://github.com/./x` 的 owner 是 `.`，只护简写分支是不够的。
+- **三级 · 插件 URL 拼装里路径段与 `ref` 的编码口径不一致**（`toRepositoryRawFileUrl` / `toRepositoryBlobUrl`）。`ref` 做了 `encodeURIComponent`、路径段却直接拼接。当前索引里的路径都是 ASCII 安全字符，**行为与修复前逐字节相同**；但本模块自称「这类 URL 的唯一事实源」，编码责任就该收进来 —— 否则将来任何含空格、`#`、`?`、中文的插件路径都会拼出一个**语法合法但语义错误**的地址（`#` 之后整段退化成 fragment，请求打到别的资源上）。现新增纯函数 `encodeRepositoryFilePath`（逐段编码、段间保留 `/`），两处统一走它。
+- **三级 · 旧键场景下 `requiredyanmusicVersion` 回传的是 EchoMusic 的 2.x 编号**（`src/main/plugins/descriptor.ts` 的 `getyanmusicCompatibility`）。
+  该字段语义是「插件要求的**本项目**版本」，会被 UI 直接展示；v1.3.3 起旧键分支把清单原文（如 `>=2.2.6-beta.9`）原样回填进去 —— 一旦界面想显示「要求版本」，就会把这个**永远不可能成立**的 2.x 要求摆给 1.x 用户看。
+  排查结论：该字段**目前无消费者**（渲染层只读 `compatibility.message`），故未造成实际影响；属预先消除的隐患。现旧键分支把 `requiredyanmusicVersion` 置空、原文改回填到新增字段 `requiredEchoMusicVersion`（仅记录、不展示），并在 `EchoPluginCompatibility` 上补全两个字段的语义注释。
+
+### 新增
+
+- **`src/shared/plugin-branding.ts`**：新增纯函数 `replaceEchoMusicBranding`，用于把插件**展示文案**里的 `EchoMusic` 品牌词替换为 `YanMusic`（上游插件简介里写着 `EchoMusic`，本项目基于它二次开发）。规则只替换**完整单词**、大小写收敛，**不做子串替换**（`EchoMusicPlugins` 是别人的仓库名，改了就成了另一个仓库）。
+- **`encodeRepositoryFilePath`**（`src/shared/plugin-source.ts`）：逐段 `encodeURIComponent` 的路径编码函数。
+- **`EchoPluginCompatibility.requiredEchoMusicVersion`**：上游旧键原文的独立存放字段（仅记录）。
+- **测试**：新增 `tests/plugin-branding.test.ts`（**8 例**）；`tests/plugin-source-provider.test.ts` **24 → 27 例**（新增段合法性、路径编码两组）；`tests/plugin-compatibility.test.ts` **15 → 17 例**（新增旧键回传字段的生效点守卫与类型层断言）。
+
+### 变更
+
+- `parsePluginRepository` 新增段合法性校验；`toRepositoryRawFileUrl` / `toRepositoryBlobUrl` 的路径统一经 `encodeRepositoryFilePath`。
+- `getyanmusicCompatibility` 的旧键分支与无要求分支补 `requiredEchoMusicVersion: ''`。
+
+### 说明
+
+- **验证结果**（本机实跑，全部真实执行）：
+  - `node --test tests/*.test.ts`：**319 例 / 319 通过 / 0 失败 / 0 跳过**（v1.3.3 为 306/301/0/5，**净增 13**，与本版新增用例数一致）。5 例跳过来自 `tests/native-engine-options.test.ts`（需真实播放引擎子进程），**本机本轮该子进程正常启动，6 例全跑通**，故本次为 0 跳过 —— 这是环境差异，与本版改动无关。
+  - `vue-tsc --noEmit` 退出码 0；`eslint .` **0 error / 0 warning**（先 `--fix` 修掉 6 处 prettier 换行格式，复跑测试确认语义未变）。
+  - `vite build` 退出码 0；主进程产物**仍为单文件** `dist-electron/main/index.js` **882,335 B**（v1.3.3 为 881,788 B，+547 B）；preload `29,104 B`（未变）。
+  - `scripts/check-bundle-size.mjs` → **93 个入口资源 / 1,131,029 B**，预算 1,151,504 B → 通过。本版**未改动渲染层**，与 v1.3.3 **逐字节相同**。
+- **鉴别力验证（变异测试，逐条改回缺陷形态必须变红）**：共 6 条，全部按预期变红，还原后全绿。
+  - ① 去掉段合法性里的首尾点校验 → `26 pass / 1 fail`。
+  - ② `toRepositoryRawFileUrl` 路径取消编码 → `26 pass / 1 fail`；③ 同法改 `toRepositoryBlobUrl` → `26 pass / 1 fail`。
+    ⚠️ ③ 第一版**没抓住**：原用例只喂了 ASCII 安全路径，把 blob 的编码还原成裸拼后**全绿**。已补「含空格/中文/`#`/`?` 的 blob 用例」，复测方变红。这条是实测踩出来的。
+  - ④ 旧键分支把 `requiredyanmusicVersion` 改回回填 `raw` → `16 pass / 1 fail`。
+  - ⑤ 还原 `normalizeMarketplaceIndexPlugin` 的品牌替换 → `7 pass / 1 fail`；⑥ 同法还原 `toDescriptor` 的 → `7 pass / 1 fail`。
+- **未验证项（如实标注）**：
+  - **GUI 运行时行为未复核**（本机无 Electron 二进制）。本版改动集中在 URL 拼装与判定语义，已用真行为单测 + 生效点守卫覆盖；**未在真实窗口里**确认「插件简介卡片实际显示为 YanMusic」。
+  - **GitHub 源侧端到端未复测**（本机 `github.com` 不可达），该侧 URL 形态未变，由单测保证无回归。
+  - **第三方非镜像插件未逐份核对**：其清单简介若含 `EchoMusic`，同样会被就地替换（统一规则），但没有逐份检查。
+
 ## [1.3.3]
 
 > 本次为**插件兼容判定修复版**。上游插件清单里的版本要求键写的是 **EchoMusic 的 2.x 编号**（`>=2.2.6-beta.9` 之类），本项目却是 1.x —— 两套编号不可比，拿去做 semver 比较**恒不满足**，于是**全部继承自上游的插件**都被判成「版本不兼容」。而该判定不只是提示：它同时是**安装与插件窗口打开的硬门禁**。本版让旧键只作参考记录、不参与判定；本项目自有键 `requires.yanmusicVersion` 仍照常比较。**不改插件 API**，插件作者的写法无需任何改动。

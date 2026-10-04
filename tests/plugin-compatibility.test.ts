@@ -208,3 +208,48 @@ test('生效点：getyanmusicCompatibility 内确实按来源分派', () => {
     '旧的内联实现应已删除（逻辑已收进 shared/plugin-compatibility）',
   );
 });
+
+// ── 6. 回传字段的语义（旧键不得冒充「要求的本项目版本」） ────────────────
+
+/**
+ * 怎样改会变红：把旧键分支里的 `requiredyanmusicVersion: ''` 改回 `raw`
+ * （即修复前的行为）→ 本用例变红。
+ */
+test('生效点：旧键分支不得把 2.x 编号回填到 requiredyanmusicVersion', () => {
+  const source = read('src/main/plugins/descriptor.ts');
+  const start = source.indexOf('export const getyanmusicCompatibility');
+  assert.ok(start >= 0, '未找到 getyanmusicCompatibility');
+  const end = source.indexOf('\n};', start);
+  const body = source.slice(start, end);
+
+  // 只截「旧键分支」那一段（从 shouldEnforce 判断到它的 return 结束）。
+  const branchStart = body.indexOf('!shouldEnforcePluginVersionRequirement(requirement.source)');
+  assert.ok(branchStart >= 0, '未找到旧键分支');
+  const branchEnd = body.indexOf('const { range, error }');
+  assert.ok(branchEnd > branchStart, '未定位到旧键分支结尾');
+  const branch = body.slice(branchStart, branchEnd);
+
+  assert.ok(
+    /requiredyanmusicVersion:\s*''/.test(branch),
+    '旧键分支必须把 requiredyanmusicVersion 置空 —— 否则 UI 会拿 2.x 编号给 1.x 用户看',
+  );
+  assert.ok(
+    /requiredEchoMusicVersion:\s*raw/.test(branch),
+    '旧键原文应回填到独立的 requiredEchoMusicVersion（仅记录）',
+  );
+});
+
+test('类型层：requiredEchoMusicVersion 字段存在且带说明', () => {
+  const source = read('src/shared/plugins.ts');
+  const start = source.indexOf('export interface EchoPluginCompatibility {');
+  assert.ok(start >= 0, '未找到 EchoPluginCompatibility');
+  const end = source.indexOf('\n}', start);
+  const body = source.slice(start, end);
+
+  assert.ok(body.includes('requiredyanmusicVersion: string;'), '保留自有键字段');
+  assert.ok(body.includes('requiredEchoMusicVersion: string;'), '新增旧键记录字段');
+  assert.ok(
+    body.includes('EchoMusic 的 2.x 编号'),
+    '类型注释必须写明旧键是 2.x 编号、不可直接展示',
+  );
+});

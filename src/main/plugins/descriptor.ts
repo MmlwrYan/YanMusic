@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from 'fs';
 import { basename, extname, join } from 'path';
 import { pathToFileURL } from 'url';
 import { coerce as semverCoerce, satisfies as semverSatisfies, valid as semverValid } from 'semver';
+import { replaceEchoMusicBranding } from '../../shared/plugin-branding';
 import {
   normalizePluginVersionRange,
   readPluginVersionRequirement,
@@ -247,6 +248,7 @@ export const getyanmusicCompatibility = (manifest: EchoPluginManifest): EchoPlug
       compatible: true,
       currentyanmusicVersion: hostVersion,
       requiredyanmusicVersion: '',
+      requiredEchoMusicVersion: '',
       message: '',
     };
   }
@@ -256,11 +258,16 @@ export const getyanmusicCompatibility = (manifest: EchoPluginManifest): EchoPlug
   // 上游旧键只记录、不判定：它写的是 EchoMusic 的 2.x 编号，与本项目 1.x **不可比**，
   // 硬比会把所有继承自上游的插件判成「版本不兼容」——而该判定同时是安装与
   // 插件窗口打开的硬门禁，后果远大于一句提示。
+  //
+  // ⚠️ 原文只回填到 `requiredEchoMusicVersion`，**不得**回填 `requiredyanmusicVersion`：
+  // 后者语义是「要求的本项目版本」，会被 UI 直接展示；把 2.x 编号塞进去，
+  // 等于给 1.x 用户看一个永远不成立的版本要求。见 shared/plugins 的字段注释。
   if (!shouldEnforcePluginVersionRequirement(requirement.source)) {
     return {
       compatible: true,
       currentyanmusicVersion: hostVersion,
-      requiredyanmusicVersion: raw,
+      requiredyanmusicVersion: '',
+      requiredEchoMusicVersion: raw,
       message: '',
     };
   }
@@ -271,6 +278,7 @@ export const getyanmusicCompatibility = (manifest: EchoPluginManifest): EchoPlug
       compatible: false,
       currentyanmusicVersion: hostVersion,
       requiredyanmusicVersion: raw,
+      requiredEchoMusicVersion: '',
       message: error ? `requires.yanmusicVersion ${error}` : '无法确认当前 YanMusic 版本',
     };
   }
@@ -280,6 +288,7 @@ export const getyanmusicCompatibility = (manifest: EchoPluginManifest): EchoPlug
     compatible,
     currentyanmusicVersion: hostVersion,
     requiredyanmusicVersion: range,
+    requiredEchoMusicVersion: '',
     message: compatible ? '' : `版本不兼容：需要 YanMusic 主程序 ${range}，当前版本 ${hostVersion}`,
   };
 };
@@ -355,7 +364,7 @@ export const toDescriptor = (
     id,
     name: String(manifest.name || id),
     version: String(manifest.version || '0.0.0'),
-    description: String(manifest.description || ''),
+    description: replaceEchoMusicBranding(manifest.description),
     author: String(manifest.author || ''),
     directoryName,
     directory,

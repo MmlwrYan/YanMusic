@@ -40,6 +40,23 @@ const PROVIDER_HOST_SUFFIXES: Record<PluginSourceProvider, readonly string[]> = 
   gitee: ['gitee.com', 'giteeusercontent.com'],
 };
 
+/**
+ * `owner/repo` 简写里允许出现的字符集（GitHub / Gitee 的合法命名集）。
+ * 段中间一律沿用这个字符集，因此 `my.plugin`、`EchoMusicPlugins` 这类合法名字不受影响。
+ */
+const REPOSITORY_SEGMENT_CHARS = /^[A-Za-z0-9_.-]+$/;
+
+/**
+ * 单段是否可作为 `owner` / `repo`：非空、字符集合法、**首尾均不得是 `.`**。
+ *
+ * ⚠️ 为什么必须挡首尾的点：简写正则 `[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+` 会把 `..` / `.` / `.x` / `x.`
+ * 一并放进来，`../..` 也能匹配。这不是域逃逸（拼出来仍在 `github.com` 域内，`new URL`
+ * 会在路径上折叠它），而是**语义漏洞**：「解析失败应返回 `null`」的约定漏了这一类，
+ * 日后任何按「解析成功即可信」写的消费点都会踩到。实测取证见下方单测。
+ */
+const isValidRepositorySegment = (segment: string): boolean =>
+  REPOSITORY_SEGMENT_CHARS.test(segment) && !segment.startsWith('.') && !segment.endsWith('.');
+
 const PROVIDER_REPOSITORY_BASE: Record<PluginSourceProvider, string> = {
   github: 'https://github.com',
   gitee: 'https://gitee.com',
@@ -50,6 +67,23 @@ const PROVIDER_RAW_BASE: Record<PluginSourceProvider, string> = {
   github: 'https://raw.githubusercontent.com',
   gitee: 'https://gitee.com',
 };
+
+/**
+ * 仓库内文件路径编码（逐段 `encodeURIComponent`，段间以 `/` 连接）。
+ *
+ * 本模块自称「这类 URL 的唯一事实源」，所以编码责任也应当**收在这里**：
+ * 此前的实现把 `ref` 做了 `encodeURIComponent`、路径却直接拼接，两者口径不一致 ——
+ * 当前索引里的路径都是 ASCII 安全字符，但任何未来的插件名含空格、`#`、`?`、中文
+ * 都会拼出一个**语法合法但语义错误**的地址（`#` 之后的整段会退化成 fragment）。
+ *
+ * ⚠️ `normalizeRepositoryFilePath` 已保证段内不含 `.` 与 `..`，这里只做编码。
+ */
+export const encodeRepositoryFilePath = (value: string): string =>
+  String(value ?? '')
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
 
 /** 仓库内文件路径规范化（去掉 `.`、反斜杠、首尾斜杠，空段）。 */
 export const normalizeRepositoryFilePath = (value: unknown): string =>
@@ -81,7 +115,14 @@ export const parsePluginRepository = (value: unknown): PluginRepository | null =
   if (!text) return null;
 
   const shorthandMatch = text.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/);
-  if (shorthandMatch) {
+  // ⚠️ 必须用捕获组切片，不能用 `shorthandMatch.every(...)`：
+  // 那个数组的 [0] 是整串（含 `/`），会直接判非法，把 `hoowhoami/EchoMusicPlugins`
+  // 这类合法简写一起挡掉。
+  if (
+    shorthandMatch &&
+    isValidRepositorySegment(shorthandMatch[1]) &&
+    isValidRepositorySegment(shorthandMatch[2])
+  ) {
     return {
       provider: DEFAULT_PLUGIN_SOURCE_PROVIDER,
       owner: shorthandMatch[1],
@@ -107,7 +148,13 @@ export const parsePluginRepository = (value: unknown): PluginRepository | null =
   const [owner, repo] = parsed.pathname.split('/').filter(Boolean);
   if (!owner || !repo) return null;
 
-  return { provider, owner, repo: repo.replace(/\.git$/i, '') };
+  const normalizedRepo = repo.replace(/\.git$/i, '');
+  // URL 形态同样要过「段合法性」这一关。`new URL` 会把 `github.com/../..` 的路径折叠成 `/`，
+  // 于是 owner/repo 直接缺失被上一行挡住；但 `github.com/./x` → owner 仍是 `.`，
+  // 必须在这里拦下，不能只护住简写分支。
+  if (!isValidRepositorySegment(owner) || !isValidRepositorySegment(normalizedRepo)) return null;
+
+  return { provider, owner, repo: normalizedRepo };
 };
 
 export const toRepositoryUrl = (repo: PluginRepository): string =>
@@ -167,7 +214,7 @@ export const toRepositoryRawFileUrl = (
   filePath: string,
   ref = 'HEAD',
 ): string => {
-  const normalizedPath = normalizeRepositoryFilePath(filePath);
+  const normalizedPath = encodeRepositoryFilePath(normalizeRepositoryFilePath(filePath));
   const normalizedRef = String(ref || 'HEAD').trim() || 'HEAD';
   const encodedRef = encodeURIComponent(normalizedRef);
   if (repo.provider === 'gitee') {
@@ -181,7 +228,7 @@ export const toRepositoryBlobUrl = (
   filePath: string,
   ref = 'HEAD',
 ): string => {
-  const normalizedPath = normalizeRepositoryFilePath(filePath);
+  const normalizedPath = encodeRepositoryFilePath(normalizeRepositoryFilePath(filePath));
   const normalizedRef = String(ref || 'HEAD').trim() || 'HEAD';
   return `${toRepositoryUrl(repo)}/blob/${encodeURIComponent(normalizedRef)}/${normalizedPath}`;
 };

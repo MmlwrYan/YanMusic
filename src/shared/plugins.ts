@@ -688,7 +688,20 @@ export interface EchoPluginManifest {
 export interface EchoPluginCompatibility {
   compatible: boolean;
   currentyanmusicVersion: string;
+  /**
+   * 插件要求的**本程序版本**（已规范化的 semver 范围，如 `>=1.3.3`；无要求时为空串）。
+   *
+   * ⚠️ 只反映**本项目编号体系**的要求，可直接展示给用户。
+   * 上游旧键 `requires.echoMusicVersion` 写的是 **EchoMusic 的 2.x 编号**，与本项目 1.x 不可比，
+   * 因此**绝不回填到这里** —— 否则 UI 一旦想显示「要求版本」，就会把 `>=2.2.6-beta.9`
+   * 这种 2.x 要求摆给 1.x 用户看。旧键的原文只出现在 `requiredEchoMusicVersion`（仅记录）。
+   */
   requiredyanmusicVersion: string;
+  /**
+   * 上游旧键 `requires.echoMusicVersion` 的原文（未规范化），**仅作参考记录**。
+   * 它不参与兼容判定，也不应作为「要求版本」展示给用户。见 `shared/plugin-compatibility`。
+   */
+  requiredEchoMusicVersion: string;
   message: string;
 }
 

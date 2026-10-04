@@ -23,6 +23,7 @@ import { pathToFileURL } from 'url';
 import StreamZip from 'node-stream-zip';
 import { coerce as semverCoerce, gt as semverGt, valid as semverValid } from 'semver';
 import { findUnsafeArchiveEntries } from '../shared/archiveEntry';
+import { replaceEchoMusicBranding } from '../shared/plugin-branding';
 import { PLUGIN_STATS_KEY_ENV, PLUGIN_STATS_KEY_HEADER } from '../shared/pluginStatsAuth';
 import {
   applyPluginSourceProxy,
@@ -1310,7 +1311,9 @@ const normalizeMarketplaceIndexPlugin = async (
     id: pluginId,
     name,
     version,
-    description: String(manifest.description || ''),
+    // 上游插件的简介里写着 EchoMusic（本项目基于它二次开发），展示时读作 YanMusic。
+    // 只改这一个**面向用户**的字段：repo / homepage / checksum / downloadUrl 一概不动。
+    description: replaceEchoMusicBranding(manifest.description),
     author: String(manifest.author || ''),
     icon,
     iconUrl,
