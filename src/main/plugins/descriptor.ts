@@ -365,7 +365,7 @@ export const toDescriptor = (
     name: String(manifest.name || id),
     version: String(manifest.version || '0.0.0'),
     description: replaceEchoMusicBranding(manifest.description),
-    author: String(manifest.author || ''),
+    author: replaceEchoMusicBranding(manifest.author),
     directoryName,
     directory,
     manifestPath,
@@ -386,6 +386,8 @@ export const toDescriptor = (
       id,
       name: String(manifest.name || id),
       version: String(manifest.version || '0.0.0'),
+      description: replaceEchoMusicBranding(manifest.description),
+      author: replaceEchoMusicBranding(manifest.author),
     },
   };
 };

@@ -1,3 +1,101 @@
+## [1.3.5]
+
+> 本次为 **v1.3.4 品牌替换的补漏版**。v1.3.4 引入了「把插件展示文案里的 `EchoMusic` 换成 `YanMusic`」，但**生效点选错了一层**：替换只做在索引归一化处，而插件市场列表默认走**本地缓存回放**（`hydrateMarketplacePlugins` 直吃缓存，不过归一化），于是**存量用户的界面上仍旧显示 `EchoMusic`** —— 同时 `author` 字段被误判为「真人署名」而刻意跳过，而实测 10/14 个条目的 `author` 取值恰恰就是 `EchoMusic`（上游项目名被填进了作者位）。本版把替换**下沉到输出边界**并补上 `author`，使网络与缓存两条路径都被覆盖。**不改插件 API**，对插件作者无破坏性影响。
+
+### 修复
+
+- **二级 · 品牌替换对存量缓存无效（v1.3.4 的实质漏修）**（`src/main/plugins.ts` 的 `hydrateMarketplacePlugins`）。
+  v1.3.4 把 `replaceEchoMusicBranding` 加在 `normalizeMarketplaceIndexPlugin`（索引归一化）里 —— 该函数**只在真正联网拉取时**执行。而 `listPluginMarketplace` 的默认路径是：`getMarketplaceCache()` 读出**上次落盘的缓存** → 直接交给 `hydrateMarketplacePlugins` 补几个字段 → 返回。**这条路径完全不过归一化**，因此：
+  - 对**新装用户**（空缓存，必须联网拉一次）：替换生效，界面正常；
+  - 对**已有缓存的存量用户**（升级到 v1.3.4 后不会自动重拉）：缓存里的原文原样吐出，界面**照旧显示 `EchoMusic`**。
+  这正是用户截图中「Apple Music-like 歌词」的简介仍写 `渲染 EchoMusic 页面歌词` 的成因（横幅同时显示「已使用缓存」）。
+  现把替换挪到 **`hydrateMarketplacePlugins` 的返回处**（输出边界）——无论数据来自网络还是缓存，展示字段都被统一收敛。**归一化处的替换保留**（双保险，且幂等）。
+- **二级 · `author` 被漏掉（判断依据有误）**（`src/main/plugins.ts` / `src/main/plugins/descriptor.ts` / `src/plugin-window/main.ts`）。
+  v1.3.4 在 `plugin-branding.ts` 的注释里明确写了「**不改** `author`（作者署名）⋯⋯换掉等于篡改归属」，并为此写了守卫。但**实测真实清单**（14 个条目）后发现该前提不成立：
+
+  | author 取值 | 条目数 | 性质 |
+  |---|---|---|
+  | `EchoMusic` | **10** | 上游**项目名**被填进了作者位 —— 应当替换 |
+  | `吴彦祖` / `Codex Sol` / `小栀` | 3 | 真人 / 昵称 —— 不得替换 |
+
+  即「`author` 一定是真人署名」是错的。现对 `author` 同样施加替换；而 `replaceEchoMusicBranding` 只匹配**完整单词** `EchoMusic`，三个真人昵称天然不受影响（已加实测样本用例固化）。
+  生效点三处：市场索引归一化、已安装描述符 `toDescriptor`（顶层 `author` 与 `manifest.author` **两处**）、插件窗口 `buildContext`。
+- **三级 · `manifest` 内嵌字段遗漏**。`MarketplacePluginCard` / `InstalledPluginCard` 渲染的是 `plugin.author`，而 `InstalledPluginCard` 渲染的是 `record.descriptor.manifest.author` —— 即**同一个值有两个存放位置**。v1.3.4 只替换了顶层字段，`manifest` 内的同名副本仍为原文（若渲染切到该副本即漏）。现把所有生效点的 `manifest.description` / `manifest.author` 一并替换。
+
+### 新增
+
+- **`tests/plugin-branding.test.ts` 10 例**（v1.3.4 为 8 例）：
+  - 新增「真人作者昵称不被波及」用例（固化上表 4 个真实取值）；
+  - 新增 **输出边界守卫**（`hydrateMarketplacePlugins`）—— 这是本版修的核心，且**还原缺陷形态必须变红**；
+  - 新增「不得越界」用例：断言 `repo` / `homepage` / `downloadUrl` / `checksum` / `sourceUrl` **绝不**被品牌替换（这些是真实地址与校验值），并继续要求 `legal.ts` 保留上游署名。
+
+### 变更
+
+- `replaceEchoMusicBranding` 的**职责边界注释重写**：删去「不改 `author`」一条（依据已被实测推翻），改为说明「只动展示文案、`author` 亦属展示文案、标识/校验类字段仍不动」。
+- 三处主进程生效点补 `author` 与 `manifest.*` 替换；`normalizeMarketplaceIndexPlugin` 的注释同步订正。
+
+### 说明
+
+- **验证结果**（本机实跑，全部真实执行）：
+  - `node --test tests/*.test.ts`：**321 例 / 316 通过 / 0 失败 / 5 跳过**（v1.3.4 为 319/319/0/0；净增 2 例）。5 例跳过来自 `tests/native-engine-options.test.ts`（需真实播放引擎子进程）——**本机本轮该子进程未能启动**，故跳过数由 0 变为 5，属环境差异，与本版改动无关（v1.3.4 时该子进程可启动，故为 0）。
+  - `vue-tsc --noEmit` 退出码 0；`eslint .` **0 error / 0 warning**（先 `--fix` 修掉 1 处 prettier 换行格式，复跑测试确认语义未变）。
+  - `vite build` 退出码 0；主进程产物**仍为单文件** `dist-electron/main/index.js` **882,563 B**（v1.3.4 为 882,335 B，+228 B）；preload `29,104 B`（未变）。
+  - `scripts/check-bundle-size.mjs` → **93 个入口资源 / 1,131,029 B**，预算 1,151,504 B → 通过。本版**未改动渲染层**，与 v1.3.4 **逐字节相同**。
+- **鉴别力验证（变异测试，逐条改回缺陷形态必须变红）**：共 4 条，全部按预期变红，还原后全绿。
+  - ① 去掉输出边界（`hydrateMarketplacePlugins`）的替换 → `9 pass / 1 fail`。
+  - ② `toDescriptor` 顶层 `author` 还原成 `String(manifest.author || '')` → `9 pass / 1 fail`。
+  - ③ `toDescriptor` 的 `manifest.author` 还原 → `9 pass / 1 fail`。
+  - ④ 去掉输出边界的 `manifest.*` 替换 → `9 pass / 1 fail`。
+  - ⚠️ **② 的第一版守卫没抓住**：原守卫用 `body.includes('replaceEchoMusicBranding(manifest.author)')`，而 `toDescriptor` **同一函数内有两处**（顶层 + `manifest` 内），只改一处时 `includes` 仍为 `true` → **守卫假绿**。改为「精确片段出现**次数**」断言（`=== 2`，并要求不得残留 `String(manifest.author…)`）后方变红。**这是 v1.3.4「标识符出现即算过」盲区的同源变体：从「跨函数」变成了「同函数内多处」。**
+- **未验证项（如实标注）**：
+  - **GUI 运行时行为未复核**（本机无 Electron 二进制）。本版改动是**纯字段替换**，已用真行为单测（替换函数）+ 生效点守卫（4 条变异全部变红）覆盖；**未在真实窗口里**确认「插件卡片实际显示为 YanMusic」。用户截图即为本次复现依据。
+  - **存量缓存未做端到端回放验证**：未能构造「本地已有 v1.3.4 之前的旧缓存」并在真机跑通。判定依据是**代码路径分析** —— 替换点位于 `hydrateMarketplacePlugins` 返回处，缓存与网络两条路径在此汇合，无论来源如何都会过。该结论**基于读码，非实跑**。
+  - **未对全部 24 个在线插件逐条核对**：替换规则是全局的，`author` / `description` 里的完整单词 `EchoMusic` 一律替换；未逐份检查每个条目的最终展示文本。
+
+
+> 本次为**插件源与兼容判定的收尾打磨版**。三条修复分别针对：仓库简写解析把 `..` 当成合法仓库名、插件 URL 拼装里路径段与 `ref` 的编码口径不一致、旧键场景下兼容性对象把 EchoMusic 的 2.x 编号塞进了「要求的本项目版本」字段。均为低危，**不改插件 API**，对插件作者无破坏性影响。
+
+### 修复
+
+- **三级 · `owner/repo` 简写会把 `..`、`.` 当成合法仓库名**（`src/shared/plugin-source.ts` 的 `parsePluginRepository`）。
+  简写正则 `^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$` 的字符集含 `.`，于是 `../..`、`.x`、`x.` 全部能匹配成功 —— 与本模块「解析失败应返回 `null`」的约定相悖。
+  **这不是安全缺口**（拼出来仍在 `github.com`/`gitee.com` 域内，`new URL` 会在路径上折叠 `..`，不构成域逃逸），而是**语义漏洞**：一个显然非法的输入被静默接受，任何日后按「解析成功即可信」写的消费点都会踩到。
+  现规定单段**首尾均不得为 `.`**（段中间的 `.` 照旧，`my.plugin`、`EchoMusicPlugins` 等合法名字不受影响）。**URL 形态同步过这道关**：`https://github.com/./x` 的 owner 是 `.`，只护简写分支是不够的。
+- **三级 · 插件 URL 拼装里路径段与 `ref` 的编码口径不一致**（`toRepositoryRawFileUrl` / `toRepositoryBlobUrl`）。`ref` 做了 `encodeURIComponent`、路径段却直接拼接。当前索引里的路径都是 ASCII 安全字符，**行为与修复前逐字节相同**；但本模块自称「这类 URL 的唯一事实源」，编码责任就该收进来 —— 否则将来任何含空格、`#`、`?`、中文的插件路径都会拼出一个**语法合法但语义错误**的地址（`#` 之后整段退化成 fragment，请求打到别的资源上）。现新增纯函数 `encodeRepositoryFilePath`（逐段编码、段间保留 `/`），两处统一走它。
+- **三级 · 旧键场景下 `requiredyanmusicVersion` 回传的是 EchoMusic 的 2.x 编号**（`src/main/plugins/descriptor.ts` 的 `getyanmusicCompatibility`）。
+  该字段语义是「插件要求的**本项目**版本」，会被 UI 直接展示；v1.3.3 起旧键分支把清单原文（如 `>=2.2.6-beta.9`）原样回填进去 —— 一旦界面想显示「要求版本」，就会把这个**永远不可能成立**的 2.x 要求摆给 1.x 用户看。
+  排查结论：该字段**目前无消费者**（渲染层只读 `compatibility.message`），故未造成实际影响；属预先消除的隐患。现旧键分支把 `requiredyanmusicVersion` 置空、原文改回填到新增字段 `requiredEchoMusicVersion`（仅记录、不展示），并在 `EchoPluginCompatibility` 上补全两个字段的语义注释。
+
+### 新增
+
+- **`src/shared/plugin-branding.ts`**：新增纯函数 `replaceEchoMusicBranding`，用于把插件**展示文案**里的 `EchoMusic` 品牌词替换为 `YanMusic`（上游插件简介里写着 `EchoMusic`，本项目基于它二次开发）。规则只替换**完整单词**、大小写收敛，**不做子串替换**（`EchoMusicPlugins` 是别人的仓库名，改了就成了另一个仓库）。
+- **`encodeRepositoryFilePath`**（`src/shared/plugin-source.ts`）：逐段 `encodeURIComponent` 的路径编码函数。
+- **`EchoPluginCompatibility.requiredEchoMusicVersion`**：上游旧键原文的独立存放字段（仅记录）。
+- **测试**：新增 `tests/plugin-branding.test.ts`（**8 例**）；`tests/plugin-source-provider.test.ts` **24 → 27 例**（新增段合法性、路径编码两组）；`tests/plugin-compatibility.test.ts` **15 → 17 例**（新增旧键回传字段的生效点守卫与类型层断言）。
+
+### 变更
+
+- `parsePluginRepository` 新增段合法性校验；`toRepositoryRawFileUrl` / `toRepositoryBlobUrl` 的路径统一经 `encodeRepositoryFilePath`。
+- `getyanmusicCompatibility` 的旧键分支与无要求分支补 `requiredEchoMusicVersion: ''`。
+
+### 说明
+
+- **验证结果**（本机实跑，全部真实执行）：
+  - `node --test tests/*.test.ts`：**319 例 / 319 通过 / 0 失败 / 0 跳过**（v1.3.3 为 306/301/0/5，**净增 13**，与本版新增用例数一致）。5 例跳过来自 `tests/native-engine-options.test.ts`（需真实播放引擎子进程），**本机本轮该子进程正常启动，6 例全跑通**，故本次为 0 跳过 —— 这是环境差异，与本版改动无关。
+  - `vue-tsc --noEmit` 退出码 0；`eslint .` **0 error / 0 warning**（先 `--fix` 修掉 6 处 prettier 换行格式，复跑测试确认语义未变）。
+  - `vite build` 退出码 0；主进程产物**仍为单文件** `dist-electron/main/index.js` **882,335 B**（v1.3.3 为 881,788 B，+547 B）；preload `29,104 B`（未变）。
+  - `scripts/check-bundle-size.mjs` → **93 个入口资源 / 1,131,029 B**，预算 1,151,504 B → 通过。本版**未改动渲染层**，与 v1.3.3 **逐字节相同**。
+- **鉴别力验证（变异测试，逐条改回缺陷形态必须变红）**：共 6 条，全部按预期变红，还原后全绿。
+  - ① 去掉段合法性里的首尾点校验 → `26 pass / 1 fail`。
+  - ② `toRepositoryRawFileUrl` 路径取消编码 → `26 pass / 1 fail`；③ 同法改 `toRepositoryBlobUrl` → `26 pass / 1 fail`。
+    ⚠️ ③ 第一版**没抓住**：原用例只喂了 ASCII 安全路径，把 blob 的编码还原成裸拼后**全绿**。已补「含空格/中文/`#`/`?` 的 blob 用例」，复测方变红。这条是实测踩出来的。
+  - ④ 旧键分支把 `requiredyanmusicVersion` 改回回填 `raw` → `16 pass / 1 fail`。
+  - ⑤ 还原 `normalizeMarketplaceIndexPlugin` 的品牌替换 → `7 pass / 1 fail`；⑥ 同法还原 `toDescriptor` 的 → `7 pass / 1 fail`。
+- **未验证项（如实标注）**：
+  - **GUI 运行时行为未复核**（本机无 Electron 二进制）。本版改动集中在 URL 拼装与判定语义，已用真行为单测 + 生效点守卫覆盖；**未在真实窗口里**确认「插件简介卡片实际显示为 YanMusic」。
+  - **GitHub 源侧端到端未复测**（本机 `github.com` 不可达），该侧 URL 形态未变，由单测保证无回归。
+  - **第三方非镜像插件未逐份核对**：其清单简介若含 `EchoMusic`，同样会被就地替换（统一规则），但没有逐份检查。
+
 ## [1.3.4]
 
 > 本次为**插件源与兼容判定的收尾打磨版**。三条修复分别针对：仓库简写解析把 `..` 当成合法仓库名、插件 URL 拼装里路径段与 `ref` 的编码口径不一致、旧键场景下兼容性对象把 EchoMusic 的 2.x 编号塞进了「要求的本项目版本」字段。均为低危，**不改插件 API**，对插件作者无破坏性影响。

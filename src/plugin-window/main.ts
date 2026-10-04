@@ -518,8 +518,10 @@ const buildContext = (
   windowId: windowDescriptor.id,
   manifest: {
     ...descriptor.manifest,
-    // 插件窗口拿到的清单里，简介已按本项目品牌改写（其余字段原样透传）。
+    // 插件窗口拿到的清单里，简介 / 作者已按本项目品牌改写（其余字段原样透传）。
+    // 注：descriptor 来自 toDescriptor，其中亦已替换 —— 此处为幂等兜底（同值替换无副作用）。
     description: replaceEchoMusicBranding(descriptor.manifest.description),
+    author: replaceEchoMusicBranding(descriptor.manifest.author),
   },
   descriptor,
   windowDescriptor,

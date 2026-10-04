@@ -1312,9 +1312,12 @@ const normalizeMarketplaceIndexPlugin = async (
     name,
     version,
     // 上游插件的简介里写着 EchoMusic（本项目基于它二次开发），展示时读作 YanMusic。
-    // 只改这一个**面向用户**的字段：repo / homepage / checksum / downloadUrl 一概不动。
+    // 只改**面向用户展示**的字段：repo / homepage / checksum / downloadUrl 一概不动。
+    // ⚠️ `author` 实测取值是 `EchoMusic`（上游项目名被填进了作者位），10/14 个条目如此；
+    //    另有 `吴彦祖` / `Codex Sol` / `小栀` 等真人昵称 —— 替换函数只认**完整单词**
+    //    `EchoMusic`，不会碰到后者。故此处一并替换是安全的。
     description: replaceEchoMusicBranding(manifest.description),
-    author: String(manifest.author || ''),
+    author: replaceEchoMusicBranding(manifest.author),
     icon,
     iconUrl,
     tags: normalizeMarketplaceTags(rawEntry.tags),
@@ -1331,6 +1334,8 @@ const normalizeMarketplaceIndexPlugin = async (
       id: pluginId,
       name,
       version,
+      description: replaceEchoMusicBranding(manifest.description),
+      author: replaceEchoMusicBranding(manifest.author),
     },
   };
 };
@@ -1572,9 +1577,22 @@ const hydrateMarketplacePlugins = async (
       };
     });
   const statsByKey = await fetchMarketplacePluginStats(hydrated);
+  // ⚠️ 品牌替换必须做在**输出边界**（这里），不能只在 index 归一化里做：
+  //    市场列表默认走**本地缓存回放**（`listPluginMarketplace` 里 cache.plugins 直连 hydrate，
+  //    见下方 `if (options.refresh || ...)` 分支），缓存是「上次拉取」的历史数据 ——
+  //    在归一化处替换，对**已有缓存的存量用户完全无效**（v1.3.4 即栽在此，
+  //    Apple Music-like 歌词的简介在界面里仍显示 EchoMusic）。
+  //    下沉到这里后，无论数据来自网络还是缓存，展示字段都被统一收敛。
   return hydrated
     .map((plugin) => ({
       ...plugin,
+      description: replaceEchoMusicBranding(plugin.description),
+      author: replaceEchoMusicBranding(plugin.author),
+      manifest: {
+        ...plugin.manifest,
+        description: replaceEchoMusicBranding(plugin.manifest?.description),
+        author: replaceEchoMusicBranding(plugin.manifest?.author),
+      },
       stats: statsByKey.get(getMarketplaceStatsKey(plugin.sourceId, plugin.id)) ?? plugin.stats,
     }))
     .sort(
