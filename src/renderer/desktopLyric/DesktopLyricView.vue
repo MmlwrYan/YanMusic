@@ -34,6 +34,7 @@ import {
   registerPluginLyricEffectHost,
   type PluginLyricEffectSnapshot,
 } from '@/plugins/lyricEffects';
+import { resolvePlaybackCursorMs } from '@/desktopLyric/playbackCursor';
 
 // ── 渲染行类型 ──
 
@@ -56,7 +57,6 @@ let reducedMotionQuery: MediaQueryList | null = null;
 // 锚点时间（毫秒）与锚点帧时间，用于插值推进
 let baseMs = 0;
 let anchorTick = 0;
-let lastPlaybackUpdateTick = 0;
 
 // 实时播放进度（毫秒） - 非响应式以提升性能
 let playSeekMsRaw = 0;
@@ -88,13 +88,22 @@ const calculateCurrentIndex = (seekMs: number) => {
 // 每帧推进播放游标
 const { pause: pauseSeek, resume: resumeSeek } = useRafFn(() => {
   const state = snapshot.value?.playback;
-  const now = performance.now();
-  const hasFreshPlaybackProgress = now - lastPlaybackUpdateTick <= PLAYBACK_STALE_THRESHOLD;
-  if (state?.isPlaying && hasFreshPlaybackProgress) {
-    playSeekMsRaw = baseMs + (now - anchorTick) * (state.playbackRate || 1);
-  } else {
-    playSeekMsRaw = baseMs;
-  }
+  // 播放中一律**继续外推**（推导与取舍见 `desktopLyric/playbackCursor.ts`）：
+  // 位置是「锚点 + 墙钟 × 倍速」，单调可推，不依赖锚点新鲜度。
+  //
+  // 旧实现是「锚点超过 1800ms 未更新就钉死在 baseMs」，而后台节流会让快照间隔
+  // 轻易超过该阈值（主窗口 backgroundThrottling，见 progressThrottle.ts）——
+  // 于是画面**永久停在最后一次同步的位置**，即用户报告的「换句时一卡、卡在前面
+  // 某句中间偏后，音乐却正常播放」。现改用**外推上限**兜底。
+  playSeekMsRaw = resolvePlaybackCursorMs({
+    isPlaying: Boolean(state?.isPlaying),
+    baseMs,
+    anchorTick,
+    nowTick: performance.now(),
+    playbackRate: state?.playbackRate,
+    // 快照里的 duration 与 currentTime 同为**秒**，此处换算为毫秒用于时长钳制
+    durationMs: (state?.duration || 0) * 1000,
+  });
 
   // 更新 currentIndexRef (触发 Vue 更新行)
   const nextIndex = calculateCurrentIndex(playSeekMsRaw + lyricTimeOffset.value);
@@ -197,8 +206,10 @@ const updateScrollManual = () => {
 const LYRIC_LOOKAHEAD = 150;
 // 锚点同步阈值（毫秒）
 const SYNC_THRESHOLD = 300;
-// mpv 没有持续上报进度时，桌面歌词不再自行推进
-const PLAYBACK_STALE_THRESHOLD = 1800;
+// 注：这里原有 `PLAYBACK_STALE_THRESHOLD = 1800`（锚点超过 1.8s 未更新就不再推进）。
+// 它正是「歌词卡住」的直接成因：后台节流下快照间隔轻易超过 1.8s，于是画面被永久钉住。
+// 现改为在 `resolvePlaybackCursorMs` 内用**外推上限**兜底（默认 90s，见 playbackCursor.ts），
+// 播放中不再依赖锚点新鲜度。
 // ── 计算属性 ──
 
 const settings = computed(() => snapshot.value?.settings);
@@ -833,7 +844,6 @@ const playNext = () => {
 const syncAnchor = (force = false) => {
   const state = playback.value;
   if (!state) return;
-  lastPlaybackUpdateTick = performance.now();
   const newBaseMs = Math.round((state.currentTime || 0) * 1000);
   // 漂移补偿（v1.2.6 修复）：这里**必须用 `Date.now()`**，不能与 `performance.now()` 混用。
   //

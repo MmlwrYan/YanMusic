@@ -401,7 +401,19 @@ export async function createWindow() {
       spellcheck: false,
       webSecurity: false, // 禁用 CORS 限制
       allowRunningInsecureContent: true, // 允许混合内容
-      backgroundThrottling: true, // v1.2.6：最小化后节流渲染层，降低后台 CPU/耗电（播放与歌词由主进程驱动，不依赖渲染层帧率）
+      // v1.2.6：最小化后节流渲染层，降低后台 CPU/耗电。
+      //
+      // ⚠️ 原注释写的是「播放与歌词由主进程驱动，不依赖渲染层帧率」——**这半句是错的**，
+      //    并且掩盖了一个真实缺陷（v1.3.7 修复）：
+      //    · **播放**确实由主进程驱动，不受此开关影响；
+      //    · 但**桌面歌词的进度快照恰恰由本窗口的渲染层推送**（`renderer/desktopLyric/sync.ts`），
+      //      它当时用 `setTimeout(80ms)` 防抖 —— 于是最小化/被遮挡时该定时器被 Chromium
+      //      节流（≥1s，隐藏 5 分钟后可低至 1 次/分钟），桌面歌词收到的快照变稀疏，
+      //      再叠加其自身的「锚点超过 1.8s 即钉死」逻辑，就表现为
+      //      **「换句时一卡、随后永久停在前一句中间偏后，音乐却正常播放」**。
+      //    v1.3.7 已把发送端改为**无定时器**的领先沿节流（因此本开关不再影响歌词进度）。
+      //    若将来还有人在后台路径上依赖渲染层定时器，请先回看这段。
+      backgroundThrottling: true,
       zoomFactor: 1.0,
       devTools: devToolsEnabled, // 控制是否允许打开开发者工具
     },

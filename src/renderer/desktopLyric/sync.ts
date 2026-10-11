@@ -5,6 +5,7 @@ import { useLyricStore, testLyricFilter } from '@/stores/lyric';
 import { useSettingStore } from '@/stores/setting';
 import { useToastStore } from '@/stores/toast';
 import { useDesktopLyricStore } from './store';
+import { createLeadingEdgeThrottle } from './progressThrottle';
 import { mergeDesktopLyricSnapshotMessage } from '../../shared/desktop-lyric';
 import type {
   DesktopLyricCommand,
@@ -185,8 +186,14 @@ export const initDesktopLyricSync = async () => {
   let lastSyncedSettingsKey = buildSettingsSignature(buildSyncedSettings());
   let lastSyncedLyricsKey = '';
   let lastSyncedPlaybackKey = '';
-  let progressSyncTimer: ReturnType<typeof setTimeout> | null = null;
-  let progressSyncQueued = false;
+  // ⚠️ 进度推送**必须**用无定时器的领先沿节流：主窗口是 `backgroundThrottling: true`，
+  //    窗口被遮挡/最小化时 Chromium 会把渲染层的 `setTimeout` 节流到 ≥1s、密集节流下
+  //    可低至 1 次/分钟。原实现用 `setTimeout(80ms)` 防抖，于是快照流在后台变得极稀疏，
+  //    桌面歌词（过期阈值 1.8s）随即**硬钉在最后一次同步的位置不再推进** ——
+  //    用户所见即「换句时一卡、卡在前面某句中间偏后，音乐却正常播放」。
+  //    数据源（`mpv:time-update`，主进程 200ms 节流推送）与 Vue watcher（微任务）
+  //    都不受定时器节流影响，因此改为按调用时刻判断即可恢复原有推送节奏。
+  const progressThrottle = createLeadingEdgeThrottle(DESKTOP_LYRIC_PROGRESS_SYNC_INTERVAL_MS);
 
   const buildLyricsPayload = () => {
     const enabled = settingStore.desktopLyricFilterEnabled;
@@ -253,15 +260,11 @@ export const initDesktopLyricSync = async () => {
   };
 
   const scheduleProgressSync = () => {
-    progressSyncQueued = true;
-    if (progressSyncTimer) return;
-
-    progressSyncTimer = setTimeout(() => {
-      progressSyncTimer = null;
-      if (!progressSyncQueued) return;
-      progressSyncQueued = false;
-      void syncPlaybackSnapshot();
-    }, DESKTOP_LYRIC_PROGRESS_SYNC_INTERVAL_MS);
+    // 领先沿：距上次推送 ≥ 间隔就**立即**推送。刻意不做尾部补偿 ——
+    // 数据源每 200ms 到达一次，任何一次到达都可能触发推送；
+    // 而尾部补偿需要定时器，正是本缺陷的根源（见 progressThrottle.ts）。
+    if (!progressThrottle.shouldRun()) return;
+    void syncPlaybackSnapshot();
   };
 
   const syncSettingsSnapshot = async () => {
@@ -415,10 +418,7 @@ export const initDesktopLyricSync = async () => {
     // P-2（v1.3.0）：`desktop-lyric:command` 的监听器已通过
     // `stops` 中的 `disposeDesktopLyricCommandListener` 清理
     //（即下方 `stops.forEach(...)`），此处不再重复 off。
-    if (progressSyncTimer) {
-      clearTimeout(progressSyncTimer);
-      progressSyncTimer = null;
-    }
+    // 进度推送已改为无定时器的领先沿节流，故此处无需清理定时器。
     stops.forEach((stop) => stop());
   };
 };
