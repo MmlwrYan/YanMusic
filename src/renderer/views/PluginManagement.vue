@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { Icon } from '@iconify/vue';
@@ -72,6 +72,7 @@ const {
   updatableMarketplaceCount,
   updateAllButtonLabel,
   marketplaceSourceErrors,
+  marketplaceSkippedNotice,
   loadMarketplace,
   switchView,
   openSourceDialog,
@@ -495,6 +496,15 @@ const getPluginFeatureTags = (manifest: EchoPluginManifest) => {
             <span>
               {{ marketplaceSourceErrors[0].name }}：{{ marketplaceSourceErrors[0].lastError }}
             </span>
+          </div>
+
+          <!--
+            「有条目被跳过」的常驻说明：可见条目数少于插件源索引里的条数时必须解释，
+            否则用户只会看到「插件变少了」，无法区分是源坏了、插件下架还是网络问题。
+          -->
+          <div v-if="marketplaceSkippedNotice" class="marketplace-skipped-notice" role="status">
+            <Icon :icon="iconTriangleAlert" width="15" height="15" class="shrink-0" />
+            <span>{{ marketplaceSkippedNotice }}</span>
           </div>
 
           <div class="plugin-content-heading">

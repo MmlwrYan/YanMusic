@@ -221,6 +221,14 @@ type PluginMarketplaceCache = {
   schemaVersion?: number;
   plugins: PluginMarketplaceCatalogPlugin[];
   fetchedAt: number;
+  /**
+   * 上次拉取时因**来源仓库不可达**被跳过的条目数。
+   *
+   * 必须随缓存一起落盘：列表默认走**缓存回放**（不联网），若只放在内存里，
+   * 那么「界面少显示了 15 条」这件事在冷启动后就再也无法解释。
+   * `undefined`（旧缓存写入的）与 `0` 语义不同，见 `PluginMarketplaceSkippedEntryCount`。
+   */
+  skippedEntryCount?: number;
 };
 type PluginMarketplaceIndexPluginsResult = {
   plugins: PluginMarketplaceCatalogPlugin[];
@@ -853,6 +861,11 @@ const getMarketplaceCache = (): PluginMarketplaceCache => {
         : plugin,
     ),
     fetchedAt: Number(cache.fetchedAt) || 0,
+    // ⚠️ 必须显式带出：本函数是**重建**对象，不写就会被静默丢弃
+    //    （上一版 `failedCount` 就是这么失效的）。
+    //    也**不要**写成 `?? 0` —— 旧缓存里没有这个字段，语义是「未知」而非「没有跳过」。
+    skippedEntryCount:
+      typeof cache.skippedEntryCount === 'number' ? cache.skippedEntryCount : undefined,
   };
 };
 
@@ -1521,6 +1534,9 @@ const fetchMarketplaceSourceCatalog = async (
         ...plugin,
         sourceName,
       })),
+      // 逐条拉 manifest 时被丢弃的条目（网络不可达 / 超时）——原样上报给上层汇总，
+      // 供界面解释「为什么条数比索引里少」。
+      skippedEntryCount: result.failedCount,
     };
   } catch (error) {
     return {
@@ -1536,6 +1552,9 @@ const fetchMarketplaceSourceCatalog = async (
           sourceName: source.name,
           sourceUrl: source.url,
         })),
+      // 整体失败（索引都拉不到）不算「条目被跳过」：此时上层会以 lastError 呈现，
+      // 记 0 以免与「索引拿到了、部分条目拉不到」这种可解释情形混为一谈。
+      skippedEntryCount: 0,
     };
   }
 };
@@ -1618,10 +1637,12 @@ const refreshMarketplaceCatalog = async (
   );
   const sourceById = new Map(sources.map((source) => [source.id, source]));
   const plugins: PluginMarketplaceCatalogPlugin[] = [];
+  let skippedEntryCount = 0;
 
   for (const item of fetched) {
     sourceById.set(item.source.id, item.source);
     plugins.push(...item.plugins);
+    skippedEntryCount += item.skippedEntryCount;
   }
 
   const nextSources = sources.map((source) => sourceById.get(source.id) ?? source);
@@ -1630,6 +1651,7 @@ const refreshMarketplaceCatalog = async (
     schemaVersion: PLUGIN_MARKETPLACE_CACHE_VERSION,
     plugins,
     fetchedAt: Date.now(),
+    skippedEntryCount,
   };
   setMarketplaceCache(cache);
   return { sources: nextSources, cache };
@@ -1752,6 +1774,7 @@ export const listPluginMarketplace = async (
       sources: nextSources,
       plugins,
       fetchedAt: cache.fetchedAt,
+      skippedEntryCount: cache.skippedEntryCount,
     };
   }
 
@@ -1760,6 +1783,8 @@ export const listPluginMarketplace = async (
     sources: nextSources,
     plugins,
     fetchedAt: cache.fetchedAt,
+    // 与插件列表同源（同一次拉取的缓存），界面据此解释「条数为何少于索引」。
+    skippedEntryCount: cache.skippedEntryCount,
   };
 };
 

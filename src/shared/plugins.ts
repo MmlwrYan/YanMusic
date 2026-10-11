@@ -818,12 +818,27 @@ export interface PluginMarketplacePlugin {
   manifest: EchoPluginManifest;
 }
 
+/**
+ * 因条目所属仓库**不可达**而被跳过的条目数。
+ *
+ * 典型场景正是本项目的默认处境：索引条目指向 `github.com`，而当前网络拉不动
+ * GitHub —— 这些条目的 `manifest` 拉取失败，会被逐条丢弃（`failedCount`）。
+ * 此前界面只是「条数变少了」，用户无从判断是**源坏了**、**插件被下架**还是
+ * **网络问题**，因此这个计数必须送到界面上。
+ *
+ * - `0`：没有条目被跳过（正常）；
+ * - `undefined`：**未知** —— 例如读的是升级前写入的旧缓存。此情形**不得**当成 0
+ *   处理（会得出「一切正常」的错误结论），界面应保持静默而不是宣称没有跳过。
+ */
+export type PluginMarketplaceSkippedEntryCount = number | undefined;
+
 export type PluginMarketplaceListResult =
   | {
       ok: true;
       sources: PluginMarketplaceSource[];
       plugins: PluginMarketplacePlugin[];
       fetchedAt: number;
+      skippedEntryCount?: PluginMarketplaceSkippedEntryCount;
     }
   | {
       ok: false;
@@ -831,6 +846,7 @@ export type PluginMarketplaceListResult =
       sources: PluginMarketplaceSource[];
       plugins: PluginMarketplacePlugin[];
       fetchedAt: number;
+      skippedEntryCount?: PluginMarketplaceSkippedEntryCount;
     };
 
 export type PluginMarketplaceSourceListResult = {

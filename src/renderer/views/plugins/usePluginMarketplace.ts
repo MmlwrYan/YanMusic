@@ -45,6 +45,11 @@ export const usePluginMarketplace = ({ route, activeView }: UsePluginMarketplace
   const marketplacePlugins = ref<PluginMarketplacePlugin[]>([]);
   const marketplaceSources = ref<PluginMarketplaceSource[]>([]);
   const marketplaceFetchedAt = ref(0);
+  /**
+   * 上次拉取时因**来源仓库不可达**被跳过的条目数。
+   * `undefined` = 未知（旧缓存），此时界面保持静默，不谎称「没有跳过」。
+   */
+  const marketplaceSkippedEntryCount = ref<number | undefined>(undefined);
   let marketplaceLoadPromise: Promise<void> | null = null;
 
   const sourceSelectOptions = computed(() => [
@@ -106,6 +111,21 @@ export const usePluginMarketplace = ({ route, activeView }: UsePluginMarketplace
   const marketplaceSourceErrors = computed(() =>
     marketplaceSources.value.filter((source) => source.enabled && source.lastError),
   );
+  /**
+   * 列表上方的**常驻**说明文案（空串 = 不显示）。
+   *
+   * 为什么必须常驻而不是只弹一次 toast：toast 会消失，而「条数比预期少」是个
+   * **持续存在**的状态；用户下次打开这个页面时同样需要看到解释。
+   * 未知（`undefined`，旧缓存）一律**不显示** —— 宁可不提示，也不能凭空断言。
+   */
+  const marketplaceSkippedNotice = computed(() => {
+    const skipped = marketplaceSkippedEntryCount.value;
+    if (typeof skipped !== 'number' || skipped <= 0) return '';
+    return (
+      `有 ${skipped} 个条目未显示：它们托管在各自的来源仓库上，而当前网络拉不到` +
+      `（常见于 GitHub 不可达）。插件源本身工作正常，可在「插件源」中配置 GitHub 代理后重试。`
+    );
+  });
 
   const getMarketplaceRequestOptions = (refresh = false) => ({
     refresh,
@@ -183,11 +203,23 @@ export const usePluginMarketplace = ({ route, activeView }: UsePluginMarketplace
         marketplaceSources.value = result?.sources ?? [];
         marketplacePlugins.value = result?.plugins ?? [];
         marketplaceFetchedAt.value = result?.fetchedAt ?? 0;
+        marketplaceSkippedEntryCount.value = result?.skippedEntryCount;
         marketplaceLoaded.value = true;
         if (result && !result.ok) {
           toastStore.warning(result.error || '插件源刷新失败');
         } else if (refreshSource && notify) {
-          toastStore.actionCompleted('在线插件列表已刷新');
+          // 「刷新成功」与「有条目被跳过」是两件事，必须同时说清：只说前者会让用户
+          // 以为列表就是全部（这正是 v1.3.5 之前的表现 —— 少显示了 15 条却毫无提示）。
+          const skipped = result?.skippedEntryCount ?? 0;
+          if (skipped > 0) {
+            toastStore.warning(
+              `在线插件列表已刷新，但有 ${skipped} 个条目因来源仓库不可达被跳过` +
+                `（这些条目托管在 GitHub，当前网络可能无法访问）`,
+              8000,
+            );
+          } else {
+            toastStore.actionCompleted('在线插件列表已刷新');
+          }
         }
       } catch (error) {
         toastStore.warning(error instanceof Error ? error.message : '在线插件列表加载失败');
@@ -494,6 +526,8 @@ export const usePluginMarketplace = ({ route, activeView }: UsePluginMarketplace
     marketplaceFetchedAtLabel,
     filteredMarketplacePlugins,
     marketplaceCountLabel,
+    marketplaceSkippedEntryCount,
+    marketplaceSkippedNotice,
     updatableMarketplaceCount,
     updateAllButtonLabel,
     marketplaceSourceErrors,

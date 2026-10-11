@@ -170,7 +170,8 @@
   min-width: 14rem;
 }
 
-.marketplace-source-errors {
+.marketplace-source-errors,
+.marketplace-skipped-notice {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -185,8 +186,16 @@
   font-weight: 600;
 }
 
-.dark .marketplace-source-errors {
+.dark .marketplace-source-errors,
+.dark .marketplace-skipped-notice {
   color: rgb(251, 191, 36);
+}
+
+/* 「有条目被跳过」的说明偏解释性、文案更长，允许换行并把图标顶到首行 */
+.marketplace-skipped-notice {
+  align-items: flex-start;
+  line-height: 1.5;
+  font-weight: 500;
 }
 
 .plugin-empty-state {
