@@ -506,6 +506,18 @@ const notifyLyricEffectHost = () => {
     root.dataset.yanLyricCollapsed = 'false';
     root.dataset.yanLyricReducedMotion = reducedMotion.value ? 'true' : 'false';
     root.dataset.yanLyricLayout = lyricLayout.value;
+    // V4-07（v1.4.0）：把**播放游标**写进 DOM，供端到端冒烟读取。
+    //
+    // 为什么需要：v1.3.7 修了「桌面歌词在后台永久卡住」，但当时**无法验证** ——
+    // 本机没有 GUI 会话，且游标 `playSeekMsRaw` 只是组件内的一个 `let`，
+    // DOM 上**没有任何可观测的进度**（`data-yan-lyric-current-index` 只在换句时变，
+    // 短时间等不出差异）。于是那次修复只有代码链路证据，没有回归护栏。
+    //
+    // 这里**刻意用 dataset 每帧写**而不是模板绑定：`playSeekMsRaw` 是普通变量、
+    // 每帧在 rAF 里被赋值，模板绑定不会随它重渲染（会读到过期值）；
+    // 本函数本来就每帧调用一次，顺势写入零额外开销，也与本文件既有的
+    // 「手动更新 DOM」做法一致。
+    root.dataset.yanLyricTimelineMs = String(Math.round(playSeekMsRaw));
   }
   lyricEffectHostRegistration?.notify();
 };

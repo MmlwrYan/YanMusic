@@ -12,6 +12,7 @@ import { installInputBehaviorGuard } from '@/utils/inputBehaviorGuard';
 import { installCspViolationReporter } from '@/utils/cspViolationReporter';
 import { registerContentBlacklistIntegration } from '@/services/contentBlacklistIntegration';
 import { startRendererMemoryDiagnostics } from '@/utils/rendererMemoryDiagnostics';
+import { installE2eTestHook } from './e2eHook';
 import './style.css';
 
 // N-02 观测：尽早挂上 CSP 违规收集器（策略由主进程以 Report-Only 响应头下发），
@@ -246,6 +247,12 @@ app.component('Icon', Icon);
 installPluginRuntime({ app, router, pinia });
 // 诊断模式下的渲染层内存周期采样（未开启诊断模式时内部直接返回）
 startRendererMemoryDiagnostics();
+// V4-07（v1.4.0）：端到端验证钩子。**未设置 VITE_YANMUSIC_E2E 时被构建期静态消除**，
+// 不进入正式产物（守卫见 tests/e2e-hook-not-in-production.test.ts）。
+// 它存在的理由：桌面歌词游标由 player store 驱动，而 CDP 只能调到
+// window.electron.mpv.*，无法把 store 的 isPlaying 置真 —— 没有它就无法为
+// v1.3.7 修的那个「后台永久卡住」缺陷建立回归护栏。
+installE2eTestHook();
 // 屏蔽空格/方向键等浏览器默认行为，避免播放器交互时页面滚动
 installInputBehaviorGuard({
   isEnabled: () => useSettingStore().suppressDefaultKeyBehaviors,

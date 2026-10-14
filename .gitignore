@@ -59,3 +59,6 @@ dev-notes/
 
 # AI 助手（WorkBuddy）的会话与记忆目录，属本地开发留痕，不入库
 .workbuddy/
+
+# E2E 冒烟留档截图（本地产生，不入库）
+smoke-artifacts/
