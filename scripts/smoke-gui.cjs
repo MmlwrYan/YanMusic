@@ -214,9 +214,36 @@ const main = async () => {
   // 单实例锁会让第二个实例直接退出（本机常有用户自己的实例在跑）。
   delete env.ELECTRON_RUN_AS_NODE;
 
+  /**
+   * Linux 上必须加 `--no-sandbox`。
+   *
+   * Electron/Chromium 的沙箱依赖 **unprivileged user namespace**
+   * （Ubuntu 23.10+ 起默认关闭，需要 setuid helper）。CI 的 runner 里两者都没有，
+   * 于是进程会在启动瞬间 **SIGABRT**：
+   *
+   * ```text
+   * [smoke-gui] ❌ 应用在启动后 3 秒内就退出了（很可能是启动即崩）
+   * [smoke-gui]    进程退出：code=null signal=SIGABRT
+   * Unable to revert mtime: /usr/share/fonts …
+   * ```
+   *
+   * ⚠️ **只对本脚本启动的进程生效**，不影响我们**发布出去的**任何东西 ——
+   * 应用自身的沙箱配置一个字都没改（`src/main/window.ts` 未触碰）。
+   * 这正是「只在冒烟里关沙箱」与「为了 CI 绿而放宽产品安全性」的区别。
+   *
+   * 判定放在脚本内而不是 CI 的 `xvfb-run` 参数里，是为了让**本机 Linux**
+   * 跑同一命令时也自动生效（本机若已配好 namespace，这个标志也无害）。
+   */
+  const sandboxArgs = process.platform === 'linux' ? ['--no-sandbox'] : [];
+
   const child = spawn(
     binary,
-    ['.', `--remote-debugging-port=${DEBUG_PORT}`, `--user-data-dir=${userDataDir}`],
+    [
+      '.',
+      ...sandboxArgs,
+      `--remote-debugging-port=${DEBUG_PORT}`,
+      `--user-data-dir=${userDataDir}`,
+    ],
     { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] },
   );
 
