@@ -87,3 +87,57 @@ test('S-5：鉴别力自证 —— 基线被调低时必须判定为超预算', 
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
 });
+
+/**
+ * V4-12（v1.4.0）：**容忍带必须是「还能再涨 2%」**，不能是「已经用掉 2%」。
+ *
+ * ## 这条守什么
+ *
+ * `ENTRY_TOLERANCE_RATIO` 的语义是「允许**单次**改动临时超出的幅度」，
+ * 而**不是**「可以有 2% 的长期水位」。正确的用法是：
+ * **每次正式发版时把 `ENTRY_BASELINE_BYTES` 校准到该版本的实测值。**
+ *
+ * 不校准会怎样（本项就是因为这个才存在）：基线取自 v1.2.9 而当前已是 v1.3.7，
+ * 两者相差的 2,192 B **被容忍带吃掉**，于是
+ * 「预算 − 当前体积」那个看似宽松的数字里有一大块其实早已被消耗 ——
+ * v1.4.0 校准前，**真正可用的余量只剩约 314 B**。
+ *
+ * ## 判据
+ *
+ * 当前实测体积必须**明显小于** `基线 × (1 + 容忍带)`。
+ * 若某次改版后实测已经贴到预算（余量不足容忍带的三分之一），
+ * 说明**基线该重新校准了** —— 这条会变红，提醒发版者「先校准再发布」。
+ *
+ * ## 为什么阈值取「容忍带的三分之一」
+ *
+ * 不取 0：留给「同一版内后续小改动」一点空间，避免在发版当天反复来回校准。
+ * 取 1/3 是因为再少就已经不能覆盖一次正常的小功能增重了。
+ */
+test('V4-12：首屏余量必须仍有容忍带的三分之一（否则说明基线该重新校准）', (t) => {
+  const result = checkBundleSize();
+  if (!result.present) {
+    t.skip('dist/index.html 不存在（未构建）—— 本项**未校验**，不代表通过');
+    return;
+  }
+
+  const toleranceBytes = result.budgetBytes - ENTRY_BASELINE_BYTES;
+  assert.ok(
+    toleranceBytes > 0,
+    `容忍带必须为正：预算 ${result.budgetBytes} 应大于基线 ${ENTRY_BASELINE_BYTES}`,
+  );
+
+  const headroom = result.budgetBytes - result.totalBytes;
+  const minimum = Math.floor(toleranceBytes / 3);
+  const kib = (n: number) => (n / 1024).toFixed(1);
+
+  assert.ok(
+    headroom >= minimum,
+    `首屏余量只剩 ${headroom} B (${kib(headroom)} KiB)，` +
+      `而容忍带有 ${toleranceBytes} B (${kib(toleranceBytes)} KiB)；` +
+      `要求至少保留 1/3（${minimum} B）。\n` +
+      `这说明基线 ${ENTRY_BASELINE_BYTES} B 已经过时 —— ` +
+      `发版时应把它校准到当前实测体积 ${result.totalBytes} B ` +
+      `（脚本 scripts/check-bundle-size.mjs 的 ENTRY_BASELINE_BYTES），` +
+      `让容忍带重新成为「还能再涨」而不是「已经涨掉」。`,
+  );
+});
