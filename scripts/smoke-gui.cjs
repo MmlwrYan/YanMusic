@@ -82,6 +82,31 @@ const HOME_MARKERS = ['发现音乐', '为您推荐', '我的乐库', '插件'];
 
 const log = (msg) => console.log(`[smoke-gui] ${msg}`);
 
+/**
+ * **前置检查：Node 版本必须 ≥ 22。**
+ *
+ * 本脚本用**全局 `WebSocket`** 直连 CDP（`--remote-debugging-port`），
+ * 而这个全局对象**只有 Node ≥ 22 才有**（Node 20 上是 `undefined`）。
+ *
+ * ⚠️ 这个坑第一次干跑就踩到了：CI 在 `Restore Node.js for packaging` 之后
+ * 用的是 **Node 20**，于是四腿（macOS x64/arm64、Windows x64/arm64）
+ * 全部以 `ReferenceError: WebSocket is not defined` 失败。
+ * 修法是**在跑本脚本前装 Node 24**（见 `.github/workflows/build.yml` 的
+ * `Setup Node.js for GUI smoke`），而不是让本脚本自带一个 WebSocket 实现 ——
+ * 那要自己处理握手、掩码与分帧，是多余的复杂度与新的可失败面。
+ *
+ * 这里显式检查并给出**可操作**的提示：不这样做的话，失败信息只是
+ * `WebSocket is not defined` 加一堆栈，读的人得自己去推断是版本问题。
+ */
+if (typeof WebSocket !== 'function') {
+  console.error(
+    `[smoke-gui] ❌ 需要 Node ≥ 22（当前 ${process.version}）：本脚本用全局 \`WebSocket\` 直连 CDP，` +
+      '而该全局对象在 Node 20 上不存在。\n' +
+      '[smoke-gui]    请用 Node 24 跑本脚本（CI 里由 `Setup Node.js for GUI smoke` 步骤保证）。',
+  );
+  process.exit(1);
+}
+
 const electronBinary = () => {
   const exe = process.platform === 'win32' ? 'electron.exe' : 'electron';
   const candidates = [

@@ -600,6 +600,31 @@ jobs:
         shell: bash
         run: node scripts/check-native-freshness.mjs
 
+      - name: Setup Node.js for GUI smoke
+        # V4-05（v1.4.0）：GUI 冒烟脚本用 **Node 24**，因为它依赖全局 `WebSocket`
+        # 直连 CDP（`--remote-debugging-port`）。
+        #
+        # ⚠️ 这个全局对象**只有 Node ≥ 22 才有**。本步骤排在
+        # `Restore Node.js for packaging`（Node 20）之后，所以必须显式切回 24 ——
+        # 否则脚本会以 `ReferenceError: WebSocket is not defined` 失败。
+        # **首次干跑就是这么红的**：macOS-arm64 / macOS-x64 / Windows-arm64 /
+        # Windows-x64 四腿均如此（Linux-x64 的 GUI 冒烟排在 Node 24 段所以通过）。
+        #
+        # `if` 必须与下面两条 GUI 冒烟步骤的条件一致：Linux 上 GUI 冒烟只在
+        # `electron_builder_args == ''`（即 Node 24 的 x64 腿）运行，
+        # arm64 交叉腿刻意跳过 —— 这里也就不该为它们切版本。
+        #
+        # ⚠️ **副作用（有意接受）**：本步骤之后，该 job 剩余的 `node` 命令
+        # 都跑在 Node 24 上（原本是上面 `Restore Node.js for packaging` 设的 20）。
+        # 影响面只有 `Upload build artifacts` 这类用 node 的 action 内部实现，
+        # 而打包本身（`Build desktop app`）已经在本步骤**之前**跑完了。
+        # 若将来需要为后置步骤锁定 Node 20，在本步骤之后再插一条
+        # `setup-node: '20'` 即可。
+        if: runner.os != 'Linux' || matrix.electron_builder_args == ''
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+
       - name: GUI smoke test (Linux, xvfb)
         # V4-05（v1.4.0）：**真的启动应用**并断言首屏渲染出来了。
         #
