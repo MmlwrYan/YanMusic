@@ -45,6 +45,12 @@
 - **本版未做的其他项（附重启条件，详见 `docs/agent/v1.4.0/`）**：`IPC_PERMISSION_STRICT` 是否开启（**需维护者拍板**，建议先用环境变量在一条开发路径上开一周看实际拒绝量，默认保持关闭）；`server/` 依赖管理统一（需联网验证，本版**只加了守卫、没动安装方式**）；N 组原生小修（`W-18` / `W-5` / `W-13` / `L-3`，N-0 阻塞已实质解除，但需逐项重建验证）；零引用模块 A 类复核。
 - **首次 CI 干跑暴露并已修复的一处流水线缺陷（留档，因为它正说明「干跑」这一步的价值）**：GUI 冒烟脚本用**全局 `WebSocket`** 直连 CDP，而该全局对象**只有 Node ≥ 22 才有**；脚本所在的步骤排在 `Restore Node.js for packaging`（Node 20）之后，于是 macOS x64/arm64、Windows x64/arm64 **四腿**全部以 `ReferenceError: WebSocket is not defined` 失败（Linux x64 因排序恰好落在 Node 24 段而通过）。修法是**在跑冒烟前装 Node 24**（新增 `Setup Node.js for GUI smoke`，`if` 与两条冒烟步骤的条件对齐），**而不是**让脚本自带 WebSocket 实现 —— 那要自己处理握手、掩码与分帧，是多余的复杂度与新的可失败面。同时给脚本加了**显式的 Node 版本前置检查**，把「`WebSocket is not defined` + 一长串栈」换成一条可操作的提示。
   - 附带收获：这次失败同时也**证明冒烟在 CI 上确实能启动应用** —— 日志显示 macOS/Windows 下主窗口页面**已经加载成功**（`主窗口 target: file:///.../dist/index.html#/`），失败只发生在连上去之后的那一步。
+- **🚨 新增的 GUI 冒烟在 Linux 上暴露了一个既有缺陷：应用在 Linux 上启动即崩（已记为 P0，本版未修）**。加入端到端冒烟的直接价值就在这里 —— 它抓到了「CI 全绿但从没有人真的启动过应用」所掩盖的问题。
+  - **现象（CI 实测，run 38634610994 / Linux-x64）**：应用能启动、主进程日志正常推进到 `[MpvController] Native audio options applied`，紧接着打出 `libavutil: 56.70.100 -> 60.31.100`，随后 **SIGABRT**，**始终没有创建主窗口**。
+  - **定位到的一层**：这句是**原生 addon 自己打的** —— 它检测到进程内已加载的 libavutil 与 libmpv 需要的版本**不一致**，于是主动 abort。而 `src/main/mpv/linuxEnv.ts` 的**全部用意**就是靠 `LD_PRELOAD` 预加载系统完整版 libav*、把这个不一致**避免掉**；在 CI 环境里它没有生效。
+  - **本版处置**：**不在这里修**（超出「验证链补全」的范围，且会牵动 Linux 的库加载路径这一敏感面）。Linux 的 GUI 冒烟步骤**暂时关掉**（保留步骤、`if: false`，便于将来直接复活），**macOS / Windows 四腿照常运行且已全绿**。
+  - **重要限定**：本次**只观察到 CI（Ubuntu runner）上的表现**。本机没有 Linux 环境可复现，因此**不能断言「所有 Linux 发行版都启动不了」** —— 但既然它在标准 Ubuntu 上就 abort，Linux 用户遇到同类问题的可能性很高，**建议按 P0 对待**。
+  - **重启条件**：① 先确认为何 `LD_PRELOAD` 未生效（`linuxEnv.ts` 的防重复重启标记 `yan_MUSIC_LIBMPV_ENV_FIXED` 是否落下、注入的库路径是否被 Electron 自身的 libav* 抢占）；② 复现并按需修；③ 修好后把上面那条 `if: false` 改回 `runner.os == 'Linux' && matrix.electron_builder_args == ''`。
 
 ## [1.3.7]
 
