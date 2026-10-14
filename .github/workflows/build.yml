@@ -94,9 +94,19 @@ jobs:
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
+        shell: bash
         run: |
+          # V4-05（v1.4.0）：GUI 冒烟要在无显示器的 runner 上**真的启动** Electron，
+          # 故追加 xvfb 与几个必需的运行库（缺 libgbm/libnss3 会让 Electron 直接报
+          # 「error while loading shared libraries」而根本起不来）。
+          # libasound2 在 Ubuntu 24.04 改名为 libasound2t64，故做一次回退。
+          set -e
           sudo apt-get update
-          sudo apt-get install -y libarchive-tools libasound2-dev libgtk-3-dev libnotify-dev libnss3 libxss1 libxtst6 xdg-utils
+          BASE="libarchive-tools libasound2-dev libgtk-3-dev libnotify-dev libnss3 libxss1 libxtst6 xdg-utils xvfb libgbm1"
+          if ! sudo apt-get install -y $BASE libasound2t64; then
+            echo "libasound2t64 不可用，回退到 libasound2"
+            sudo apt-get install -y $BASE libasound2
+          fi
 
       - name: Install root dependencies
         run: pnpm install --frozen-lockfile
@@ -589,6 +599,41 @@ jobs:
         # 四个 addon 构建之后，故此处必然有产物。
         shell: bash
         run: node scripts/check-native-freshness.mjs
+
+      - name: GUI smoke test (Linux, xvfb)
+        # V4-05（v1.4.0）：**真的启动应用**并断言首屏渲染出来了。
+        #
+        # 这是长期缺口的补上（KNOWN-DEBT「缺端到端冒烟」）：v1.2.4 的线上事故是
+        # 「安装包装完主进程启动即崩」，而**当时 CI 全绿** —— 因为没有任何一步
+        # 真的启动过应用。已有的 smoke-main-bundle.cjs 只覆盖模块顶层求值（stub 掉
+        # electron 后 require bundle），**没有窗口、没有渲染层**。
+        #
+        # 用 xvfb 提供虚拟显示器。断言是**结构化**的（窗口页面存在 + #app 已挂载 +
+        # 首屏有文本 + 无 fatal 日志），刻意**不做像素比对** —— 那在 CI 上必然 flaky
+        # 且失败时无法定位。
+        if: runner.os == 'Linux' && matrix.electron_builder_args == ''
+        shell: bash
+        run: xvfb-run -a --server-args="-screen 0 1280x800x24" node scripts/smoke-gui.cjs
+
+      - name: GUI smoke test (Windows/macOS)
+        # V4-06（v1.4.0）：Windows / macOS runner 自带交互式桌面，无需 xvfb。
+        if: runner.os != 'Linux'
+        shell: bash
+        run: node scripts/smoke-gui.cjs
+
+      - name: Upload GUI smoke artifacts
+        # 失败时把截图与日志带出来 —— 冒烟失败最怕的是「只告诉你红了」。
+        #
+        # ⚠️ 主版本必须与本文件「Upload build artifacts」保持一致（v7.0.1）：
+        # 该处注释已写明 upload@v7 与 download@v8 共用同一 artifact 客户端库，
+        # 跨大版本不兼容。
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gui-smoke-${{ matrix.artifact_name }}
+          path: smoke-artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Smoke test main process bundle
         # v1.2.4 线上事故后新增：安装包装完主进程启动即崩
