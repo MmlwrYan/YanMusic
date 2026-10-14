@@ -103,6 +103,27 @@ else {
     Write-Host '==> 已跳过 cargo check（-SkipNative）' -ForegroundColor Yellow
 }
 
+# 5.5) 原生产物新鲜度（V4-01，v1.4.0）
+# 防的形态：`.node` 在 .gitignore 里而 cargo 长期跑不通 → 出现过「产物 09-25、
+# 源码 09-27」，于是 -SkipNative 报的「全绿」是在**旧二进制**上取得的。
+# **必须放在 cargo check 之后**（先确认能编译，再确认产物是最新的）。
+# 注意：本步骤**不受 -SkipNative 影响** —— 它检查的是「手上这份产物新不新」，
+# 与「这次要不要重新编译」是两件事；跳过它等于放弃「假绿」这一整类判断。
+Invoke-Step -Name '原生产物新鲜度 check-native-freshness' -Exe 'node' -Arguments @('scripts/check-native-freshness.mjs') | Out-Null
+
+# 6) 本机运行时环境（V4-21，v1.4.0）—— 只报告，不阻塞
+# 三处阻塞（Electron 二进制 / ELECTRON_RUN_AS_NODE / cargo 镜像）各自独立，
+# 且长期被误记为「环境不可用」。这里做一次自检并把结论打出来，
+# 但**不因其失败而让整轮验证失败** —— 环境缺件不等于代码有问题。
+if (Test-Path (Join-Path $root 'scripts/setup-local-runtime.ps1')) {
+    Write-Host '==> 本机运行时环境自检（仅报告，不计入成败）' -ForegroundColor Cyan
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'scripts/setup-local-runtime.ps1') 2>&1 |
+        ForEach-Object { Write-Host $_ }
+}
+else {
+    Write-Host '==> 未找到 scripts/setup-local-runtime.ps1，跳过环境自检' -ForegroundColor Yellow
+}
+
 $elapsed = (Get-Date) - $startedAt
 Write-Host "总耗时: $($elapsed.ToString('mm\:ss'))" -ForegroundColor DarkGray
 
