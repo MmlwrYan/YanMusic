@@ -662,6 +662,20 @@ jobs:
       - name: Upload GUI smoke artifacts
         # 失败时把截图与日志带出来 —— 冒烟失败最怕的是「只告诉你红了」。
         #
+        # ⚠️ 路径必须是**系统临时目录**，不是仓库里的目录。
+        # v1.4.0 首发 Release 踩过一次真实事故：冒烟原先把截图写进仓库内的
+        # `smoke-artifacts/`，结果那个文件**被当成 Release 产物发布了**
+        # （该版本多了第 23 个附件，而约定是 22 个；内容还是第一次冒烟失败的画面）。
+        # 现在 `scripts/smoke-gui.cjs` 写到 `os.tmpdir()/yanmusic-smoke-artifacts`。
+        #
+        # ⚠️ 这里**不能用 `${{ runner.temp }}`**：runner 的 temp 与进程里
+        # `os.tmpdir()` 的实际取值在 Linux 上并不一致（后者通常是 `/tmp`）。
+        # `/tmp` 在 Linux/macOS 上就是 `os.tmpdir()` 的取值；
+        # Windows 上 `os.tmpdir()` 是 `%LOCALAPPDATA%\Temp`，而 upload-artifact
+        # 的 `path` 在 Windows 上会解析 `/tmp` 失败 —— 故加一行兜底路径。
+        # `if-no-files-found: ignore` 让「没截图」不导致本步骤失败。
+        # **不要改回仓库内路径。**
+        #
         # ⚠️ 主版本必须与本文件「Upload build artifacts」保持一致（v7.0.1）：
         # 该处注释已写明 upload@v7 与 download@v8 共用同一 artifact 客户端库，
         # 跨大版本不兼容。
@@ -669,7 +683,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: gui-smoke-${{ matrix.artifact_name }}
-          path: smoke-artifacts/
+          path: |
+            /tmp/yanmusic-smoke-artifacts/
+            ${{ runner.temp }}/yanmusic-smoke-artifacts/
           if-no-files-found: ignore
           retention-days: 7
 

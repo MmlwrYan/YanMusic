@@ -404,12 +404,33 @@ const main = async () => {
     return;
   }
 
+  /**
+   * 截图留档目录 —— **必须放在系统临时目录，不能放在仓库工作区里**。
+   *
+   * ⚠️ 这里踩过一次**真实事故**（v1.4.0 首发 Release）：
+   * 最初写到仓库内的 `smoke-artifacts/first-screen.png`，结果它**被当成 Release 产物
+   * 发布了** —— 该版本因此多了第 23 个附件（应为 22 个），
+   * 且那个文件是**第一次冒烟失败的画面**，与正式构建毫无关系。
+   *
+   * 为什么会发生：`electron-builder` 的输出目录就是仓库里的 `release/`，
+   * 而产物上传步骤的 glob 是 `release/YanMusic-*` 家族 —— 任何落进那里的东西
+   * 都会被当作发布产物。工作区里凭空多出来的目录正是这类事故的种子。
+   *
+   * 因此改为写在 `os.tmpdir()` 下的固定子目录：
+   *   · 它**不在仓库里**，不可能被任何基于工作区的 glob 扫到；
+   *   · CI 的上传步骤用**显式路径**取它（见 `build.yml` 的
+   *     `Upload GUI smoke artifacts`），不依赖「工作区里有这个目录」。
+   *
+   * （`.gitignore` 里仍留着 `smoke-artifacts/` 一条，用于兜住本机历史遗留目录。）
+   */
+  const artifactDir = path.join(os.tmpdir(), 'yanmusic-smoke-artifacts');
+
   // 截图留档（失败时由 CI 上传；成功时也留一张便于人工复核）
   if (probe.screenshot) {
-    const shotDir = path.join(ROOT, 'smoke-artifacts');
-    mkdirSync(shotDir, { recursive: true });
-    writeFileSync(path.join(shotDir, 'first-screen.png'), Buffer.from(probe.screenshot, 'base64'));
-    log('已保存首屏截图：smoke-artifacts/first-screen.png');
+    mkdirSync(artifactDir, { recursive: true });
+    const shotPath = path.join(artifactDir, 'first-screen.png');
+    writeFileSync(shotPath, Buffer.from(probe.screenshot, 'base64'));
+    log(`已保存首屏截图：${shotPath}`);
   }
 
   cleanup();
