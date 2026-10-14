@@ -152,6 +152,19 @@ jobs:
             npm run build
           fi
 
+      - name: Check Rust workspace
+        # V4-04（v1.4.0）：补 workspace 级 `cargo check`。
+        #
+        # 为什么现有 4 个 `napi build` 不够：它们各自只编译**自己那个 addon 目标**。
+        # workspace 里那些未被任何 addon 目标引用的**代码路径**（例如某个 crate 的
+        # 条件编译分支、仅被测试/示例引用的模块）不会被编译到 —— 也就是说
+        # 「6 条腿全绿」并不覆盖 workspace 的整体可编译性。
+        #
+        # 本步骤代价很小（依赖已因上面的 addon 构建而就位，缓存命中），
+        # 且顺带会把 `Cargo.toml` 的 resolver 警告暴露出来。
+        shell: bash
+        run: cargo check --workspace --release
+
       - name: Install server runtime dependencies
         working-directory: server
         shell: bash
@@ -523,6 +536,20 @@ jobs:
         shell: bash
         run: pnpm lint
 
+      - name: Run type check
+        # V4-02（v1.4.0）：把类型检查**从 Build desktop app 里拆出来独立成步**。
+        #
+        # 为什么：此前 `Build desktop app` 的执行体是
+        #   `pnpm exec vue-tsc --noEmit && pnpm exec vite build` 后接 electron-builder。
+        # 因为 `&&` 短路，类型非 0 → 不执行 vite build → dist-electron 为空 →
+        # electron-builder 报「entry file ... is corrupted/not found」。
+        # **症状指向产物、根因是类型，隔了两层**，定位成本很高（见项目记忆）。
+        #
+        # 拆成独立步骤后失败归属清晰。`Build desktop app` 里那句**刻意保留**，
+        # 以保持本地 `pnpm build` 的行为完全不变。
+        shell: bash
+        run: pnpm exec vue-tsc --noEmit
+
       - name: Restore Node.js for packaging
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -537,6 +564,31 @@ jobs:
         run: |
           pnpm exec vue-tsc --noEmit && pnpm exec vite build
           pnpm exec electron-builder ${{ matrix.electron_builder_args }} --publish never
+
+      - name: Check first-screen bundle size
+        # V4-03（v1.4.0）：把首屏体积守卫**接进 CI**。
+        #
+        # 为什么必须放在这里：`tests/bundle-size-guard.test.ts` 在 `Run unit tests`
+        # 阶段必然 **skip**（单测早于构建，拿不到 dist/），所以那个用例在 CI 里
+        # 一直是「未校验」。真正把关只能靠本步骤的 CLI —— 它读 dist/index.html，
+        # **没有产物就是失败**（与单测里的 skip 语义刻意不同）。
+        #
+        # 位置必须 **在 Build desktop app 之后**：它依赖 dist/index.html。
+        shell: bash
+        run: node scripts/check-bundle-size.mjs
+
+      - name: Check native addon freshness
+        # V4-01（v1.4.0）：断言 4 个 `.node` 的 mtime **不早于**其 `.rs`/`Cargo.toml`。
+        #
+        # 它防的形态：`.node` 在 .gitignore 里、而 `cargo` 在本机长期跑不通，
+        # 于是出现过「产物 09-25、源码 09-27」——`verify.ps1 -SkipNative` 报的「全绿」
+        # 是在**旧二进制**上取得的。CI 每次全新编译，本步骤是对「构建产物确实来自
+        # 当前源码」的显式确认。
+        #
+        # 产物缺失时脚本会 skip 并**显式标注未校验**（不静默通过）；本步骤排在
+        # 四个 addon 构建之后，故此处必然有产物。
+        shell: bash
+        run: node scripts/check-native-freshness.mjs
 
       - name: Smoke test main process bundle
         # v1.2.4 线上事故后新增：安装包装完主进程启动即崩
