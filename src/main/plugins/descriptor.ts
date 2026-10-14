@@ -1,9 +1,10 @@
-﻿import { app } from 'electron';
+import { app } from 'electron';
 import { existsSync, readFileSync, statSync } from 'fs';
 import { basename, extname, join } from 'path';
 import { pathToFileURL } from 'url';
 import { coerce as semverCoerce, satisfies as semverSatisfies, valid as semverValid } from 'semver';
 import { replaceEchoMusicBranding } from '../../shared/plugin-branding';
+import { findUnknownCapabilityKeys } from '../../shared/plugin-capabilities';
 import {
   normalizePluginVersionRange,
   readPluginVersionRequirement,
@@ -360,6 +361,19 @@ export const toDescriptor = (
     windowExtensionError;
   const invalid = Boolean(error);
 
+  // V4-19（v1.4.0）：未知 capability 键 —— **只告知，不阻断**。
+  //
+  // 之所以不做成 `error`：上游会持续新增能力字段，fail-closed 会让任何上游新字段都装不上
+  //（与 v1.3.3 修掉的「13/13 全被拦」同类事故）。之所以不能静默：运行时实测
+  // `water-lyrics` 的 `capabilities.lyricsPage` 在本项目 0 命中，装完启用即 TypeError，
+  // 而界面只显示「出错」两个字。
+  //
+  // 判定逻辑在 shared/plugin-capabilities.ts（零依赖，可真行为单测）。
+  // ⚠️ 这里**刻意不 import logger**：本模块 import 了 electron，而 logger ↔ storage 是
+  // 已知的循环链（见 MEMORY.md「主进程禁止模块顶层跨模块调用」）。日志出口放在
+  // `plugins.ts::listPlugins()` —— 那里本来就有 log，且是唯一会遍历全部插件的地方。
+  const capabilityWarnings = findUnknownCapabilityKeys(manifest.capabilities);
+
   return {
     id,
     name: String(manifest.name || id),
@@ -381,6 +395,7 @@ export const toDescriptor = (
     invalid,
     error,
     compatibility,
+    capabilityWarnings,
     manifest: {
       ...manifest,
       id,

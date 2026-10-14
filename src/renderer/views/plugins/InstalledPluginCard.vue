@@ -1,16 +1,20 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { Icon } from '@iconify/vue';
 import Button from '@/components/ui/Button.vue';
 import Switch from '@/components/ui/Switch.vue';
 import { iconSettings, iconTriangleAlert } from '@/icons';
 import type { PluginRuntimeRecord } from '@/plugins/runtime';
+import { buildFailureSummary } from './pluginFailureSummary';
 
 type FailureDetail = {
   reason: string;
   isHistorical?: boolean;
+  /** V4-18（v1.4.0）：卡片上的**内联**错误摘要，让用户不必先找到告警图标才知道原因。 */
+  message?: string;
 } | null;
 
-defineProps<{
+const props = defineProps<{
   record: PluginRuntimeRecord;
   busy: boolean;
   safeMode: boolean;
@@ -37,6 +41,18 @@ const emit = defineEmits<{
   (e: 'failure-detail', pluginId: string): void;
   (e: 'icon-error', pluginId: string): void;
 }>();
+
+/**
+ * V4-18：卡片内联故障摘要。
+ *
+ * 刻意**只在「有当前故障」时显示** —— 历史故障（`isHistorical`）不占卡片空间，
+ * 它仍可在详情弹窗里查（否则用户修好一个插件后，卡片会永远挂着一行旧错误）。
+ *
+ * 折叠规则在 `pluginFailureSummary.ts`（零依赖，可直接单测）。
+ */
+const failureSummary = computed(() =>
+  props.hasCurrentFailure ? buildFailureSummary(props.cardFailure?.message) : '',
+);
 </script>
 
 <template>
@@ -108,6 +124,22 @@ const emit = defineEmits<{
     <div v-if="compatibilityMessage" class="plugin-card-error is-warning">
       <Icon :icon="iconTriangleAlert" width="14" height="14" />
       <span>{{ compatibilityMessage }}</span>
+    </div>
+
+    <!--
+      V4-18（v1.4.0）：故障**内联摘要**。
+
+      修复前卡片上只有状态徽标「出错」/「异常」二字，原因要点开右侧那个小三角图标
+      才看得到 —— 而运行时实测（water-lyrics）表明：**用户最先看到的就是这行字**，
+      看不到原因时只能猜是插件坏了、插件源坏了、还是网络问题（与 v1.3.6 修
+      「插件列表静默少显示条目」是同一类体验缺陷）。
+
+      这里只显示**一行摘要**，完整信息（类型/位置/时间/调用栈）仍在详情弹窗里 ——
+      卡片空间有限，且调用栈本来就不适合内联。
+    -->
+    <div v-if="failureSummary" class="plugin-card-error" :title="cardFailure?.message">
+      <Icon :icon="iconTriangleAlert" width="14" height="14" />
+      <span class="plugin-card-error-text">{{ failureSummary }}</span>
     </div>
 
     <div class="plugin-card-id" :title="record.descriptor.id">ID: {{ record.descriptor.id }}</div>

@@ -576,6 +576,16 @@ export const listPlugins = (): PluginListResult => {
       const descriptor = toDescriptor(directory, entry.name, enabledState);
       plugins.push(descriptor);
       seenPluginIds.add(descriptor.id);
+      // V4-19（v1.4.0）：未知 capability 键的**唯一日志出口**。
+      // 放在这里而不是 descriptor.ts —— 后者 import 了 electron，且本文件是唯一会
+      // 遍历全部插件的入口（既能保证每个插件只告警一次，又不给 descriptor.ts 引入
+      // logger 这条已知的循环链）。判定本身是零依赖纯函数，见 shared/plugin-capabilities.ts。
+      if (descriptor.capabilityWarnings.length) {
+        log.warn('[Plugins] manifest 含未知 capability 键，已放行但相关功能可能不可用', {
+          pluginId: descriptor.id,
+          unknownCapabilities: descriptor.capabilityWarnings,
+        });
+      }
       if (!installTimes[descriptor.id]) {
         installTimes[descriptor.id] = getPluginDirectoryInstallTime(directory);
         installTimesChanged = true;

@@ -723,6 +723,18 @@ export interface EchoPluginDescriptor {
   error: string;
   compatibility: EchoPluginCompatibility;
   manifest: EchoPluginManifest;
+  /**
+   * manifest 里**本项目不认识的 capability 键**（按字典序；无则空数组）。
+   *
+   * **语义：只告知，不阻断。** 上游 EchoMusic 会持续新增能力字段，对未知键 fail-closed
+   * 会让「任何一个上游新字段都装不上」（与 v1.3.3 修掉的「13/13 全被拦」同类）。
+   * 但静默放行也不行 —— 运行时实测：`water-lyrics` 声明的 `capabilities.lyricsPage`
+   * 在本项目 0 命中，插件装完启用后直接 `TypeError`，界面只显示「出错」。
+   *
+   * 因此该字段的用途是**在安装前/详情页把风险说出来**，而不是拒绝安装。
+   * 判定逻辑在 `shared/plugin-capabilities.ts`（零依赖，可真行为单测）。
+   */
+  capabilityWarnings: string[];
 }
 
 /*

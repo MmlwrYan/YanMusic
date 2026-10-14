@@ -580,6 +580,21 @@
   word-break: break-word;
 }
 
+/**
+ * V4-18（v1.4.0）：卡片内联错误摘要。
+ *
+ * 与上面 `.plugin-card-error span` 的区别：兼容性提示要**完整可读**（它是行动依据），
+ * 而错误摘要可能是一整句运行时异常（如 `Cannot read properties of undefined (...)`），
+ * 故用 ellipsis 收敛为**一行**，完整内容由 title 与详情弹窗承载。
+ */
+.plugin-card-error-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .plugin-card-actions {
   display: flex;
   align-items: center;
