@@ -5,6 +5,9 @@ import path from 'node:path';
 import { getAppMemoryMetrics } from './memory';
 import { getKvStorage } from '../storage/kv';
 import { getStartupDegradations } from '../startupDiagnostics';
+// V4-09（v1.4.0）：P-3 未知来源计数的聚合出口。该模块**零依赖**
+//（无 electron、无 IO），故此处引入不会给诊断链路带来新的循环风险。
+import { getUnknownSenderCounters, getUnknownSenderTotal } from '../plugins/senderIdentity';
 import { redactValue, type RedactContext } from './redact';
 import { buildZipBuffer, type ZipEntryInput } from './zipWriter';
 import log from '../logger';
@@ -152,6 +155,16 @@ export const collectDiagnosticsEntries = (): ZipEntryInput[] => {
     startupDegradations: redactValue(getStartupDegradations(), redactContext),
     memory: redactValue(getAppMemoryMetrics(), redactContext),
     eventLoopStalls: stallSummary,
+    // V4-09（v1.4.0）：P-3「未知来源放行」的观测汇总。
+    //
+    // 这项数据从 v1.3.0 起就在产生，但**只写日志、没有聚合出口**，于是
+    // 「能否把 unknown-sender 从放行收紧为拒绝」这个决定一直没有依据。
+    // 现在把它放进诊断包 —— 维护者拿到用户导出的包即可直接判断。
+    // 只有通道名与次数（不涉插件内容），故无需脱敏，但为一致性仍过一遍。
+    pluginIdentity: {
+      unknownSenderChannels: redactValue(getUnknownSenderCounters(), redactContext),
+      unknownSenderTotal: getUnknownSenderTotal(),
+    },
     logFiles: logFiles.map((file) => ({
       name: file.name,
       bytes: Buffer.byteLength(file.content, 'utf8'),

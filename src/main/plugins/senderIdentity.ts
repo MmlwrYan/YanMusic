@@ -265,6 +265,32 @@ export const resetUnknownSenderCountersForTest = (): void => {
 };
 
 /**
+ * V4-09（v1.4.0）：导出未知来源计数的**只读快照**（channel → 次数，按次数降序）。
+ *
+ * ## 为什么需要这个出口
+ *
+ * 该计数从 v1.3.0 起就存在，但**只写日志、没有任何聚合出口** ——
+ * 于是「插件身份无法反查」这件事虽然一直在被记录，却**没有人能拿到汇总**，
+ * 也就无法回答规划里那个决定性问题：*能否把未知来源从「放行」收紧为「拒绝」？*
+ *
+ * 运行时实测（2026-10-14）已证明它**一直在产数据**：
+ * `plugins:set-enabled` / `plugins:read-asset` / `plugins:data:get` 各命中过。
+ *
+ * 接进诊断包（`main/diagnostics/bundle.ts`）后，维护者只要拿到用户导出的诊断包，
+ * 就能直接看到「哪些通道有多少次未知来源调用」。
+ *
+ * **本函数不改变任何判定行为**：只读快照，不参与 allow/deny。
+ */
+export const getUnknownSenderCounters = (): Array<{ channel: string; count: number }> =>
+  [...unknownSenderCounters.entries()]
+    .map(([channel, count]) => ({ channel, count }))
+    .sort((left, right) => right.count - left.count || left.channel.localeCompare(right.channel));
+
+/** 未知来源调用的总次数（跨通道）。 */
+export const getUnknownSenderTotal = (): number =>
+  [...unknownSenderCounters.values()].reduce((sum, value) => sum + value, 0);
+
+/**
  * 生成注册表用的守卫函数（依赖倒置：`registry.ts` 只认识这个函数签名，
  * **不认识**插件身份概念）。
  *

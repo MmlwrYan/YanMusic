@@ -816,7 +816,7 @@ const createDefaultMarketplaceSource = (): PluginMarketplaceSource => {
     official: true,
     // 按提供方拼索引地址（此前是写死的 GitHub `/blob/HEAD/` 前缀，换源即失效）
     indexUrl: repo
-      ? toGithubBlobUrl(repo, PLUGIN_MARKETPLACE_INDEX_FILE)
+      ? toBlobUrl(repo, PLUGIN_MARKETPLACE_INDEX_FILE)
       : `${DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL}/blob/HEAD/${PLUGIN_MARKETPLACE_INDEX_FILE}`,
     homepage: DEFAULT_PLUGIN_MARKETPLACE_SOURCE_URL,
     pluginCount: 0,
@@ -900,15 +900,29 @@ const normalizePluginRepositoryUrl = (value: unknown) => {
   };
 };
 
-const toRawGithubUrl = (repo: PluginRepository, filePath: string, ref = 'HEAD') =>
+// ── 插件源 URL 构造（V4-15，v1.4.0）──
+//
+// 这四个曾是 `toRawGithubUrl` / `toGithubArchiveUrl` / `toGithubBlobUrl` /
+// `applyGithubProxyUrl` —— 名字来自「只有 GitHub 一个源」的年代。v1.3.1 起插件源
+// 已是可切换的抽象（`PluginRepository` + `PLUGIN_SOURCE_PROVIDERS`，默认 Gitee），
+// 名字继续叫 Github 会让人误以为这里有 GitHub 专属逻辑。
+//
+// 它们本身都只是**一层转发**（真正实现是 `toRepositoryRawFileUrl` /
+// `toRepositoryArchiveUrl` / `toRepositoryBlobUrl` / `applyPluginSourceProxy`），
+// 故重命名为源无关的名字。
+//
+// ⚠️ **参数名 `githubProxyUrl` 刻意不改**：它是**已持久化的用户设置键名**
+// （`pinia:setting` 里的既有字段），改它会静默丢掉老用户的代理配置。
+// 命名债只还到「不误导读者看代码」这一层，**不动对外契约**。
+const toRawFileUrl = (repo: PluginRepository, filePath: string, ref = 'HEAD') =>
   toRepositoryRawFileUrl(repo, normalizeMarketplacePackagePath(filePath), ref);
 
-const toGithubArchiveUrl = (repo: PluginRepository) => toRepositoryArchiveUrl(repo);
+const toArchiveUrl = (repo: PluginRepository) => toRepositoryArchiveUrl(repo);
 
-const toGithubBlobUrl = (repo: PluginRepository, filePath: string) =>
+const toBlobUrl = (repo: PluginRepository, filePath: string) =>
   toRepositoryBlobUrl(repo, normalizeMarketplacePackagePath(filePath));
 
-const applyGithubProxyUrl = (url: string, githubProxyUrl?: string) =>
+const applySourceProxy = (url: string, githubProxyUrl?: string) =>
   applyPluginSourceProxy(url, githubProxyUrl);
 
 const normalizeMarketplaceStatsApiUrl = (value?: string) =>
@@ -1192,7 +1206,7 @@ const normalizeMarketplaceSource = (
     // 落盘标记会在换源后变陈旧：旧官方源会一直自称官方，而删除守卫正是按它判定的
     // （见 §删除插件源），用户就被永久卡在一个不需要的源上。
     official: isOfficial,
-    indexUrl: toGithubBlobUrl(normalized.repo, PLUGIN_MARKETPLACE_INDEX_FILE),
+    indexUrl: toBlobUrl(normalized.repo, PLUGIN_MARKETPLACE_INDEX_FILE),
     homepage: String(source?.homepage || normalized.url),
     pluginCount: Math.max(0, Number(source?.pluginCount) || 0),
     addedAt: Number(source?.addedAt) || now,
@@ -1258,7 +1272,7 @@ const getMarketplaceEntryDownloadUrl = (
 ) =>
   normalizeMarketplaceDownloadUrl(entry.downloadUrl) ||
   normalizeMarketplaceDownloadUrl(manifest.downloadUrl) ||
-  toGithubArchiveUrl(pluginRepo);
+  toArchiveUrl(pluginRepo);
 
 const resolveMarketplaceAssetUrl = (
   sourceRepo: PluginRepository,
@@ -1273,11 +1287,11 @@ const resolveMarketplaceAssetUrl = (
     packagePath ? `${packagePath}/${source}` : source,
   );
   if (!isSafeMarketplacePackagePath(normalizedAssetPath)) return '';
-  return toRawGithubUrl(sourceRepo, normalizedAssetPath);
+  return toRawFileUrl(sourceRepo, normalizedAssetPath);
 };
 
 const getMarketplaceManifestUrl = (pluginRepo: PluginRepository, packagePath: string) =>
-  toRawGithubUrl(
+  toRawFileUrl(
     pluginRepo,
     packagePath ? `${packagePath}/${PLUGIN_MANIFEST_FILE}` : PLUGIN_MANIFEST_FILE,
   );
@@ -1450,7 +1464,7 @@ const fetchMarketplaceText = async (url: string, githubProxyUrl?: string, forceN
   // forceNetwork（用户手动刷新）时附加唯一查询参数破除 GitHub CDN/本地 HTTP 缓存，
   // 并带上 no-cache 请求头，确保拿到仓库最新内容。
   const bustedUrl = forceNetwork ? appendUrlCacheKey(url, `cb-${Date.now()}`) : url;
-  const targetUrl = applyGithubProxyUrl(bustedUrl, githubProxyUrl);
+  const targetUrl = applySourceProxy(bustedUrl, githubProxyUrl);
   const headers: Record<string, string> = {
     Accept: 'application/json,text/plain,*/*',
     'User-Agent': 'YanMusic-Plugin-Marketplace',
@@ -1479,7 +1493,7 @@ const fetchMarketplaceIndex = async (
 ) => {
   const sourceRepo = parsePluginRepository(source.url);
   if (!sourceRepo) throw new Error('请输入有效的插件源仓库地址（GitHub 或 Gitee）');
-  const indexUrl = toRawGithubUrl(sourceRepo, PLUGIN_MARKETPLACE_INDEX_FILE);
+  const indexUrl = toRawFileUrl(sourceRepo, PLUGIN_MARKETPLACE_INDEX_FILE);
   const raw = await fetchMarketplaceText(indexUrl, githubProxyUrl, forceNetwork);
   const index = JSON.parse(raw) as PluginMarketplaceIndex;
   const result = await normalizeMarketplaceIndexPlugins(
@@ -1498,7 +1512,7 @@ const fetchMarketplaceIndex = async (
     plugins,
     failedCount: result.failedCount,
     recoveredCount: result.recoveredCount,
-    indexUrl: toGithubBlobUrl(sourceRepo, PLUGIN_MARKETPLACE_INDEX_FILE),
+    indexUrl: toBlobUrl(sourceRepo, PLUGIN_MARKETPLACE_INDEX_FILE),
   };
 };
 
@@ -1595,7 +1609,7 @@ const hydrateMarketplacePlugins = async (
       const installed = installedById.get(plugin.id);
       return {
         ...plugin,
-        iconUrl: applyGithubProxyUrl(plugin.iconUrl, githubProxyUrl),
+        iconUrl: applySourceProxy(plugin.iconUrl, githubProxyUrl),
         installed: Boolean(installed),
         installedVersion: installed?.version ?? '',
         updateAvailable: installed
@@ -1803,7 +1817,7 @@ const downloadMarketplacePackage = async (
   directory: string,
   githubProxyUrl?: string,
 ) => {
-  const downloadUrl = applyGithubProxyUrl(plugin.downloadUrl, githubProxyUrl);
+  const downloadUrl = applySourceProxy(plugin.downloadUrl, githubProxyUrl);
   log.info('[PluginMarketplace] package download started', {
     pluginId: plugin.id,
     sourceId: plugin.sourceId,
