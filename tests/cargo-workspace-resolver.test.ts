@@ -61,10 +61,7 @@ test('V4-20：根 Cargo.toml 必须显式声明 resolver = "2"', () => {
   );
   // 必须写在 [workspace] 段里（不是碰巧出现在别处）
   const workspaceSection = workspace.slice(workspace.indexOf('[workspace]'));
-  assert.ok(
-    workspaceSection.includes('resolver'),
-    '`resolver` 必须位于 [workspace] 段内',
-  );
+  assert.ok(workspaceSection.includes('resolver'), '`resolver` 必须位于 [workspace] 段内');
 });
 
 test('V4-20：四个成员的 edition 都必须是 2021 或更新（resolver 2 的前提）', () => {
