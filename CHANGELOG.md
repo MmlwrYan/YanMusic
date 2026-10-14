@@ -16,6 +16,7 @@
 - 本条的修复**不影响已发布产物的功能**（只是多了一个无关附件，已删除）。
 - **用户可见行为无任何变化**；不需为此单独发版，可并入下一个版本。
 - 发布后自检已按 `docs/release-process.md` §7 的五条逐项复核并全部通过（正文与 CHANGELOG 段逐字一致、三平台产物齐全且文件名含正确版本号、非 draft / 非 prerelease、标题符合约定、`HEAD` == `origin/main` == `v1.4.0^{commit}`、23 个历史 tag 均未被移动）。
+- 本条的守卫使测试数从 **395 增至 397**（`tests/smoke-artifacts-outside-repo.test.ts`，2 例）。
 
 ## [1.4.0]
 
