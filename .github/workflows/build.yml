@@ -611,9 +611,9 @@ jobs:
         # Windows-x64 四腿均如此（Linux-x64 的 GUI 冒烟排在 Node 24 段所以通过）。
         #
         # `if` 必须与下面实际会执行的 GUI 冒烟步骤条件一致：
-        # Linux 那条当前是 `if: false`（见其注释里的既有 Linux 启动缺陷），
-        # 所以这里也就不该为 Linux 腿切版本。
-        if: runner.os != 'Linux'
+        # Linux 那条在 v1.4.2 已**重新启用**（根因是「未打包路径跳过了 LD_PRELOAD 修复」，
+        # 已由 `YANMUSIC_SMOKE` 开关修正），所以这里也要覆盖 Linux。
+        if: runner.os != 'Linux' || matrix.electron_builder_args == ''
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
@@ -630,26 +630,32 @@ jobs:
         # 首屏有文本 + 无 fatal 日志），刻意**不做像素比对** —— 那在 CI 上必然 flaky
         # 且失败时无法定位。
         #
-        # ⚠️ **本步骤在 Linux 上暂时停用，原因是一个已定位的既有缺陷（不是本步骤的问题）**：
+        # ⚠️ **v1.4.2 重新启用了本步骤。** 它此前是 `if: false`，原因写在下方（保留原记录）。
         #
-        #   干跑实测（run 38634610994，Linux-x64）：应用能启动、主进程日志正常推进到
-        #   `[MpvController] Native audio options applied`，紧接着打出
-        #   `libavutil: 56.70.100 -> 60.31.100` 然后 **SIGABRT**，
-        #   **始终没有创建主窗口**（因此等 CDP page target 必然超时）。
+        # ## 原来为什么停用（v1.4.0）
         #
-        #   这句 `libavutil: 56.70.100 -> 60.31.100` 是**原生 addon 自己打的**：
-        #   它检测到进程内已加载的 libavutil 版本与 libmpv 需要的版本**不一致**，
-        #   于是主动 abort。而 `src/main/mpv/linuxEnv.ts` 的全部用意就是靠
-        #   `LD_PRELOAD` 预加载系统完整版 libav*、把这件事**避免掉** ——
-        #   在 CI 的这个环境里它没有生效。
+        #   Linux-x64 跑出：应用能启动、主进程日志推进到
+        #   `[MpvController] Native audio options applied`，紧接着
+        #   `libavutil: 56.70.100 -> 60.31.100` 然后 **SIGABRT**，始终没创建主窗口。
         #
-        #   ⇒ 也就是说这是**产品在 Linux 上启动即崩的既有缺陷**，
-        #     与 GUI 冒烟本身无关；本版**不在这里修**（超出「验证链补全」的范围）。
+        # ## 根因（v1.4.2 取证，三层）
         #
-        #   处置：Linux 的 GUI 冒烟**暂时关掉**（`if: false` 保留步骤便于将来直接复活），
-        #   macOS / Windows 四腿照常运行。该缺陷已作为 **P0** 记入 CHANGELOG 与
-        #   `docs/agent/v1.4.0/`，重启条件是「先确认为何 LD_PRELOAD 未生效」。
-        if: false
+        #   ① `src/main/mpv/path.ts` 在 Linux 上**刻意优先用系统 libmpv**
+        #      （`preferSystem = true`；`deb` 也声明 `libmpv2 | libmpv1`）；
+        #   ② 系统 libmpv 依赖 libavutil **60**，而 Electron 内置的是裁剪版 **56**
+        #      → 原生 addon 检测到不一致后**主动 abort**（那句版本号就是它打的）；
+        #   ③ `ensureLinuxMpvEnv()` 本该用 `LD_PRELOAD` 消除该不一致，但原先有
+        #      `if (!app.isPackaged) return true;`，而 **CI 跑的是未打包的 `electron .`**
+        #      ⇒ 修复**根本没执行**。
+        #
+        #   ⇒ 结论：**冒烟覆盖的路径与打包路径不一致**，并非「所有 Linux 用户都启动不了」。
+        #     所以修法不是放宽 `app.isPackaged` 的语义，而是让 env-fix 在**显式冒烟标志**
+        #     （`YANMUSIC_SMOKE=1`，由 `scripts/smoke-gui.cjs` 设置）下也生效
+        #     —— 使冒烟测的就是打包路径实际走的那条链。
+        #
+        # 断言是**结构化**的（窗口页面存在 + #app 已挂载 + 首屏有文本 + 无 fatal 日志），
+        # 刻意**不做像素比对** —— 那在 CI 上必然 flaky 且失败时无法定位。
+        if: runner.os == 'Linux' && matrix.electron_builder_args == ''
         shell: bash
         run: xvfb-run -a --server-args="-screen 0 1280x800x24" node scripts/smoke-gui.cjs
 

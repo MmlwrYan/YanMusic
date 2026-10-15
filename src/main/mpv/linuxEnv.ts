@@ -171,6 +171,33 @@ function buildPreloadList(libDir: string): string[] {
 }
 
 /**
+ * 在**未打包**运行（`electron .`）时是否也要执行本环境修复。
+ *
+ * ## 默认不执行（保持原行为）
+ *
+ * 未打包时通常是开发者在跑开发环境，开发者可以自己设 `LD_PRELOAD`；
+ * 而 `app.relaunch()` 在开发环境里会打断调试，得不偿失。
+ *
+ * ## 但 CI 冒烟必须执行 —— 否则**冒烟覆盖的路径与打包路径不一致**
+ *
+ * 这是个真实踩过的坑（v1.4.0 的 Linux GUI 冒烟一直失败）：
+ *
+ * - CI 用 `electron .` 启动（**未打包**）⇒ 原来直接 `return true` 跳过修复；
+ * - 于是进程里只有 Electron 内置的**裁剪版** libavutil（**56**），
+ *   而系统 libmpv 依赖的是 **60**；
+ * - 原生 addon 检测到版本不一致后**主动 abort**（`libavutil: 56.70.100 -> 60.31.100`）；
+ * - 结果是「应用启动即崩」——**但这只发生在未打包路径**。
+ *   真实用户跑的是打包产物，`app.isPackaged` 为真，**会**走本修复，
+ *   且正式包还应由启动 wrapper 预设 `LD_PRELOAD`。
+ *
+ * ⇒ 冒烟若跳过修复，它测的就不是用户实际走的那条路。
+ * 因此用一个**显式的冒烟标志**（`YANMUSIC_SMOKE=1`，由 `scripts/smoke-gui.cjs` 设置）
+ * 把这条路径打开，而**不是**去放宽 `app.isPackaged` 的语义 ——
+ * 后者会让「未打包」与「已打包」的区别含糊掉，属于更糟的修法。
+ */
+const shouldRunEnvFix = () => app.isPackaged || process.env.YANMUSIC_SMOKE === '1';
+
+/**
  * 检查并修复 Linux 下 libmpv 的运行环境。
  * 必须在 app.ready 之前调用。
  *
@@ -182,8 +209,8 @@ export function ensureLinuxMpvEnv(): boolean {
   // 已经修复过，不再重复
   if (process.env[RELAUNCH_FLAG] === '1') return true;
 
-  // 开发环境下跳过自动 relaunch（开发者可手动设置 LD_PRELOAD）
-  if (!app.isPackaged) return true;
+  // 未打包且非冒烟 ⇒ 跳过（理由见 shouldRunEnvFix 的注释）
+  if (!shouldRunEnvFix()) return true;
 
   // 查找系统 libmpv
   const libmpvDir = findSystemLibmpvDir();
