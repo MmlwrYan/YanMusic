@@ -86,7 +86,7 @@ jobs:
           version: 9
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '20'
           cache: pnpm
@@ -527,7 +527,7 @@ jobs:
         # （`node --test tests/*.test.ts`），需要 Node >= 22.18 的原生 TypeScript 支持；
         # 在 Node 20 上会抛 ERR_UNKNOWN_FILE_EXTENSION: Unknown file extension ".ts"。
         # 只在测试步骤前后切换版本，打包链路继续使用上面已确定的 Node 20（已验证组合）。
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
 
@@ -561,7 +561,7 @@ jobs:
         run: pnpm exec vue-tsc --noEmit
 
       - name: Restore Node.js for packaging
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '20'
 
@@ -614,7 +614,7 @@ jobs:
         # Linux 那条当前是 `if: false`（见其注释里的既有 Linux 启动缺陷），
         # 所以这里也就不该为 Linux 腿切版本。
         if: runner.os != 'Linux'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
 
@@ -676,11 +676,11 @@ jobs:
         # `if-no-files-found: ignore` 让「没截图」不导致本步骤失败。
         # **不要改回仓库内路径。**
         #
-        # ⚠️ 主版本必须与本文件「Upload build artifacts」保持一致（v7.0.1）：
+        # ⚠️ 主版本必须与本文件「Upload build artifacts」保持一致（v7.0.2）：
         # 该处注释已写明 upload@v7 与 download@v8 共用同一 artifact 客户端库，
         # 跨大版本不兼容。
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: gui-smoke-${{ matrix.artifact_name }}
           path: |
@@ -772,7 +772,7 @@ jobs:
           echo "verified $verified_count bundled mpv Mach-O signatures in $mpv_dir"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_glob }}
@@ -796,13 +796,31 @@ jobs:
         # 必须与 upload-artifact 的主版本配套：二者共用 artifact 客户端库
         # （upload-artifact@v7 依赖 @actions/artifact ^6.2.0，download-artifact@v4 仍是 ^2.3.2，
         #  跨大版本不兼容 → 会让 release 作业下载产物失败）。v8.0.1 依赖 ^6.2.1，与 v7 同线。
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        # ⚠️ v8.0.2 与 v7.0.2 仍同线（v1.4.1 一并升级）—— 这两个 bump **必须同时应用**，
+        #    否则就会出现上面那种跨线不兼容。这条约束刻意留在看得见的地方。
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: release-artifacts
           merge-multiple: true
 
       - name: List downloaded artifacts
         run: find release-artifacts -maxdepth 2 -type f | sort
+
+      - name: Check release artifact manifest
+        # v1.4.1（R-2）：发布产物**清单守卫** —— 这是 v1.4.0 发布事故补上的最后一道网。
+        #
+        # 事故：v1.4.0 的 Release 多出了第 23 个附件 `first-screen.png`
+        # （内容还是第一次冒烟失败的画面）。根因（冒烟截图写进仓库内的
+        # `smoke-artifacts/`，被 electron-builder 的 release/ glob 扫到）已修，
+        # 但当时**没有任何守卫拦住它** —— 是人工比对产物清单才发现的（22 → 23）。
+        #
+        # 本步骤断言**精确清单**（22 项：18 个平台产物 + 4 个自动更新元数据），
+        # 多一个或少一个都在**建 Release 之前**失败。
+        # 版本号从 `GITHUB_REF_NAME` 读取，故发新版**不需要改清单**。
+        #
+        # 位置必须在 `Download all build artifacts` 之后、`Create Release` 之前。
+        shell: bash
+        run: node scripts/check-release-artifacts.mjs release-artifacts --version="${GITHUB_REF_NAME}"
 
       - name: Extract changelog for current version
         id: changelog
