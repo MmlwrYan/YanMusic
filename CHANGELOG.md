@@ -1,3 +1,88 @@
+## [1.4.2]
+
+> 本次让 **Linux 的端到端冒烟第一次真正测到「用户实际走的那条路」**，并据此把它从停用状态恢复为长期启用。**不改任何面向用户的行为、不改 Linux 的库选择策略、不改插件 API。**
+>
+> ⚠️ **本版的目标在上游被更正过一次，值得先读**：v1.4.0 曾把这件事记为
+> 「应用在 Linux 上启动即崩」的 **P0**。v1.4.1 期间取证后确认，
+> **真实性质是「开发/CI 的未打包路径与打包路径行为不一致」**——
+> 属**测试保真度**问题，而不是已证实的用户侧缺陷（详见下）。原定级已就地降级。
+
+### 修复
+
+- **三级 · Linux GUI 冒烟覆盖的路径与打包路径不一致**。三层成因：
+  - **① 用系统 libmpv 是设计**：`src/main/mpv/path.ts` 在 Linux 上刻意优先用系统库
+    （`preferSystem`，理由是与滚动更新发行版兼容、并避免 Electron 内置裁剪版 libav* 的符号冲突），
+    `build.deb.depends` 也声明了 `libmpv2 | libmpv1` ⇒ **真实用户用的就是系统库**。
+  - **② 版本不一致导致原生 addon 主动 abort**：系统 libmpv 依赖 **libavutil 60**，
+    而 Electron 内置的是裁剪版 **56**；`yan-mpv-player` 检测到不一致后主动 abort
+    （CI 日志里那句 `libavutil: 56.70.100 -> 60.31.100` 就是它打的）。
+  - **③ 本该消除该不一致的修复没有执行**：`src/main/mpv/linuxEnv.ts` 的
+    `ensureLinuxMpvEnv()` 会用 `LD_PRELOAD` 预加载系统完整的 libav*，
+    但它原先有一条 `if (!app.isPackaged) return true;`，而
+    **CI 跑的是未打包的 `electron .`** ⇒ **修复从未执行**。
+  - **修法**：不改 `app.isPackaged` 的语义，而是新增一个**显式谓词**，
+    让环境修复在「已打包 **或** 显式冒烟」时生效：
+    ```ts
+    const shouldRunEnvFix = () => app.isPackaged || process.env.YANMUSIC_SMOKE === '1';
+    ```
+    （`YANMUSIC_SMOKE=1` 由 `scripts/smoke-gui.cjs` **本来就在设置** —— 这个标志一直存在，
+    只是 `linuxEnv.ts` **从不看它**。）
+  - **⚠️ 重要限定（不得反向推断）**：真实用户跑的是**打包产物**，会走本修复，
+    且正式包还应由启动 wrapper 预设 `LD_PRELOAD`；
+    但本机**无 Linux 环境**，**打包路径是否真的正常从未被验证过**。
+    因此正确表述是「**用户侧风险未知**」，而不是「用户没事」。
+- **三级 · 冒烟把「有意的重启」误判成「启动即崩」（本次一并修掉）**。
+  - **现象**：环境修复生效后，进程退出形态从 `SIGABRT` 变成了
+    **`code=0 signal=null`** —— 那正是 `app.relaunch()` + `app.exit(0)` 的设计行为。
+    但冒烟原来的判据是「3 秒内退出 ⇒ 很可能启动即崩」，**不区分「崩」与「自己重启」**，
+    于是**修复成功了、冒烟却仍红**。
+  - **修法（收紧而非放宽）**：**信号退出 / 非 0 退出码** ⇒ 真崩，立刻失败（与原来一致）；
+    **exit code 0** ⇒ 视为可能的 relaunch，继续等主窗口；若仍超时，失败信息明确指出
+    「进程曾以 0 退出但主窗口始终未出现」，并提示检查是否**反复重启**。
+  - **为什么必须修**：原来的写法会造成**假阴性**，而假阴性会**掩盖真问题**——
+    本版就是这个例子：崩溃早被修好，红的却是判定逻辑。
+
+### 变更
+
+- **Linux GUI 冒烟从停用恢复为长期启用**：`if: false` → `runner.os == 'Linux' && matrix.electron_builder_args == ''`，
+  并让 `Setup Node.js for GUI smoke` 的条件同步覆盖 Linux。
+  **本轮实测（run `38799858490`）**：Linux-x64 的该步骤 **success**，
+  日志清楚显示走了正确的分支：
+  ```text
+  [smoke-gui] 进程在 3 秒内以 code=0 退出 —— 视为有意的 relaunch（Linux 下的 libmpv 环境修复会这样做），继续等待重启后的主窗口
+  [smoke-gui] 主窗口 target: file:///home/runner/work/YanMusic/YanMusic/dist/index.html
+  [smoke-gui] DOM: appRoot=true children=1 textLen=45
+  [smoke-gui] ✅ GUI 冒烟通过：主窗口已创建、渲染层已挂载、首屏有内容、无 fatal 日志
+  ```
+  也就是说：**应用在 Linux 上带着系统 libmpv、经 `LD_PRELOAD` 修复与一次 relaunch 后，确实能起来。**
+
+### 说明
+
+- **本版不含任何用户可感的界面或功能变化**：改动集中在「Linux 环境修复的启用条件」与
+  「冒烟脚本对重启的判定」，两者都不改变打包产物的库选择策略。
+- **验证结果**（本机）：`node --test tests/*.test.ts` → **406 例 / 406 通过 / 0 跳过**
+  （v1.4.1 为 402，**净增 4 例**：`linux-mpv-env-smoke` 3 例）；`vue-tsc --noEmit` → 退出码 0；
+  `eslint .` → 0 error / 0 warning；`vite build` → 退出码 0。
+  - 首屏入口资源：**98 个 / 1,134,751 B**（与 v1.4.1 **完全相同**）→ 在预算内。
+    本版只改主进程代码与 CI，不进首屏。
+  - 本地 Windows GUI 冒烟复跑通过（该平台不走 relaunch 分支，用于确认改动没有波及正常路径）。
+  - `src/main/mpv/linuxEnv.ts` 的 **UTF-8 BOM 已逐字节复核保留**（首字节 `EF BB BF`）。
+- **反向验证**：
+  - `tests/linux-mpv-env-smoke.test.ts` 钉住三件事：③ 谓词必须仍是「已打包 **或** 冒烟」、
+    **不得**退化为无条件 `true`（那会让开发环境被强制 relaunch）；② 冒烟脚本必须**真的设置**
+    该标志（两边名字不一致时，两边各自看都没问题，是最难发现的形态）；
+    ③ 原来的 `if (!app.isPackaged) return true;` 必须已消失。
+    **变异自检**：从谓词里去掉 `YANMUSIC_SMOKE` → **1 例变红**；恢复后 3/3 回绿。
+  - **CI 侧的反向证据**：本轮之前 Linux-x64 是**红**的（`SIGABRT`，随后是 `code=0` 被误判），
+    修好后转为 **success** —— 这条步骤**确实有鉴别力**，不是恒绿。
+- **本版未做的项**：**没有改用「打包的 libmpv」替代系统库**。
+  那会改动 Linux 的库选择策略（一条有注释说明的设计决策），
+  本版只修「路径保真」，**不动策略**。若将来确认打包路径在真实发行版上有问题，
+  再单独评估该方案。
+- **一处过程事故（已修）**：用 PowerShell 的 `Copy-Item` 做「备份→变异→还原」自检时，
+  **弄丢了 `linuxEnv.ts` 的 UTF-8 BOM**，使 `git diff` 出现一个看不见的差异；
+  随后用 Node 按字节补回并复核。已把「备份/还原一律走 Node 字节级读写」写进
+  `docs/agent/v1.4.2/` 的风险记录。
 ## [1.4.1]
 
 > 本次是**收尾与依赖通道清理版**：把 v1.4.0 发布后立即发现的那个事故正式落地，补上它缺的那道守卫，并**打通积压了半个多月的依赖更新通道**。**不改任何用户可见行为、不改插件 API、不改播放链路。**
