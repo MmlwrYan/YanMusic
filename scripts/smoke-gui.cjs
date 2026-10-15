@@ -281,17 +281,58 @@ const main = async () => {
     process.exit(1);
   };
 
-  // ① 进程必须活着
+  /**
+   * ① 进程必须活着 —— **但要区分「崩了」与「自己重启了」**。
+   *
+   * ## 为什么不能简单地「3 秒内退出就算失败」（v1.4.2 修正）
+   *
+   * Linux 上应用**会主动 relaunch 自己一次**：`src/main/mpv/linuxEnv.ts` 的
+   * `ensureLinuxMpvEnv()` 用 `LD_PRELOAD` 预加载系统完整的 libav*，
+   * 以消除「Electron 内置裁剪版 libavutil（56）vs 系统 libmpv 需要的（60）」
+   * 这个不一致；做法就是设好环境变量后 `app.relaunch()` + `app.exit(0)`。
+   *
+   * ⇒ 那个 `exit(0)` 是**设计行为**，不是崩溃。
+   *   原来的写法把它误判成「启动即崩」，于是 Linux 冒烟**永远红**，
+   *   而真实原因已经被修好了 —— 这条误判本身会掩盖真问题。
+   *
+   * ## 判据
+   *
+   * - **信号退出 / 非 0 退出码** ⇒ 真崩（SIGABRT、SIGSEGV、异常退出码）→ 立刻失败；
+   * - **exit code 0** ⇒ 视为**可能是有意的 relaunch**，继续往下等主窗口出现；
+   *   若等到超时仍未出现，失败信息会明确指出
+   *   「进程曾以 0 退出但主窗口始终未出现」——
+   *   这个提示比笼统的「等待超时」可诊断得多。
+   *
+   * ⚠️ **这是收紧还是放宽？** 是**收紧**：原来 `code=0` 也被判失败（假阴性），
+   * 现在真正的信号/非 0 崩溃**仍然立刻失败**，只是不再把设计行为当崩溃。
+   */
   await new Promise((r) => setTimeout(r, 3000));
   if (exited) {
-    fail('应用在启动后 3 秒内就退出了（很可能是启动即崩）');
-    return;
+    const crashed = exitInfo && (exitInfo.signal !== null || exitInfo.code !== 0);
+    if (crashed) {
+      fail('应用在启动后 3 秒内异常退出（很可能是启动即崩）');
+      return;
+    }
+    log(
+      `进程在 3 秒内以 code=0 退出 —— 视为**有意的 relaunch**（Linux 下的 libmpv 环境修复会这样做），` +
+        `继续等待重启后的主窗口`,
+    );
   }
+
+  /** 是否曾观察到「干净退出」（用于超时后的诊断信息）。 */
+  const exitedCleanly = Boolean(
+    exited && exitInfo && exitInfo.code === 0 && exitInfo.signal === null,
+  );
 
   // ② 主窗口页面必须成为 CDP target
   const page = await waitForPageTarget(TIMEOUT_MS - 3000);
   if (!page) {
-    fail(`等待主窗口页面超时（${TIMEOUT_MS}ms 内未出现 CDP page target）`);
+    fail(
+      exitedCleanly
+        ? `主窗口始终未出现（进程曾以 code=0 退出，符合 relaunch 形态，但重启后 ${TIMEOUT_MS}ms 内未见 CDP page target）` +
+            ` —— 请检查 LD_PRELOAD 修复是否让应用**反复**重启，或重启后是否仍失败`
+        : `等待主窗口页面超时（${TIMEOUT_MS}ms 内未出现 CDP page target）`,
+    );
     return;
   }
   log(`主窗口 target: ${page.url}`);
