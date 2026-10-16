@@ -6,6 +6,7 @@ import CustomTabBar from '@/components/ui/CustomTabBar.vue';
 import Scrollbar from '@/components/ui/Scrollbar.vue';
 import { iconChevronRight, iconSearch, iconX } from '@/icons';
 import type { SearchSuggestionCategory } from '../types';
+import { SEARCH_SOURCE_LABELS, SEARCH_SOURCES, type SearchSource } from '../searchHelpers';
 
 // props 仅在模板中使用（模板引用由 vue-eslint-parser 统计），脚本侧不需要绑定
 defineProps<{
@@ -14,6 +15,7 @@ defineProps<{
   hasSearched: boolean;
   isLoadingSuggestions: boolean;
   searchInput: string;
+  searchSource: SearchSource;
   showPinnedTabs: boolean;
   showSuggestions: boolean;
   suggestionCategories: SearchSuggestionCategory[];
@@ -28,7 +30,14 @@ const emit = defineEmits<{
   submit: [];
   'update:activeTabIndex': [value: number];
   'update:searchInput': [value: string];
+  'update:searchSource': [value: SearchSource];
 }>();
+
+/** 音源选项（顺序即显示顺序：酷狗 | 网易云）。 */
+const sourceOptions = SEARCH_SOURCES.map((value) => ({
+  value,
+  label: SEARCH_SOURCE_LABELS[value],
+}));
 
 const inputRef = ref<HTMLInputElement | null>(null);
 
@@ -125,6 +134,25 @@ defineExpose({ inputRef });
           </div>
         </Scrollbar>
       </div>
+    </div>
+
+    <!-- 音源选择（v2.0.0）：位于搜索框正下方，切换搜索走的音源 -->
+    <div class="search-source-bar mt-4" role="tablist" aria-label="搜索音源">
+      <Button
+        v-for="option in sourceOptions"
+        :key="option.value"
+        variant="unstyled"
+        size="none"
+        type="button"
+        role="tab"
+        class="search-source-item"
+        :class="{ 'is-active': option.value === searchSource }"
+        :aria-selected="option.value === searchSource"
+        @mousedown.prevent
+        @click="emit('update:searchSource', option.value)"
+      >
+        {{ option.label }}
+      </Button>
     </div>
 
     <div v-if="hasSearched" class="mt-6">

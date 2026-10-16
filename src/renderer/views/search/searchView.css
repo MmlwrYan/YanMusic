@@ -19,6 +19,44 @@
   z-index: 260;
 }
 
+/* ── 音源选择（v2.0.0）─────────────────────────────────────────────
+   位于搜索框正下方。用下划线式指示器而非 pill 药丸，
+   以免与页面里已有的 CustomTabBar（结果类型页签）在视觉上抢层级。 */
+.search-source-bar {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.search-source-item {
+  position: relative;
+  padding: 6px 2px 8px;
+  font-size: 13px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--color-text-main) 55%, transparent);
+  transition: color 0.16s ease;
+}
+
+.search-source-item:hover {
+  color: color-mix(in srgb, var(--color-text-main) 80%, transparent);
+}
+
+.search-source-item.is-active {
+  color: var(--color-text-main);
+  font-weight: 600;
+}
+
+.search-source-item.is-active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-primary);
+}
+
 .search-input-wrap {
   position: relative;
   height: 44px;

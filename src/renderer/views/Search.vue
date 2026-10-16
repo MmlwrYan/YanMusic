@@ -41,8 +41,10 @@ import {
   replaceResultsByType as applyResultsByType,
   SEARCH_PAGE_SIZE,
   TAB_SEARCH_TYPES,
+  type SearchSource,
   type SearchTabType,
 } from './search/searchHelpers';
+import { searchNetease } from '@/api/netease';
 import type {
   SearchHotCategory,
   SearchMvCardProps,
@@ -63,6 +65,8 @@ const router = useRouter();
 
 const searchInput = ref('');
 const currentSearchKeyword = ref('');
+/** 搜索音源（v2.0.0）。默认酷狗 —— 既有行为完全不变。 */
+const searchSource = ref<SearchSource>('kugou');
 const searchHeaderRef = ref<InstanceType<typeof SearchHeader> | null>(null);
 const isLoading = ref(false);
 const isLoadingHot = ref(true);
@@ -293,6 +297,35 @@ const fetchSuggestions = async (keywords: string) => {
   }
 };
 
+/**
+ * 切换搜索音源（v2.0.0）。
+ *
+ * ## 必须清空已有结果并重搜，不能就地混合
+ *
+ * 两个音源返回的是**两套不同 id 空间**的对象（酷狗 `hash` vs 网易云 `songId`）。
+ * 若把网易云结果追加到酷狗列表后面，列表里会同时存在两种 `source` 的条目，
+ * 而分页游标（`paginationState`）只记了一个 `page` —— 翻页时必然串味。
+ *
+ * 因此切换即「重置 + 用同一关键词重搜」，语义干净。
+ * 搜过才重搜：没搜过时切换不该凭空发起请求。
+ */
+const handleSearchSourceChange = (source: SearchSource) => {
+  if (source === searchSource.value) return;
+  searchSource.value = source;
+
+  clearSearchResults();
+  resetPaginationState();
+
+  const keywords = currentSearchKeyword.value.trim();
+  if (hasSearched.value && keywords) {
+    void runSearch(keywords);
+    return;
+  }
+  // 未搜索状态：只记下选择，等用户提交
+  hasSearched.value = false;
+  showSuggestions.value = false;
+};
+
 const handleSongSort = (field: SortField) => {
   if (songSortField.value === field) {
     if (songSortOrder.value === 'asc') {
@@ -375,11 +408,33 @@ const applyPaginationState = (
     total !== null ? page * SEARCH_PAGE_SIZE < total : listLength >= SEARCH_PAGE_SIZE;
 };
 
+/**
+ * 拉一页搜索结果。
+ *
+ * ## 为什么网易云这一支不能走 `extractSearchLists`
+ *
+ * `extractSearchLists` 取出的条目随后会被 `replaceResultsByType` 交给
+ * `mapSearchSong` 映射 —— 而 `mapSearchSong`（`utils/mappers/song.ts:542`）
+ * **是酷狗专用的**：它读 `SongName`/`MixSongID`/`Singers` 这类酷狗字段。
+ * 把网易云对象喂进去不会报错，只会**静默产出「未知歌曲 / 未知歌手」**。
+ *
+ * 而网易云对象**已经在主进程映射成 Song 形状**（`src/main/netease/api.ts`），
+ * 所以这里直接透传，用 `passthrough` 告诉调用方「别再映射一遍」。
+ */
 const fetchSearchPage = async (keywords: string, type: SearchTabType, page = 1) => {
+  if (searchSource.value === 'netease') {
+    // 网易云本版只支持单曲搜索；其它结果类型明确返回空，而不是硬塞酷狗数据。
+    if (type !== 'song') {
+      return { lists: [], total: 0, passthrough: true as const };
+    }
+    const result = await searchNetease(keywords, SEARCH_PAGE_SIZE, (page - 1) * SEARCH_PAGE_SIZE);
+    return { lists: result.songs, total: result.total, passthrough: true as const };
+  }
+
   const response = await search(keywords, type, page, SEARCH_PAGE_SIZE);
   const lists = extractSearchLists(response);
   const total = extractSearchTotal(response);
-  return { lists, total };
+  return { lists, total, passthrough: false as const };
 };
 
 let latestSearchToken = 0;
@@ -417,10 +472,15 @@ const loadSearchResults = async (
   }
 
   try {
-    const { lists, total } = await fetchSearchPage(keywords, type, 1);
+    const { lists, total, passthrough } = await fetchSearchPage(keywords, type, 1);
     if (token !== latestSearchToken) return;
 
-    replaceResultsByType(type, lists);
+    if (passthrough) {
+      // 网易云：对象已是 Song 形状，直接落库，**不要**再过一次酷狗映射。
+      if (type === 'song') songResults.value = lists as Song[];
+    } else {
+      replaceResultsByType(type, lists);
+    }
     applyPaginationState(type, 1, lists.length, total);
   } catch {
     if (token !== latestSearchToken) return;
@@ -453,10 +513,15 @@ const loadMoreActiveResults = async () => {
   const nextPage = state.page + 1;
 
   try {
-    const { lists, total } = await fetchSearchPage(keywords, type, nextPage);
+    const { lists, total, passthrough } = await fetchSearchPage(keywords, type, nextPage);
     if (token !== latestSearchToken) return;
 
-    appendResultsByType(type, lists, resultRefs);
+    if (passthrough) {
+      // 网易云：已是 Song 形状，直接追加（理由见 fetchSearchPage 的注释）。
+      if (type === 'song') songResults.value = [...songResults.value, ...(lists as Song[])];
+    } else {
+      appendResultsByType(type, lists, resultRefs);
+    }
     applyPaginationState(type, nextPage, lists.length, total);
   } catch {
     paginationState[type].hasMore = false;
@@ -605,6 +670,7 @@ onUnmounted(() => {
         :has-searched="hasSearched"
         :is-loading-suggestions="isLoadingSuggestions"
         :search-input="searchInput"
+        :search-source="searchSource"
         :show-pinned-tabs="showPinnedTabs"
         :show-suggestions="showSuggestions"
         :suggestion-categories="suggestionCategories"
@@ -623,6 +689,7 @@ onUnmounted(() => {
           searchInput = $event;
           handleSearchChanged($event);
         "
+        @update:search-source="handleSearchSourceChange"
       />
 
       <SearchDiscovery

@@ -7,6 +7,7 @@ import {
   resolveEffectiveSongQuality,
 } from '@/utils/song';
 import { resolvePluginAudioSource } from '@/plugins/audioSource';
+import { resolveNeteaseAudioSource } from './neteaseSource';
 import type { AudioQualityValue } from '../../types';
 import type { PlayerState } from './state';
 import {
@@ -152,6 +153,22 @@ export const createResolver = (
       forceReload: Boolean(options?.forceReload),
     });
     if (pluginResolved) return pluginResolved;
+
+    /**
+     * 网易云音源（v2.0.0）——**必须**在 `!track.hash` 守卫之前。
+     *
+     * 网易云曲目没有酷狗 `hash`，若放到守卫之后会被静默挡掉
+     * （表现为「点了没反应、日志只说 hash 缺失」）。
+     *
+     * 放在插件分支**之后**是有意的：保留插件对所有曲目的接管能力。
+     */
+    if (track.source === 'netease') {
+      return await resolveNeteaseAudioSource(track, {
+        quality: audioQuality,
+        forceReload: Boolean(options?.forceReload),
+        resolveQualityLabel: getResolvedAudioQuality,
+      });
+    }
 
     if (!track.hash) {
       logger.warn(

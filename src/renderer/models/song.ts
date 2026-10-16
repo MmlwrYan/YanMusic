@@ -38,6 +38,14 @@ export interface Song {
   mixSongId: string | number;
   fileId?: string | number;
   source?: string;
+  /**
+   * 网易云播放链的绝对过期时间（毫秒时间戳）；仅 `source === 'netease'` 时有意义。
+   *
+   * v2.0.0：网易云取链响应带 `expi`（**剩余秒数**，典型 ~1200s），
+   * 主进程已换算成绝对时间。`neteaseSource.ts` 复用链接前会用它判过期
+   * —— 过期后拉流会直接失败，且不会抛错，所以必须显式判断。
+   */
+  neteaseExpireAt?: number;
   lyric?: string;
   lyricSnippet?: string;
   privilege?: number;

@@ -17,6 +17,19 @@ export const SEARCH_PAGE_SIZE = 30;
 export const TAB_SEARCH_TYPES = ['song', 'special', 'album', 'author', 'lyric', 'mv'] as const;
 export type SearchTabType = (typeof TAB_SEARCH_TYPES)[number];
 
+/**
+ * 搜索音源（v2.0.0）。
+ *
+ * `kugou` 是默认（既有行为完全不变）；`netease` 走主进程的 `/netease/*` 路由。
+ */
+export const SEARCH_SOURCES = ['kugou', 'netease'] as const;
+export type SearchSource = (typeof SEARCH_SOURCES)[number];
+
+export const SEARCH_SOURCE_LABELS: Record<SearchSource, string> = {
+  kugou: '酷狗音源',
+  netease: '网易云音源',
+};
+
 export const createSearchPaginationState = (): SearchPaginationState => ({
   page: 1,
   hasMore: false,
