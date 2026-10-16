@@ -4,7 +4,7 @@ import path from 'path';
 import { app } from 'electron';
 import log from './logger';
 import { applyKugouApiNetworkSettings, refreshNetworkSettingsFromStorage } from './networkSettings';
-
+import { handleNeteaseRequest, isNeteaseRoute } from './netease';
 // --- 类型定义 ---
 
 interface ModuleDefinition {
@@ -227,6 +227,13 @@ const toBufferIfBinary = (data: any): any => {
  * 复现 server/server.js 中 Express 路由处理器的逻辑
  */
 export const handleApiRequest = async (request: ApiRequest): Promise<ApiResponse> => {
+  // 网易云音源（v2.0.0）：**先于**酷狗路由匹配分流。
+  // 前缀隔离由 tests/netease-route-isolation.test.ts 守卫；
+  // 这里不依赖酷狗 moduleMap，因此网易云可用性与酷狗可用性互相独立。
+  if (isNeteaseRoute(request.url)) {
+    return handleNeteaseRequest(request);
+  }
+
   if (!serverReady || !createRequestFn) {
     return { status: 503, body: { code: 503, msg: 'Service not ready' } };
   }
