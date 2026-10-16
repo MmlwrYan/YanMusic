@@ -877,6 +877,26 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify published release assets
+        # v1.4.2（R-2 加固）：**发布后**再校验一次 —— 因为「上传前目录通过」不等于「发布结果正确」。
+        #
+        # v1.4.2 自己又踩了一次 v1.4.0 的坑：
+        #   上传前 `Check release artifact manifest` → ✅ 22 个吻合
+        #   `Create Release`                        → ⬆️ Uploading first-screen.png...
+        #   Release 实际附件                        → **23 个**
+        # 那个无关文件是在**上传集合形成的那一刻**进入的，上传前的目录快照看不见它。
+        # （机制未查清 —— 所以这里不去断言机制，而是把判据放在**真正要保证的东西**上：
+        #   Release 上最后到底有哪些附件。）
+        #
+        # ⚠️ 位置是刻意的：**在 Create Release 之后**，因此检查的是 GitHub 上
+        # **真实存在的附件**，而不是本地目录。它失败时 Release 已经建出来了 ——
+        # 这是**有意的取舍**：宁可让发布作业红着（人能立刻看到并按提示清理），
+        # 也不要让一处静默的偏差被放过。失败信息里直接给出了清理命令。
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/check-published-release-assets.mjs "${{ github.ref_name }}"
+
   notify:
     name: Send Telegram Notification
     if: startsWith(github.ref, 'refs/tags/') && success()

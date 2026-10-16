@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,29 +37,24 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const script = path.join(repoRoot, 'scripts', 'check-release-artifacts.mjs');
 
 /**
- * 允许清单**从发布脚本里机械提取**，而不是在这里重抄一遍。
+ * 允许清单来自**唯一的定义处** `scripts/release-asset-manifest.mjs`。
  *
- * ## 为什么这一点很重要（第一版就是这么错的）
+ * ## 为什么这一点很重要（第一版与第二版分别错在哪）
  *
- * 第一版在本文件里**独立重写**了一份清单，并断言「它有 22 项」。
- * 那条断言是**循环论证** —— 我自己写清单、自己写用例，
- * 两者可以**自洽地一起错**，而且它并不能证明
- * 「脚本里的清单 = 真实发布过的清单」。
+ * - **第一版**在本文件里**独立重写**了一份清单，只断言「它有 22 项」——
+ *   那是**循环论证**：我写清单、我写用例，两者可以**自洽地一起错**，
+ *   而且它证明不了「清单 = 真实发布过的清单」。
+ * - **第二版**改成解析 `check-release-artifacts.mjs` 源码取清单（好了一些），
+ *   但 v1.4.2 又踩了一次 v1.4.0 的坑，说明还需要**发布后**再校验一次；
+ *   于是清单抽到 `release-asset-manifest.mjs` 作为**唯一来源**，
+ *   同时供「上传前」与「发布后」两道校验使用。
  *
- * 现在改成：**解析 `check-release-artifacts.mjs` 的源码**取出两组清单，
- * 再与「v1.4.0 真实发布快照」逐项对比（见下面的专项用例）。
- * 这样任何一边被改动都会立刻暴露。
+ * 本文件直接 import 那份唯一定义，并与**真实发布快照**双向比对。
+ * 这样任何一处漂移都会立刻暴露。
  */
-const scriptSource = readFileSync(script, 'utf8');
-
-const extractList = (name: string): string[] => {
-  const m = scriptSource.match(new RegExp(`const ${name} = \\[([\\s\\S]*?)\\];`));
-  assert.ok(m, `未能从 ${path.basename(script)} 里提取 ${name} —— 守卫脚本的结构变了？`);
-  return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
-};
-
-const PAYLOAD_SUFFIXES = extractList('EXPECTED_PAYLOAD_SUFFIXES');
-const METADATA = extractList('EXPECTED_METADATA');
+const manifest = await import('../scripts/release-asset-manifest.mjs');
+const PAYLOAD_SUFFIXES: string[] = [...manifest.EXPECTED_PAYLOAD_SUFFIXES];
+const METADATA: string[] = [...manifest.EXPECTED_METADATA];
 
 const VERSION = '9.9.9'; // 用一个不存在的版本，确保测的是「清单逻辑」而不是真版本
 

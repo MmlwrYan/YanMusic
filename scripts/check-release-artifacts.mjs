@@ -43,45 +43,19 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  EXPECTED_METADATA,
+  EXPECTED_PAYLOAD_SUFFIXES,
+  EXPECTED_TOTAL,
+  compareAgainstManifest,
+} from './release-asset-manifest.mjs';
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** electron-builder 生成的自动更新元数据（逐个列出，见文件头注释）。 */
-const EXPECTED_METADATA = [
-  'latest.yml',
-  'latest-linux.yml',
-  'latest-linux-arm64.yml',
-  'latest-mac.yml',
-];
-
-/**
- * 非元数据产物的匹配规则：`YanMusic-<版本>-<后缀>`。
- *
- * 后缀清单来自 `build.yml` 各腿的 `artifact_glob`。**刻意列全**：
- * 若某腿悄悄改了产物名，这里会红，而不是静默放行。
- */
-const EXPECTED_PAYLOAD_SUFFIXES = [
-  // macOS
-  'mac-arm64.zip',
-  'mac-x64.zip',
-  'macOS-arm64.dmg',
-  'macOS-x64.dmg',
-  // Windows
-  'Windows-Setup-arm64.exe',
-  'Windows-Setup-x64.exe',
-  // Linux
-  'linux-aarch64.pacman',
-  'linux-aarch64.pkg.tar.zst',
-  'linux-aarch64.rpm',
-  'linux-amd64.deb',
-  'linux-arm64.AppImage',
-  'linux-arm64.deb',
-  'linux-arm64.tar.gz',
-  'linux-x64.pacman',
-  'linux-x64.pkg.tar.zst',
-  'linux-x64.tar.gz',
-  'linux-x86_64.AppImage',
-  'linux-x86_64.rpm',
-];
+// 允许清单**不在这里**定义 —— 它与「发布后校验」共用
+// `scripts/release-asset-manifest.mjs` 这一份唯一定义（见该文件头注释：
+// v1.4.2 的教训是「上传前目录快照通过 ≠ 发布结果正确」，
+// 两道校验必须比对**同一份清单**，否则会各自漂移）。
 
 /** 读版本号：CLI 参数 > 环境变量（CI 的 GITHUB_REF_NAME）> package.json。 */
 const resolveVersion = () => {
@@ -118,35 +92,28 @@ const actual = readdirSync(dir)
   .filter((name) => statSync(path.join(dir, name)).isFile())
   .sort();
 
-const expectedPayload = EXPECTED_PAYLOAD_SUFFIXES.map((s) => `YanMusic-${version}-${s}`);
-const expected = [...expectedPayload, ...EXPECTED_METADATA].sort();
+// 与「发布后校验」共用同一份清单定义（避免两边各自维护而漂移）
+const result = compareAgainstManifest(actual, version);
 
-const expectedSet = new Set(expected);
-const actualSet = new Set(actual);
-
-const missing = expected.filter((n) => !actualSet.has(n));
-const unexpected = actual.filter((n) => !expectedSet.has(n));
-
-if (missing.length || unexpected.length) {
-  const lines = [`  期望 ${expected.length} 个，实际 ${actual.length} 个（版本 ${version}）`, ''];
-  if (unexpected.length) {
-    lines.push(`  ❌ 多出 ${unexpected.length} 个（**不属于发布产物**）：`);
-    for (const n of unexpected) lines.push(`       + ${n}`);
+if (!result.ok) {
+  const lines = [
+    `  期望 ${EXPECTED_TOTAL} 个，实际 ${result.actual.length} 个（版本 ${version}）`,
+    '',
+  ];
+  if (result.unexpected.length) {
+    lines.push(`  ❌ 多出 ${result.unexpected.length} 个（**不属于发布产物**）：`);
+    for (const n of result.unexpected) lines.push(`       + ${n}`);
     lines.push('');
   }
-  if (missing.length) {
-    lines.push(`  ❌ 缺少 ${missing.length} 个（发布不完整）：`);
-    for (const n of missing) lines.push(`       - ${n}`);
+  if (result.missing.length) {
+    lines.push(`  ❌ 缺少 ${result.missing.length} 个（发布不完整）：`);
+    for (const n of result.missing) lines.push(`       - ${n}`);
     lines.push('');
-  }
-  if (!unexpected.length && !missing.length) {
-    // 理论上到不了这里；保留以防将来改动破坏上面的逻辑
-    lines.push('  （清单比对未发现差异，但数量不符 —— 说明判据本身有 bug）');
   }
   fail(lines);
 }
 
-console.log(`✅ 发布产物清单吻合：${actual.length} 个（版本 ${version}）`);
+console.log(`✅ 发布产物清单吻合：${result.actual.length} 个（版本 ${version}）`);
 console.log(
   `   ${EXPECTED_PAYLOAD_SUFFIXES.length} 个平台产物 + ${EXPECTED_METADATA.length} 个自动更新元数据`,
 );
