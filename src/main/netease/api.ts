@@ -33,6 +33,7 @@
 
 import { callNetease } from './client';
 import { mapNeteaseSongs, type NeteaseSong } from './map';
+import log from '../logger';
 
 export { mapNeteaseSong, mapNeteaseSongs, type NeteaseSong } from './map';
 
@@ -137,19 +138,77 @@ export const searchNeteaseSongs = async (
   const songs = mapNeteaseSongs(result.songs);
   const total = typeof result.songCount === 'number' ? result.songCount : songs.length;
 
+  // ⚠️ 搜索端点**不给封面**（只有 `album.picId` 数字，无 picUrl），
+  // 实测 30 首里 0 首带图。不补的话列表全是占位图。
+  // 故这里补一次**批量** detail：实测 30 首一次调用 = 88 KB / 80 ms，代价可接受。
+  const withCovers = await enrichCovers(songs);
+
   return {
-    songs,
+    songs: withCovers,
     total,
     hasMore: typeof result.hasMore === 'boolean' ? result.hasMore : offset + songs.length < total,
   };
 };
 
 /**
+ * 用一次批量 `song/detail` 给搜索结果补封面。
+ *
+ * ## 失败必须**降级而不是抛错**
+ *
+ * 封面是展示层信息，缺了只是占位图；若因它抛错，整个搜索会失败 ——
+ * 那是**用装饰性信息换掉了核心功能**。所以这里吞掉异常并回退到原列表。
+ */
+const enrichCovers = async (songs: NeteaseSong[]): Promise<NeteaseSong[]> => {
+  if (songs.length === 0) return songs;
+  // 已经有封面的（未来上游可能直接给）就不重复请求
+  if (songs.every((s) => s.coverUrl)) return songs;
+
+  try {
+    const details = await getNeteaseSongDetail(songs.map((s) => s.id));
+    if (details.length === 0) return songs;
+
+    const byId = new Map(details.map((d) => [d.id, d]));
+    return songs.map((song) => {
+      const detail = byId.get(song.id);
+      if (!detail) return song;
+      // 只补封面（和其它实为空的字段），**不整体替换**：
+      // 搜索端点的歌名/歌手有时比 detail 更完整。
+      return {
+        ...song,
+        coverUrl: detail.coverUrl || song.coverUrl,
+        cover: detail.cover || song.cover,
+        albumName: song.albumName || detail.albumName,
+        album: song.album || detail.album,
+      };
+    });
+  } catch (error) {
+    // 记一笔即可，不打断搜索（封面缺失只影响观感）
+    log.warn('[netease] 补封面失败，列表将使用占位图', {
+      count: songs.length,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return songs;
+  }
+};
+
+/**
  * 批量取歌曲详情。
  *
- * ⚠️ 实测发现：`song/detail` 返回的 `ar` 是**空数组**、`al.picUrl` 也缺失，
- * 元数据明显比 `search/get` 贫瘠。因此**列表展示必须依赖搜索端点返回的字段**，
- * 本函数只作为「按 id 补一首」的兜底，不要指望它补出歌手/封面。
+ * ## ⚠️ 这两个端点的「贫富」关系与直觉相反（实测更正）
+ *
+ * 我最初写下的是「`song/detail` 更贫瘠、`al.picUrl` 缺失」—— **这是错的**，
+ * 因为我当时只查了 `al` 字段，而本端点给的是**完整 `album` 对象**，里面有 `picUrl`。
+ *
+ * 实测（2026-10-17，30 首）：
+ *
+ * | 端点 | 封面 | 歌手 | 备注 |
+ * |---|---|---|---|
+ * | `/api/search/get` | **0/30** —— 只有 `album.picId`（数字），**没有 picUrl** | 有 | 元数据够，但**拿不到图** |
+ * | `/api/song/detail` | **30/30** —— `album.picUrl` 完整 | 有 | 响应 88 KB / 80 ms |
+ *
+ * ⇒ 所以分工是：**搜索拿列表，detail 补封面**。
+ * 封面 URL 无法由 `picId` 直接拼出（CDN 路径含一段 hash，实测裸拼 4 个 host 全 404），
+ * 必须靠本端点。
  */
 export const getNeteaseSongDetail = async (ids: (string | number)[]): Promise<NeteaseSong[]> => {
   if (ids.length === 0) return [];

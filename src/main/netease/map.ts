@@ -23,9 +23,18 @@ interface RawArtist {
 interface RawAlbum {
   id?: number | string;
   name?: string;
+  /**
+   * 封面 URL —— **实测只有 `/api/song/detail` 会给**。
+   *
+   * `/api/search/get` 只给 `picId`（数字），且该 id **无法直接拼成 URL**
+   * （CDN 路径含一段 hash，实测裸拼 p1–p4 四个 host 全 404）。
+   * 所以封面必须靠 `song/detail` 补，见 `api.ts` 的 `enrichCovers`。
+   */
   picUrl?: string;
-  /** 旧版 `search/get` 用的是 `picture` 而不是 `picUrl`。 */
+  /** 少数端点用 `picture`；一并认。 */
   picture?: string;
+  /** 仅搜索端点提供，无 URL 价值，留作诊断。 */
+  picId?: number | string;
 }
 
 export interface RawNeteaseSong {
@@ -96,7 +105,9 @@ export const mapNeteaseSong = (raw: unknown): NeteaseSong | null => {
     .join(' / ');
 
   const album = pickAlbum(song);
-  // 新版端点给 `picUrl`，旧版 `search/get` 给 `picture` —— 两个都认。
+  // `picUrl` 是主字段（`/api/song/detail` 提供）；`picture` 作兼容兜底。
+  // ⚠️ `/api/search/get` **两个都没有**，只有 `picId`（拼不出 URL）——
+  // 所以搜索后必须补一次批量 detail，见 `api.ts` 的 `enrichCovers`。
   const cover = coverWithSize(album?.picUrl ?? album?.picture);
 
   // ⚠️ 单位：网易云给**毫秒**，而 `Song.duration` 是**秒**。
