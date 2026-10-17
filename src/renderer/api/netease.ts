@@ -58,7 +58,13 @@ export interface NeteaseAudioUrl {
 /** 取链失败时的正常业务返回（**不是** HTTP 错误）。 */
 export interface NeteaseAudioUrlEmpty {
   url: null;
-  reason: string;
+  /**
+   * 不可播的具体原因。
+   *
+   * `need-purchase` 来自上游 `freeTrialPrivilege.resConsumable === true`（实测判据）。
+   * **不要**用 `fee` 推断：实测 `fee=8` 的歌照样给完整 URL。
+   */
+  reason: 'need-purchase' | 'unknown';
   triedBitrates: number[];
 }
 

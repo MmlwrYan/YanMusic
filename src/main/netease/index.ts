@@ -93,10 +93,9 @@ export const handleNeteaseRequest = async (request: ApiRequest): Promise<ApiResp
             : neteaseBitrateCandidates(str(params.quality));
 
         const resolved = await resolveNeteaseAudioUrl(id, bitrates);
-        if (!resolved) {
-          // 明确区分「接口挂了」与「这首不可播」：前者抛错变 502，后者是正常业务结果。
-          return ok({ url: null, reason: 'no-playable-url', triedBitrates: bitrates });
-        }
+        // `resolveNeteaseAudioUrl` 现在总是返回对象：
+        // 成功是 `{ url, … }`，不可播是 `{ url: null, reason, triedBitrates }`。
+        // 「接口挂了」走的是抛错路径（上面的 catch → 502），两者语义已分开。
         return ok(resolved);
       }
 

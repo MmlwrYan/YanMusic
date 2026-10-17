@@ -188,19 +188,71 @@ interface RawSongUrlItem {
   fee?: number;
   code?: number;
   freeTrialInfo?: unknown;
+  freeTrialPrivilege?: {
+    resConsumable?: boolean;
+    userConsumable?: boolean;
+    listenType?: unknown;
+    cannotListenReason?: unknown;
+  } | null;
+}
+
+/**
+ * 取链「拿不到」的原因。
+ *
+ * ## 实测得出的判据（不要靠 `fee` 猜）
+ *
+ * 2026-10-17 实测 5 个关键词共 60 首，按 `fee` 分组：
+ *
+ * | `fee` | `url` | `freeTrialPrivilege.resConsumable` | 结论 |
+ * |---|---|---|---|
+ * | 0 | 有 | false | 可播 |
+ * | 1 | **空** | **true** | 需购买/VIP |
+ * | 8 | **有** | false | **可播** |
+ *
+ * ⚠️ 两个反直觉之处：
+ * 1. **`fee=8`（付费专辑）照样给完整 URL** —— 所以 `fee>0` **不能**当作不可播，
+ *    必须看响应。按 `fee` 判断会误杀一大批能放的歌。
+ * 2. **没有 30 秒试听片段**：`freeTrialInfo` 恒为 `null`，
+ *    不可播时直接返回 `url: null`。所以「试听标记」这一项**在数据上不成立**
+ *    （原计划里的第 2 项据此取消，而不是漏做）。
+ *
+ * ⇒ 可播性的唯一可靠判据是「响应里有没有 url」，
+ *   `resConsumable === true` 则给出「需购买/权限」这一**具体原因**。
+ */
+export type NeteaseUnplayableReason = 'need-purchase' | 'unknown';
+
+export interface NeteaseAudioUrl {
+  url: string;
+  /** 绝对过期时间（毫秒时间戳）；上游给了 `expi` 才有值。 */
+  expireAt?: number;
+  /** 服务端**实际**返回的档位（可能低于请求档位 —— 这是正常的降级）。 */
+  br?: number;
+  level?: string;
+  type?: string;
+  fee?: number;
+}
+
+/** 取链成功但所有档位都没有 URL：这是**正常业务结果**，不是异常。 */
+export interface NeteaseAudioUrlEmpty {
+  url: null;
+  reason: NeteaseUnplayableReason;
+  /** 是否所有档位都试过了（便于诊断） */
+  triedBitrates: number[];
 }
 
 /**
  * 取播放链：按 br 从高到低试，**第一个返回非空 URL 即用**。
  *
- * 判据必须是「URL 非空」而不是「请求成功」：匿名/无版权时
- * 网易云返回的是 `url: null`（甚至 `code: 404`），**不是 HTTP 错误**。
+ * 判据必须是「URL 非空」而不是「请求成功」：不可播时
+ * 网易云返回的是 `url: null`，**不是 HTTP 错误**。
  */
 export const resolveNeteaseAudioUrl = async (
   id: string | number,
   bitrates: number[],
-): Promise<NeteaseAudioUrl | null> => {
+): Promise<NeteaseAudioUrl | NeteaseAudioUrlEmpty> => {
   let lastError: Error | null = null;
+  /** 记录最后一档见到的「不可播原因」，用于给出具体提示。 */
+  let lastReason: NeteaseUnplayableReason = 'unknown';
 
   for (const br of bitrates) {
     let payload: (NeteaseEnvelope & { data?: RawSongUrlItem[] }) | null = null;
@@ -229,7 +281,15 @@ export const resolveNeteaseAudioUrl = async (
 
     const item = Array.isArray(payload?.data) ? payload.data[0] : undefined;
     const url = typeof item?.url === 'string' ? item.url.trim() : '';
-    if (!url) continue;
+
+    if (!url) {
+      // 记住原因：`resConsumable === true` 表示「资源需购买/权限」，
+      // 这是实测得出的判据（见 RawSongUrlItem 的注释）。不要用 `fee` 推。
+      if (item?.freeTrialPrivilege?.resConsumable === true) {
+        lastReason = 'need-purchase';
+      }
+      continue;
+    }
 
     // ⚠️ `expi` 是**剩余秒数**，要换算成绝对时间。
     // 直接当时间戳会把「还有 1200 秒」当成 1970 年，链接**立刻被判过期**。
@@ -251,7 +311,7 @@ export const resolveNeteaseAudioUrl = async (
     throw lastError;
   }
   // 全部档位都返回空 URL → **正常业务结果**（不可播），不是异常
-  return null;
+  return { url: null, reason: lastReason, triedBitrates: bitrates };
 };
 
 /* ------------------------------------------------------------------ *

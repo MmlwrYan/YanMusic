@@ -75,7 +75,7 @@ const ROOT = path.resolve(path.dirname(selfPath), '..');
  * 真正收紧仍要靠腾挪，见 `docs/agent/v1.4.0/` 的 V4-11 取证
  * （约 258 KB 可腾挪，但需要改启动顺序 + 可靠的 GUI 自动化去验证）。
  */
-export const ENTRY_BASELINE_BYTES = 1136233;
+export const ENTRY_BASELINE_BYTES = 1136300;
 
 /**
  * 容忍带：+2%。

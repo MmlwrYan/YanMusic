@@ -46,9 +46,35 @@ const AUDIO_QUALITY_ORDER: Array<'128' | '320' | 'flac' | 'high' | 'super'> = [
   'super',
 ];
 
-export const isVipSong = (song: Song): boolean => song.privilege === 10 && song.payType === 3;
+/**
+ * VIP / 付费判定。
+ *
+ * ## 网易云分支（v2.0.0）：靠 `fee`，因为**没有** `privilege`/`payType`
+ *
+ * 酷狗用 `privilege` + `payType` 表达权益；网易云的搜索端点不返回这两个字段，
+ * 它给的是 `fee`。若不补这一支，网易云的付费/VIP 曲目在本项目里
+ * **永远被当成免费歌**，于是「不可播」时只会给出笼统的「暂时无法获取可用音源」，
+ * 用户不知道是自己没买还是真没版权。
+ *
+ * ## ⚠️ `fee` 只用于**提示**，绝不用于判定能不能播
+ *
+ * 2026-10-17 实测（5 个关键词 60 首，按 `fee` 分组）：
+ *
+ * | `fee` | 取链结果 | 含义 |
+ * |---|---|---|
+ * | 0 | 有 url | 免费可播 |
+ * | 1 | **url 为空** + `resConsumable: true` | 需购买/VIP |
+ * | 8 | **有 url**（完整 12 MB） | **付费但可播** |
+ *
+ * ⇒ `fee === 8` 的歌**照样能放**。若拿 `fee` 去卡可播性，会**误杀一大批能放的歌**。
+ * 因此这里只把它映射成「提示标签」，可播性仍由**取链结果**决定
+ * （见 `neteaseSource.ts` 与 `canPlaySong` 的注释）。
+ */
+export const isVipSong = (song: Song): boolean =>
+  (song.privilege === 10 && song.payType === 3) || song.fee === 1;
 
-export const isPaidSong = (song: Song): boolean => song.privilege === 10 && song.payType === 2;
+export const isPaidSong = (song: Song): boolean =>
+  (song.privilege === 10 && song.payType === 2) || song.fee === 4 || song.fee === 8;
 
 export const isNoCopyrightSong = (song: Song): boolean => song.privilege === 5;
 
@@ -60,8 +86,29 @@ export const canPlaySong = (song: Song): boolean => {
   return true;
 };
 
+/**
+ * 该曲目**具备取链依据**（不代表一定取得到，取链结果才是最终判据）。
+ *
+ * ## 为什么网易云要单独一条（v2.0.0 的一个真 bug）
+ *
+ * 原判据是 `hash || audioUrl` —— 这是**酷狗形状**的假设：酷狗曲目一进列表就带 `hash`，
+ * 网易云曲目两者都是空：
+ * - `hash` 恒为空（网易云没有酷狗 hash，靠 `songId`）；
+ * - `audioUrl` 是**懒解析**的，播放前本来就是空。
+ *
+ * 于是网易云曲目一律被判为「不可播」，`resolvePlayableQueue` 把它们**整个过滤掉**
+ * 并回退到队列里第一首酷狗歌 —— 用户看到的现象是：
+ * **点了网易云的歌，却播放了另一首（上一次队列里的酷狗曲目）**。
+ * 更糟的是**日志里一行 netease 都没有**，因为请求根本没发出去。
+ *
+ * ⇒ 网易云曲目的可播性只能由**取链结果**决定（`neteaseSource.ts` 负责），
+ * 这里只判断「有没有取链依据」，所以对网易云直接放行。
+ */
+const hasResolvableSource = (song: Song): boolean =>
+  song.source === 'netease' ? true : Boolean(song.hash?.trim() || song.audioUrl?.trim());
+
 export const isPlayableSong = (song: Song): boolean =>
-  Boolean(song.hash?.trim() || song.audioUrl?.trim()) && canPlaySong(song);
+  hasResolvableSource(song) && canPlaySong(song);
 
 export const isSameSong = (left: Song, right: Song): boolean => {
   const leftMixSongId = String(left.mixSongId ?? '0');

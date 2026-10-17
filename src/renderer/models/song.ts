@@ -46,6 +46,17 @@ export interface Song {
    * —— 过期后拉流会直接失败，且不会抛错，所以必须显式判断。
    */
   neteaseExpireAt?: number;
+  /**
+   * 网易云的 `fee` 字段；仅 `source === 'netease'` 时有意义。
+   *
+   * v2.0.0：网易云**不返回**酷狗的 `privilege`/`payType`，它用 `fee` 表达权益。
+   * `isVipSong`/`isPaidSong`（`utils/song.ts`）据此补了网易云分支，
+   * 让「不可播」时能给出「需要购买/VIP」而不是笼统的「无法获取音源」。
+   *
+   * ⚠️ **只用于提示标签，不用于判定可播性**：实测 `fee === 8` 的歌照样给完整
+   * URL（可播），拿 `fee` 卡可播性会误杀一大批。
+   */
+  fee?: number;
   lyric?: string;
   lyricSnippet?: string;
   privilege?: number;
