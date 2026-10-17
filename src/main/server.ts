@@ -5,6 +5,8 @@ import { app } from 'electron';
 import log from './logger';
 import { applyKugouApiNetworkSettings, refreshNetworkSettingsFromStorage } from './networkSettings';
 import { handleNeteaseRequest, isNeteaseRoute } from './netease';
+import { handleSodaRequest } from './soda';
+import { isSodaRoute } from '../shared/sodaRoutes';
 // --- 类型定义 ---
 
 interface ModuleDefinition {
@@ -232,6 +234,14 @@ export const handleApiRequest = async (request: ApiRequest): Promise<ApiResponse
   // 这里不依赖酷狗 moduleMap，因此网易云可用性与酷狗可用性互相独立。
   if (isNeteaseRoute(request.url)) {
     return handleNeteaseRequest(request);
+  }
+
+  // Soda 音源（v1.5.0）：同样先分流。
+  // 它是**实验性、默认关闭**的（依赖用户本地的第三方原生模块），
+  // 未启用时只会返回 503 + 明确原因，绝不影响其它音源。
+  // 前缀隔离由 tests/soda-route-isolation.test.ts 守卫。
+  if (isSodaRoute(request.url)) {
+    return handleSodaRequest(request);
   }
 
   if (!serverReady || !createRequestFn) {
