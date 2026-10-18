@@ -2,6 +2,11 @@
 dist/
 dist-electron/
 release/
+# E2E 钩子守卫（tests/e2e-hook-not-in-production.test.ts）的临时构建目录。
+# 正常路径下测试会在 finally 里删掉它；但删除失败（如被安全删除策略拦下）时
+# 会残留 80+ 个产物文件，而它既不在 dist/ 下、也不在 .gitignore 里 ——
+# 于是 `git status` 变脏、`pnpm lint` 去遍历这些产物（实测 lint 从 1 分钟涨到 10 分钟以上）。
+dist-e2e-guard/
 # 只排除随构建放入的大体积 libmpv 运行时目录；
 # build/ 下的脚本与资源（afterPack.js、installer.nsh、icons/、tools/）是构建必需且必须被跟踪，
 # 因此不能整目录忽略，否则新增的构建脚本会被静默漏提交。
@@ -43,6 +48,13 @@ yarn-error.log*
 # 过程留痕目录：docs/agent/ 仅作本地开发留痕，**不入库**（2026-09-27 决策）
 # 如需让它入库，请删除下面这条规则并执行 `git add -f docs/agent/`。
 docs/agent/
+
+# 对第三方软件的逆向取证材料（分析报告 + 解包出来的产物，约 1.8 MB）。
+# 与 docs/agent/ 同性质：**本地开发留痕，不入库**。理由不止是体积 ——
+# 里面含第三方客户端的解包产物与其内部常量，本仓库是公开仓库，
+# 把这些东西提交上去既无益于构建，也超出「借鉴公开接口」的范围。
+# eslint 侧已在 eslint.config.js 里同步 ignore（否则 lint 会被这些脚本报 1510 个 error）。
+docs/reports-for-other-apps/
 
 # pnpm
 .pnpm-store/

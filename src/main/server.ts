@@ -6,7 +6,10 @@ import log from './logger';
 import { applyKugouApiNetworkSettings, refreshNetworkSettingsFromStorage } from './networkSettings';
 import { handleNeteaseRequest, isNeteaseRoute } from './netease';
 import { handleSodaRequest } from './soda';
-import { isSodaRoute } from '../shared/sodaRoutes';
+import { isSodaRoute } from '../shared/musicSourceRoutes';
+import { handleKuwoRequest } from './kuwo';
+import { handleJooxRequest } from './joox';
+import { JOOX_ROUTE_PREFIX, KUWO_ROUTE_PREFIX, isRouteOf } from '../shared/musicSourceRoutes';
 // --- 类型定义 ---
 
 interface ModuleDefinition {
@@ -242,6 +245,16 @@ export const handleApiRequest = async (request: ApiRequest): Promise<ApiResponse
   // 前缀隔离由 tests/soda-route-isolation.test.ts 守卫。
   if (isSodaRoute(request.url)) {
     return handleSodaRequest(request);
+  }
+
+  // 酷我 / JOOX 音源（v2.0.0）：同样**先于**酷狗路由匹配分流。
+  // 这两个源是纯 HTTP 适配层（无原生模块、无凭据），因此没有「未启用」状态。
+  // 前缀隔离由 tests/music-source-routes.test.ts 守卫。
+  if (isRouteOf(request.url, KUWO_ROUTE_PREFIX)) {
+    return handleKuwoRequest(request);
+  }
+  if (isRouteOf(request.url, JOOX_ROUTE_PREFIX)) {
+    return handleJooxRequest(request);
   }
 
   if (!serverReady || !createRequestFn) {

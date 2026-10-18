@@ -4,8 +4,8 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { SODA_ROUTE_PREFIX, isSodaRoute, sodaEndpointOf } from '../src/shared/sodaRoutes.ts';
-import { isNeteaseRoute } from '../src/shared/neteaseRoutes.ts';
+import { SODA_ROUTE_PREFIX, sodaEndpointOf } from '../src/shared/musicSourceRoutes.ts';
+import { isNeteaseRoute, isSodaRoute } from '../src/shared/musicSourceRoutes.ts';
 
 /**
  * v1.5.0 · Soda 路由与另两个音源的**隔离守卫**。

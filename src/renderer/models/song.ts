@@ -1,3 +1,5 @@
+import type { AudioQualityValue } from '@/types';
+
 export interface SongRelateGood {
   hash?: string;
   quality?: string;
@@ -46,6 +48,25 @@ export interface Song {
    * —— 过期后拉流会直接失败，且不会抛错，所以必须显式判断。
    */
   neteaseExpireAt?: number;
+  /**
+   * 酷我曲目的原始 rid（形如 `MUSIC_228908`）；仅 `source === 'kuwo'` 时有意义。
+   *
+   * v2.0.0：酷我接口**不支持按 rid 取链**，只能拿「歌名 歌手」重查，
+   * 因此 `rid` 的唯一用途是**校验**「重查定位到的确实是这首歌」——
+   * 上游结果顺序变化时，这是防「点了 A 播了 B」的唯一手段。
+   */
+  kuwoRid?: string;
+  /**
+   * JOOX 曲目的 `songmid`；仅 `source === 'joox'` 时有意义。
+   *
+   * v2.0.0：JOOX 接口支持 `mid=` 精确查询，所以取链**只依赖它**，
+   * 不再像原客户端那样用「关键词 + 序号」。
+   */
+  jooxMid?: string;
+  /** 第三方音源取链的本地时间戳（毫秒）；用于判断链接能否复用。 */
+  sourceUrlFetchedAt?: number;
+  /** 第三方音源实际下发的档位标签（可能与请求档位不同）。 */
+  sourceQualityLabel?: AudioQualityValue;
   /**
    * 网易云的 `fee` 字段；仅 `source === 'netease'` 时有意义。
    *

@@ -16,7 +16,8 @@ export type PlaybackNotice = {
  * Yan 暂无 currentResolvedSourceKind / 插件音源子系统，故此处仅作为可选标注，
  * 不参与任何播放决策，既有代码不传该字段时行为完全不变。
  */
-export type PlaybackSourceKind = 'catalog' | 'cloud' | 'plugin' | 'netease';
+export type PlaybackSourceKind =
+  'catalog' | 'cloud' | 'plugin' | 'netease' | 'kuwo' | 'joox' | 'soda';
 
 export type ResolvedAudioSource = {
   url: string;

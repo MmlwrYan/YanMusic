@@ -20,15 +20,39 @@ export type SearchTabType = (typeof TAB_SEARCH_TYPES)[number];
 /**
  * 搜索音源（v2.0.0）。
  *
- * `kugou` 是默认（既有行为完全不变）；`netease` 走主进程的 `/netease/*` 路由。
+ * `kugou` 是默认（既有行为完全不变）；其余三个源各走主进程的独立前缀：
+ * `/netease/*`、`/kuwo/*`、`/joox/*`。
+ *
+ * ⚠️ 顺序即 UI 上的按钮顺序。酷狗放第一是刻意的 —— 它是原生音源，
+ * 可用性最好；把第三方源放前面会让首屏观感变差（JOOX 没有封面）。
  */
-export const SEARCH_SOURCES = ['kugou', 'netease'] as const;
+export const SEARCH_SOURCES = ['kugou', 'netease', 'kuwo', 'joox'] as const;
 export type SearchSource = (typeof SEARCH_SOURCES)[number];
 
 export const SEARCH_SOURCE_LABELS: Record<SearchSource, string> = {
   kugou: '酷狗音源',
   netease: '网易云音源',
+  kuwo: '酷我音源',
+  joox: 'JOOX 音源',
 };
+
+/**
+ * 该音源在「按类型搜索」时**支持哪些结果类型**。
+ *
+ * 三个第三方源都只做单曲搜索：它们的接口没有专辑/歌单/歌手/MV 端点。
+ * 明确列出（而不是在 UI 里硬判 `=== 'kugou'`）是为了将来某个源补齐能力时
+ * 只改一处。
+ */
+export const SEARCH_SOURCE_TYPES: Record<SearchSource, readonly SearchTabType[]> = {
+  kugou: TAB_SEARCH_TYPES,
+  netease: ['song'],
+  kuwo: ['song'],
+  joox: ['song'],
+};
+
+/** 该音源是否支持某个结果类型。 */
+export const sourceSupportsType = (source: SearchSource, type: SearchTabType): boolean =>
+  SEARCH_SOURCE_TYPES[source].includes(type);
 
 export const createSearchPaginationState = (): SearchPaginationState => ({
   page: 1,

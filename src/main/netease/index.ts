@@ -21,11 +21,11 @@ import {
   resolveNeteaseAudioUrl,
   searchNeteaseSongs,
 } from './api';
-import { neteaseEndpointOf } from '../../shared/neteaseRoutes';
+import { neteaseEndpointOf } from '../../shared/musicSourceRoutes';
 import type { ApiRequest, ApiResponse } from '../server';
 
-/** 所有网易云路由共用的前缀（定义在 `shared/neteaseRoutes.ts`，便于被测试直接驱动）。 */
-export { NETEASE_ROUTE_PREFIX, isNeteaseRoute } from '../../shared/neteaseRoutes';
+/** 所有网易云路由共用的前缀（定义在 `shared/musicSourceRoutes.ts`，便于被测试直接驱动）。 */
+export { NETEASE_ROUTE_PREFIX, isNeteaseRoute } from '../../shared/musicSourceRoutes';
 
 const ok = (body: unknown): ApiResponse => ({ status: 200, body });
 

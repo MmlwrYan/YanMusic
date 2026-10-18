@@ -8,6 +8,7 @@ import {
 } from '@/utils/song';
 import { resolvePluginAudioSource } from '@/plugins/audioSource';
 import { resolveNeteaseAudioSource } from './neteaseSource';
+import { resolveThirdPartySource } from './thirdPartySource';
 import type { AudioQualityValue } from '../../types';
 import type { PlayerState } from './state';
 import {
@@ -167,6 +168,20 @@ export const createResolver = (
         quality: audioQuality,
         forceReload: Boolean(options?.forceReload),
         resolveQualityLabel: getResolvedAudioQuality,
+      });
+    }
+
+    /**
+     * 酷我 / JOOX 音源（v2.0.0）—— 与网易云同理，**必须在 `!track.hash` 守卫之前**。
+     *
+     * 这两类曲目也没有酷狗 `hash`；放在守卫之后会被静默挡掉，
+     * 表现为「点了没反应，日志只说 hash 缺失」。
+     */
+    if (track.source === 'kuwo' || track.source === 'joox') {
+      return await resolveThirdPartySource(track, {
+        kind: track.source,
+        quality: audioQuality,
+        forceReload: Boolean(options?.forceReload),
       });
     }
 

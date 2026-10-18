@@ -8,7 +8,7 @@ import {
   NETEASE_ROUTE_PREFIX,
   isNeteaseRoute,
   neteaseEndpointOf,
-} from '../src/shared/neteaseRoutes.ts';
+} from '../src/shared/musicSourceRoutes.ts';
 
 /**
  * v2.0.0 · 网易云路由与酷狗路由的**隔离守卫**（对应 plan 的 V-2）。
@@ -25,7 +25,7 @@ import {
  *
  * ## 为什么是「单元测试 + 源码结构断言」两段
  *
- * - `isNeteaseRoute` 是纯函数，放在 `src/shared/neteaseRoutes.ts`，
+ * - `isNeteaseRoute` 是纯函数，放在 `src/shared/musicSourceRoutes.ts`，
  *   可以直接 import 并**真跑**（比源码正则可靠）；
  * - 但「分流必须在 `matchModule` 之前」这条**顺序**关系只存在于
  *   `server.ts` 的代码结构里，无法靠跑函数证明，故补一段静态断言。

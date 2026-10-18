@@ -59,6 +59,16 @@ export interface SodaProviderConfig {
   deviceToken?: string;
 
   /**
+   * 客户端 id（请求通用参数里的 `cdid`，形如 `713a11dc-…`）。
+   *
+   * v2.0.0 补：v1.5.0 把这个字段**恒传空串**，而它是本机
+   * `DeviceV1` 里与 `did`/`iid` 并列的第三个身份字段。
+   * 缺它不一定会失败，但会让请求与本机客户端的行为不一致 ——
+   * 排查「为什么客户端能搜、这里搜不到」时这是第一个要排除的差异。
+   */
+  cdid?: string;
+
+  /**
    * 【实验性】用户自己的登录 Cookie（原样字符串，如 `sessionid=...; sessionid_ss=...`）。
    *
    * 未提供时 = 匿名态：VIP 曲目只能走 30 秒试听。
@@ -346,10 +356,23 @@ export class SodaProvider {
       throw new Error(this.initError);
     }
 
-    loaded.init({ deviceId });
+    // ⚠️ `init` 必须也在 try 内。
+    // v1.5.0 把它放在 try 之外：一旦它抛错（例如模块版本对不上、
+    // 设备指纹被用作内部索引越界），`this.initError` 不会被赋值，
+    // 于是上层拿到的是一个**没有上下文的原始异常**，
+    // 表现为「音源初始化失败但日志里只有一行看不出原因的错误」。
+    try {
+      loaded.init({ deviceId });
+    } catch (error) {
+      this.initError = `bdms 初始化失败：${toMessage(error)}`;
+      throw new Error(this.initError);
+    }
+
     this.bdms = loaded;
     this.initError = null;
-    this.log('bdms 初始化完成', { deviceId });
+    // 设备指纹是请求里唯一的身份凭据，**只记脱敏后的尾 4 位**。
+    // v1.5.0 这里记了全值，属于日志泄露凭据。
+    this.log('bdms 初始化完成', { deviceIdTail: maskSecretTail(deviceId) });
   }
 
   /* ---------------- ② 搜索 ---------------- */
@@ -661,7 +684,7 @@ export class SodaProvider {
       os_region: 'cn',
       sim_region: '',
       device_id: this.config.deviceId ?? '',
-      cdid: '',
+      cdid: this.config.cdid ?? '',
       iid: this.config.installId ?? '',
       channel: '',
       build_mode: '',
@@ -688,6 +711,19 @@ const SODA_API_BASE = 'https://api.qishui.com';
 
 const toMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+/**
+ * 把身份凭据脱敏成可安全记日志的形态（保留尾 4 位）。
+ *
+ * 设备指纹是请求里唯一的身份凭据，完整写进日志等于把它泄露到
+ * 用户会随手分享的日志文件里。尾 4 位足够判断「是不是同一台设备」。
+ */
+const maskSecretTail = (value: string): string => {
+  const text = String(value ?? '');
+  if (!text) return '(空)';
+  if (text.length <= 4) return '*'.repeat(text.length);
+  return `${'*'.repeat(Math.min(text.length - 4, 8))}${text.slice(-4)}`;
+};
 
 /**
  * `LimitedFreeInfo` → `limited_free_param` 的**保守**回填。

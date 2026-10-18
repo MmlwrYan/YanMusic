@@ -45,6 +45,8 @@ import {
   type SearchTabType,
 } from './search/searchHelpers';
 import { searchNetease } from '@/api/netease';
+import { searchKuwo } from '@/api/kuwo';
+import { searchJoox } from '@/api/joox';
 import type {
   SearchHotCategory,
   SearchMvCardProps,
@@ -400,41 +402,89 @@ const applyPaginationState = (
   page: number,
   listLength: number,
   total: number | null,
+  /**
+   * 上游显式告知的「还有下一页」。给了就用它，不再靠 `total` 推算。
+   *
+   * 为什么需要：第三方源的 `total` 语义与酷狗不一致 ——
+   * 酷我不返回总数（只能按「本页是否满员」判断），JOOX 固定返回 20 条
+   * 且**不支持分页**（翻页会拿到同一批）。用 `total` 推算在 JOOX 上会得出
+   * `hasMore = true`，用户点「加载更多」只会看到重复内容。
+   */
+  hasMore?: boolean,
 ) => {
   paginationState[type].page = page;
   paginationState[type].total = total;
   paginationState[type].loaded = true;
   paginationState[type].hasMore =
-    total !== null ? page * SEARCH_PAGE_SIZE < total : listLength >= SEARCH_PAGE_SIZE;
+    typeof hasMore === 'boolean'
+      ? hasMore
+      : total !== null
+        ? page * SEARCH_PAGE_SIZE < total
+        : listLength >= SEARCH_PAGE_SIZE;
 };
 
 /**
  * 拉一页搜索结果。
  *
- * ## 为什么网易云这一支不能走 `extractSearchLists`
+ * ## 为什么第三方音源这一支不能走 `extractSearchLists`
  *
  * `extractSearchLists` 取出的条目随后会被 `replaceResultsByType` 交给
  * `mapSearchSong` 映射 —— 而 `mapSearchSong`（`utils/mappers/song.ts:542`）
  * **是酷狗专用的**：它读 `SongName`/`MixSongID`/`Singers` 这类酷狗字段。
- * 把网易云对象喂进去不会报错，只会**静默产出「未知歌曲 / 未知歌手」**。
+ * 把第三方源对象喂进去不会报错，只会**静默产出「未知歌曲 / 未知歌手」**。
  *
- * 而网易云对象**已经在主进程映射成 Song 形状**（`src/main/netease/api.ts`），
- * 所以这里直接透传，用 `passthrough` 告诉调用方「别再映射一遍」。
+ * 而这三个源的对象**已经在主进程映射成 Song 形状**
+ * （`src/main/{netease,kuwo,joox}/api.ts`），所以这里直接透传，
+ * 用 `passthrough` 告诉调用方「别再映射一遍」。
  */
 const fetchSearchPage = async (keywords: string, type: SearchTabType, page = 1) => {
-  if (searchSource.value === 'netease') {
-    // 网易云本版只支持单曲搜索；其它结果类型明确返回空，而不是硬塞酷狗数据。
+  if (searchSource.value !== 'kugou') {
+    // 三个第三方源本版都只支持单曲搜索；其它类型明确返回空，
+    // 而不是硬塞酷狗数据（那会让用户以为第三方源能搜专辑）。
     if (type !== 'song') {
-      return { lists: [], total: 0, passthrough: true as const };
+      return { lists: [], total: 0, passthrough: true as const, hasMore: false };
     }
-    const result = await searchNetease(keywords, SEARCH_PAGE_SIZE, (page - 1) * SEARCH_PAGE_SIZE);
-    return { lists: result.songs, total: result.total, passthrough: true as const };
+    const offset = (page - 1) * SEARCH_PAGE_SIZE;
+
+    switch (searchSource.value) {
+      case 'netease': {
+        const result = await searchNetease(keywords, SEARCH_PAGE_SIZE, offset);
+        return {
+          lists: result.songs,
+          total: result.total,
+          passthrough: true as const,
+          hasMore: result.hasMore,
+        };
+      }
+      case 'kuwo': {
+        // 酷我接口按 page 分页（不走 offset），且**不返回总数** ——
+        // `hasMore` 由「本页是否满员」判断，见 `searchKuwo`。
+        const result = await searchKuwo(keywords, SEARCH_PAGE_SIZE, page);
+        return {
+          lists: result.songs,
+          total: result.total,
+          passthrough: true as const,
+          hasMore: result.hasMore,
+        };
+      }
+      case 'joox': {
+        // JOOX 接口固定返回 20 条且**不支持分页**，翻页只会拿到同一批，
+        // 故明确 `hasMore: false` —— 不显示一个点了没用的「加载更多」。
+        const result = await searchJoox(keywords, SEARCH_PAGE_SIZE);
+        return {
+          lists: result.songs,
+          total: result.total,
+          passthrough: true as const,
+          hasMore: false,
+        };
+      }
+    }
   }
 
   const response = await search(keywords, type, page, SEARCH_PAGE_SIZE);
   const lists = extractSearchLists(response);
   const total = extractSearchTotal(response);
-  return { lists, total, passthrough: false as const };
+  return { lists, total, passthrough: false as const, hasMore: undefined as boolean | undefined };
 };
 
 let latestSearchToken = 0;
@@ -472,7 +522,7 @@ const loadSearchResults = async (
   }
 
   try {
-    const { lists, total, passthrough } = await fetchSearchPage(keywords, type, 1);
+    const { lists, total, passthrough, hasMore } = await fetchSearchPage(keywords, type, 1);
     if (token !== latestSearchToken) return;
 
     if (passthrough) {
@@ -481,7 +531,7 @@ const loadSearchResults = async (
     } else {
       replaceResultsByType(type, lists);
     }
-    applyPaginationState(type, 1, lists.length, total);
+    applyPaginationState(type, 1, lists.length, total, hasMore);
   } catch {
     if (token !== latestSearchToken) return;
     replaceResultsByType(type, []);
@@ -513,7 +563,7 @@ const loadMoreActiveResults = async () => {
   const nextPage = state.page + 1;
 
   try {
-    const { lists, total, passthrough } = await fetchSearchPage(keywords, type, nextPage);
+    const { lists, total, passthrough, hasMore } = await fetchSearchPage(keywords, type, nextPage);
     if (token !== latestSearchToken) return;
 
     if (passthrough) {
@@ -522,7 +572,7 @@ const loadMoreActiveResults = async () => {
     } else {
       appendResultsByType(type, lists, resultRefs);
     }
-    applyPaginationState(type, nextPage, lists.length, total);
+    applyPaginationState(type, nextPage, lists.length, total, hasMore);
   } catch {
     paginationState[type].hasMore = false;
   } finally {
