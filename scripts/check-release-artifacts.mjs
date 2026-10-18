@@ -16,6 +16,25 @@
  * 即使将来有别的什么东西掉进 `release/`，发布也会在**建 Release 之前**失败，
  * 而不是把无关文件推到用户面前。
  *
+ * ## v2.0.0：同一个症状的**第三次**出现，这次查到了真根因
+ *
+ * 现象还是「Release 里多出第 23 个附件 `first-screen.png`」，而**上传前的两道
+ * 校验都是绿的**。真根因不在冒烟脚本，而在**下载 artifact 的那一步**：
+ *
+ * - `actions/download-artifact` 在**不给 `pattern`** 时，会把本次运行的
+ *   **全部** artifact 合并下来 —— 包括 `gui-smoke-*`（冒烟截图）。
+ *   （v1.4.1 的注释曾断言「`merge-multiple` 只合并**非** `gui-smoke-*` 的
+ *   artifact」，那是**错的**：`merge-multiple` 只决定「是否合并到同一目录」，
+ *   并不筛选来源。）
+ * - 那个 artifact 的内部结构是 `tmp/yanmusic-smoke-artifacts/first-screen.png`，
+ *   合并后位于第 4 层；而本脚本当时 `readdirSync` **只看顶层**、CI 里的
+ *   `find` 又带了 `-maxdepth 2` —— 两边都看不见它。
+ * - 最后 `softprops/action-gh-release` 的 `release-artifacts/**` glob **是递归的**，
+ *   于是它被上传，且以 basename 出现在附件列表里。
+ *
+ * 三处都已修：下载步骤加 `pattern: 'YanMusic-*'`、`find` 去掉 `-maxdepth`、
+ * 本脚本改为**递归**枚举。教训写在这里：**带深度限制的判据 = 可以被绕过的判据。**
+ *
  * ## 判据（为什么是「精确清单」而不是「数量 == 22」）
  *
  * 只查数量是不够的：数量恰好对、但**换了一个文件**的情况同样危险。
@@ -39,7 +58,7 @@
  * 退出码 0 = 清单完全吻合；非 0 = 有缺失或多余，并打印差异。
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -79,7 +98,7 @@ const fail = (lines) => {
   for (const line of lines) console.error(line);
   console.error('');
   console.error('  ⚠️ 发布产物必须恰好是下列清单。若本次**确实**新增/改名了产物，');
-  console.error('     请同步更新 scripts/check-release-artifacts.mjs 的允许清单');
+  console.error('     请同步更新 scripts/release-asset-manifest.mjs 的允许清单');
   console.error('     （并说明理由）—— 不要为了让发布通过而放宽判据。');
   process.exit(1);
 };
@@ -88,9 +107,32 @@ if (!existsSync(dir)) {
   fail([`  产物目录不存在：${dir}`, '  （发布作业应在下载产物之后调用本脚本）']);
 }
 
-const actual = readdirSync(dir)
-  .filter((name) => statSync(path.join(dir, name)).isFile())
-  .sort();
+/**
+ * 递归列出目录下**所有**文件的相对路径（用 `/` 分隔）。
+ *
+ * ⚠️ 这里**必须递归** —— v2.0.0 的第三次发布事故就是这么漏掉的：
+ *
+ * `actions/download-artifact` 在没有 `pattern` 时会把**本次运行的全部 artifact**
+ * 合并下来，其中包含 `gui-smoke-*`（冒烟截图）。那个 artifact 的内部结构是
+ * `tmp/yanmusic-smoke-artifacts/first-screen.png`，合并后落在
+ * `release-artifacts/tmp/yanmusic-smoke-artifacts/first-screen.png`（第 4 层）。
+ *
+ * 而本脚本当时用的是 `readdirSync(dir)` **只看顶层**，CI 里的
+ * `find release-artifacts -maxdepth 2` 同样看不到它 —— 于是两道「上传前」校验
+ * 都是绿的，Release 里却又一次多出第 23 个附件。
+ * **深度限制 = 可以被绕过的判据**，所以这里不再有深度限制。
+ */
+const walkFiles = (root, base = '') => {
+  const out = [];
+  for (const entry of readdirSync(path.join(root, base), { withFileTypes: true })) {
+    const rel = base ? `${base}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) out.push(...walkFiles(root, rel));
+    else if (entry.isFile()) out.push(rel);
+  }
+  return out;
+};
+
+const actual = walkFiles(dir).sort();
 
 // 与「发布后校验」共用同一份清单定义（避免两边各自维护而漂移）
 const result = compareAgainstManifest(actual, version);

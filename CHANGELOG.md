@@ -150,6 +150,42 @@
 - **用户可见行为无任何变化**：本条只动发布流程的校验与允许清单的组织方式。
 - 本条**不影响**已发布的产物内容。
 
+### 修复 · 「第 23 个附件」的**真根因**（v2.0.0 发布时查清）
+
+> 同一症状第三次出现（v1.4.0 → v1.4.2 → v2.0.0）。前两次都**没有查到根因**，
+> 只能把判据加在「结果」上。这次查到了 —— 而且不在冒烟脚本里。
+
+- **根因一：`actions/download-artifact` 不给 `pattern` 会下载**本次运行的**全部**
+  artifact，包括 `gui-smoke-*`。上一段里「`merge-multiple` 只合并**非**
+  `gui-smoke-*` 的 artifact」那句判断是**错的** —— `merge-multiple` 只决定
+  「多个 artifact 是否合并到同一目录」，**不筛来源**。
+- **根因二：无关文件藏在子目录第 4 层，两道「上传前」校验都看不见它**。
+  冒烟 artifact 的内部结构是 `tmp/yanmusic-smoke-artifacts/first-screen.png`，
+  合并后落在 `release-artifacts/tmp/yanmusic-smoke-artifacts/first-screen.png`。
+  而 CI 里的 `find release-artifacts -maxdepth 2` 带深度限制、
+  `check-release-artifacts.mjs` 当时用 `readdirSync` **只看顶层** ——
+  于是「22 个，逐项一致」是绿的。
+- **根因三：上传侧的 glob 是递归的**。`action-gh-release` 的
+  `files: release-artifacts/**` 会匹配任意深度，附件名取 basename ——
+  所以它最终以 `first-screen.png` 出现在 Release 里。
+- **处置（三处同时修，缺一不可）**：
+  1. 下载步骤加 `pattern: YanMusic-*`（白名单前缀，而不是「排除 gui-smoke」的
+     黑名单 —— 将来多一种 artifact 就又漏了）；
+  2. `List downloaded artifacts` 去掉 `-maxdepth`；
+  3. 清单守卫改为**递归**枚举，并点名**带相对路径**的多余文件。
+- **新增守卫（含反向验证）**：`tests/release-artifacts-manifest.test.ts`
+  新增两条用例 —— ⑥ 无关文件放进子目录必须变红；⑦ 直接读 `build.yml`
+  断言下载步骤带 `pattern: YanMusic-*` 且清单日志不带 `-maxdepth`。
+  反向验证：把 `pattern` 改回 `'*-*'` → ⑦ **变红**；还原 → **回绿**。
+- **线上处置与复核**：删掉 v2.0.0 Release 的 `first-screen.png` 后，
+  `check-published-release-assets.mjs v2.0.0` → **exit=0，恰好 22 个**。
+
+#### 说明（本条）
+
+- **用户可见行为无任何变化**：只动发布流水线。
+- 教训一句话：**带深度限制的判据 = 可以被绕过的判据**；而
+  「过滤来源」必须在**入口**做，不能指望下游「不会用到」。
+
 ## [1.4.2]
 
 > 本次让 **Linux 的端到端冒烟第一次真正测到「用户实际走的那条路」**，并据此把它从停用状态恢复为长期启用。**不改任何面向用户的行为、不改 Linux 的库选择策略、不改插件 API。**

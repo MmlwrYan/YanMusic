@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -214,4 +214,76 @@ test('R-2 ⑤ 版本号从 GITHUB_REF_NAME 读取（含前导 v）', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/**
+ * **v2.0.0 真实事故**：无关文件藏在**子目录**里，藏在第 4 层。
+ *
+ * 形态与 ② 只差一个「深度」：`actions/download-artifact` 在没有 `pattern` 时
+ * 会把 `gui-smoke-*` 一并合并下来，其内部结构是
+ * `tmp/yanmusic-smoke-artifacts/first-screen.png`，落在 `release-artifacts/` 的第 4 层。
+ *
+ * 当时守卫用的是 `readdirSync`（只看顶层），于是它**静默放行**，
+ * Release 里第三次多出第 23 个附件 —— 因为 `action-gh-release` 的
+ * `release-artifacts/**` 是**递归** glob。
+ *
+ * 这条用例钉住「判据不能带深度限制」。
+ */
+test('R-2 ⑥ 【v2.0.0 事故原形】无关文件藏在子目录 → 守卫同样必须变红', () => {
+  const dir = makeDir(expectedNames);
+  const nested = path.join(dir, 'tmp', 'yanmusic-smoke-artifacts');
+  try {
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(path.join(nested, 'first-screen.png'), 'x');
+
+    const r = runGuard(dir);
+    assert.notEqual(
+      r.code,
+      0,
+      '子目录里的无关文件也必须让守卫失败 —— 顶层扫描 + 深度限制是**可以被绕过**的判据，' +
+        '而 upload 用的 glob 是递归的',
+    );
+    assert.match(
+      r.stderr,
+      /tmp\/yanmusic-smoke-artifacts\/first-screen\.png/,
+      '应点名**带相对路径**的多余文件（只报 basename 会让人以为它就在顶层）',
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * 发布作业的下载步骤必须**按前缀过滤** artifact。
+ *
+ * 这是 v2.0.0 查清的真根因：`merge-multiple` **不筛来源**，
+ * 不给 `pattern` 就会把 `gui-smoke-*` 一起合并下来。
+ * 只在脚本里加深度检查是治症状，这里从入口钉住。
+ */
+test('R-2 ⑦ 发布作业下载 artifact 时必须带 `pattern`，且不含 gui-smoke', () => {
+  const workflow = readFileSync(path.join(repoRoot, '.github', 'workflows', 'build.yml'), 'utf8');
+
+  // 取出「Download all build artifacts」这一个 step 的正文（到下一个 `- name:` 为止）
+  const start = workflow.indexOf('- name: Download all build artifacts');
+  assert.notEqual(start, -1, 'build.yml 里应存在「Download all build artifacts」步骤');
+  const rest = workflow.slice(start);
+  const end = rest.indexOf('\n      - name:', 1);
+  const step = end === -1 ? rest : rest.slice(0, end);
+
+  assert.match(
+    step,
+    /pattern:\s*'?YanMusic-\*'?/,
+    '必须在下载步骤里显式给出 `pattern: YanMusic-*` —— 否则 gui-smoke-* 会被一并合并，' +
+      '而 merge-multiple 并不筛来源（v2.0.0 的第三次「第 23 个附件」就是这么来的）',
+  );
+  assert.doesNotMatch(
+    step,
+    /pattern:.*gui-smoke/,
+    '不应靠「排除 gui-smoke」这种逐项黑名单：将来多加一种 artifact 就又漏了，用白名单前缀',
+  );
+  assert.doesNotMatch(
+    step,
+    /find release-artifacts -maxdepth/,
+    '清单日志不应再带 -maxdepth：上一次事故的文件就藏在第 4 层',
+  );
 });

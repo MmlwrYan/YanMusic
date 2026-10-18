@@ -804,13 +804,25 @@ jobs:
         #  跨大版本不兼容 → 会让 release 作业下载产物失败）。v8.0.1 依赖 ^6.2.1，与 v7 同线。
         # ⚠️ v8.0.2 与 v7.0.2 仍同线（v1.4.1 一并升级）—— 这两个 bump **必须同时应用**，
         #    否则就会出现上面那种跨线不兼容。这条约束刻意留在看得见的地方。
+        #
+        # ⚠️ `pattern` 是**必须**的，不是优化（v2.0.0 查清的第三次「第 23 个附件」根因）：
+        #    不给 `pattern` 时 download-artifact 会下载**本次运行的全部 artifact**，
+        #    包括 `gui-smoke-*`（GUI 冒烟的截图）。`merge-multiple` **不筛来源**，
+        #    它只决定「多个 artifact 是否合并到同一目录」—— v1.4.1 的注释曾断言
+        #    它会顺带排除 gui-smoke-*，那是错的。
+        #    冒烟截图的内部路径是 `tmp/yanmusic-smoke-artifacts/first-screen.png`，
+        #    合并后落在第 4 层：`find -maxdepth 2` 与只看顶层的清单守卫都看不见它，
+        #    但 `action-gh-release` 的 `release-artifacts/**` 是递归 glob —— 于是它被上传。
+        #    这里按构建 artifact 的固定前缀过滤，从**入口**上断掉这条路。
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: release-artifacts
+          pattern: YanMusic-*
           merge-multiple: true
 
       - name: List downloaded artifacts
-        run: find release-artifacts -maxdepth 2 -type f | sort
+        # 不带 `-maxdepth`：需要看到**任何深度**的意外文件（上一次事故就藏在第 4 层）。
+        run: find release-artifacts -type f | sort
 
       - name: Check release artifact manifest
         # v1.4.1（R-2）：发布产物**清单守卫** —— 这是 v1.4.0 发布事故补上的最后一道网。
